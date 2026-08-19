@@ -67,7 +67,7 @@ pub struct TaskContext {
     pub final_path: Arc<Mutex<Option<String>>>, // 与控制器共享的文件路径
 }
 
-/// 重试获取下载链接（网络错误时最多尝试 3 次）
+/// 重试获取下载链接（仅网络错误最多尝试 3 次，平台拒绝立即返回）
 async fn fetch_download_link_with_retry(
     song_mid: &str,
     filename: &str,
@@ -85,9 +85,14 @@ async fn fetch_download_link_with_retry(
                     attempt + 1,
                     last_err
                 );
+                if crate::utils::link_error::is_unavailable_link_error(&last_err) {
+                    return Err(last_err);
+                }
+                if !crate::utils::link_error::is_retryable_link_error(&last_err) {
+                    return Err(last_err);
+                }
                 if attempt < 2 {
                     tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
-                    // 1s, 2s, 4s
                 }
             }
         }
@@ -395,7 +400,7 @@ pub async fn download_task(ctx: TaskContext, controller: TaskController, app_han
                 }
                 Err(e) => {
                     log::error!("任务 {} 最终获取下载链接失败: {}", ctx.task_id, e);
-                    progress::emit_error(&app_handle, &ctx.task_id, "网络错误，请稍后重试");
+                    progress::emit_error(&app_handle, &ctx.task_id, &e);
                     break 'download;
                 }
             }

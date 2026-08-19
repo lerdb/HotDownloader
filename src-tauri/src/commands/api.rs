@@ -286,6 +286,22 @@ fn build_qualities(file: &Value, vs: &Value) -> Vec<Value> {
     list
 }
 
+fn plain_link_error(result_code: i64, tips: &str) -> String {
+    match result_code {
+        104003 => "无法获取该音质的下载链接（可能需要登录，或该歌曲暂无此音质）".to_string(),
+        104004 => "该歌曲已下架或禁止下载".to_string(),
+        0 => "无法获取该音质的下载链接".to_string(),
+        _ => {
+            let tips = tips.trim();
+            if tips.is_empty() {
+                format!("获取下载链接失败，错误码: {}", result_code)
+            } else {
+                format!("获取下载链接失败，错误码: {}，{}", result_code, tips)
+            }
+        }
+    }
+}
+
 /// 加密文件（.mgg / .mflac）专用，同时获取 purl 和 ekey
 /// https://github.com/chrisdong/FileHub/blob/e1d752e1f29f877b7c895ae5aaff32a179fad051/root/importURLs/lxmusic/HeiMusic%E8%81%9A%E5%90%88%E6%BA%90_v1.1.5.js#L287
 async fn fetch_encrypted_link(song_mid: &str, filename: &str) -> Result<(String, String), String> {
@@ -344,12 +360,7 @@ async fn fetch_encrypted_link(song_mid: &str, filename: &str) -> Result<(String,
     // 检查是否有错误标记
     let result_code = item["result"].as_i64().unwrap_or(0);
     if purl.is_empty() || result_code != 0 {
-        let err_msg = if result_code == 104003 {
-            "无法获取下载链接".to_string()
-        } else {
-            format!("获取下载链接失败，错误码: {}", result_code).to_string()
-        };
-        return Err(err_msg);
+        return Err(plain_link_error(result_code, ""));
     }
 
     // 提取 ekey
@@ -426,16 +437,10 @@ async fn fetch_plain_link(song_mid: &str, filename: &str) -> Result<(String, Str
 
     // 检查 purl 是否为空或 result 是否非0
     if purl.is_empty() || result_code != 0 {
-        let err_msg = match result_code {
-            104003 => "无法获取下载链接".to_string(),
-            104004 => "该歌曲已下架或禁止下载".to_string(),
-            _ => format!(
-                "获取下载链接失败，错误码: {}，详情: {:?}",
-                result_code,
-                item["tips"].as_str().unwrap_or("")
-            ),
-        };
-        return Err(err_msg);
+        return Err(plain_link_error(
+            result_code,
+            item["tips"].as_str().unwrap_or(""),
+        ));
     }
 
     let full_url = format!("https://wx.music.tc.qq.com/{}", purl);
@@ -811,4 +816,31 @@ pub async fn check_update() -> Result<String, String> {
     });
 
     Ok(serde_json::to_string(&result).map_err(|e| format!("序列化结果失败: {}", e))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plain_link_error;
+
+    #[test]
+    fn maps_platform_block_codes() {
+        assert_eq!(
+            plain_link_error(104003, ""),
+            "无法获取该音质的下载链接（可能需要登录，或该歌曲暂无此音质）"
+        );
+        assert_eq!(plain_link_error(104004, ""), "该歌曲已下架或禁止下载");
+        assert_eq!(plain_link_error(0, ""), "无法获取该音质的下载链接");
+    }
+
+    #[test]
+    fn keeps_unknown_code_and_optional_tips() {
+        assert_eq!(
+            plain_link_error(12345, ""),
+            "获取下载链接失败，错误码: 12345"
+        );
+        assert_eq!(
+            plain_link_error(12345, "  版权限制  "),
+            "获取下载链接失败，错误码: 12345，版权限制"
+        );
+    }
 }
