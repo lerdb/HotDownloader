@@ -2,42 +2,49 @@ import { invoke } from '@tauri-apps/api/core'
 import type { SongInfo, SearchResponse, SearchSuggestionData, PlaylistSongsResponse, UpdateInfo, LyricResponse } from '../types'
 
 export async function searchSongs(
+    platform: string,
     keyword: string,
     page: number = 1,
     limit: number = 20
 ): Promise<SearchResponse> {
-    const json = await invoke<string>('search_songs', { keyword, page, limit })
+    const json = await invoke<string>('search_songs', { platform, keyword, page, limit })
     const parsed = JSON.parse(json) as SearchResponse
     if (Array.isArray(parsed)) {
-        return { songs: parsed as unknown as SongInfo[], has_more: false }
+        return { songs: (parsed as unknown as SongInfo[]).map(s => ({ ...s, platform })), has_more: false }
     }
+    // 为返回的歌曲补充平台信息
+    parsed.songs = parsed.songs.map(s => ({ ...s, platform }))
     return parsed
 }
 
 export async function fetchDownloadLink(
+    platform: string,
     songMid: string,
     filename: string
 ): Promise<{ url: string; key: string }> {
-    const json = await invoke<string>('fetch_download_link', { songMid, filename })
+    const json = await invoke<string>('fetch_download_link', { platform, songMid, filename })
     return JSON.parse(json) as { url: string; key: string }
 }
 
 // 获取热搜关键词
-export async function getHotKeywords(): Promise<string[]> {
-    const json = await invoke<string>('fetch_hot_keywords')
+export async function getHotKeywords(platform: string): Promise<string[]> {
+    const json = await invoke<string>('fetch_hot_keywords', { platform })
     return JSON.parse(json) as string[]
 }
 
 // 获取搜索建议
-export async function fetchSuggestions(keyword: string): Promise<SearchSuggestionData> {
-    const json = await invoke<string>('fetch_suggestions', { keyword })
+export async function fetchSuggestions(platform: string, keyword: string): Promise<SearchSuggestionData> {
+    const json = await invoke<string>('fetch_suggestions', { platform, keyword })
     return JSON.parse(json) as SearchSuggestionData
 }
 
 // 获取歌单
-export async function fetchPlaylistSongs(input: string): Promise<PlaylistSongsResponse> {
-    const json = await invoke<string>('fetch_playlist_songs', { input })
-    return JSON.parse(json) as PlaylistSongsResponse
+export async function fetchPlaylistSongs(platform: string, input: string): Promise<PlaylistSongsResponse> {
+    const json = await invoke<string>('fetch_playlist_songs', { platform, input })
+    const parsed = JSON.parse(json) as PlaylistSongsResponse
+    // 为返回的歌曲补充平台信息
+    parsed.songs = parsed.songs.map(s => ({ ...s, platform }))
+    return parsed
 }
 
 // 检查 GitHub 最新版本
@@ -47,11 +54,12 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
 }
 
 /**
- * 根据 QQ 音乐歌曲 ID 获取歌词
- * @param songId QQ 音乐歌曲 ID
+ * 根据歌曲 ID 获取歌词
+ * @param platform 平台标识
+ * @param songId 歌曲数字 ID
  */
-export async function getLyricBySongId(songId: number): Promise<LyricResponse> {
-    return invoke<LyricResponse>('get_lyric_by_id', { songId });
+export async function getLyricBySongId(platform: string, songId: number): Promise<LyricResponse> {
+    return invoke<LyricResponse>('get_lyric_by_id', { platform, songId });
 }
 
 // 检查下载路径是否存在，返回原始路径、是否存在及建议的重命名路径
@@ -78,12 +86,12 @@ export async function checkDownloadPath(params: {
     return JSON.parse(json)
 }
 
-// 请求系统通知权限（主要用于 Android）
+// 请求系统通知权限
 export async function requestNotificationPermission(): Promise<boolean> {
     return invoke<boolean>('request_notification_permission')
 }
 
-// 检查系统通知权限是否已授予（主要用于 Android）
+// 检查系统通知权限是否已授予
 export async function checkNotificationPermission(): Promise<boolean> {
     return invoke<boolean>('check_notification_permission')
 }
@@ -114,19 +122,20 @@ export interface LoginCredentials {
 }
 
 // 获取登录二维码
-export async function createQrLogin(): Promise<QrLoginResult> {
-    const json = await invoke<string>('create_qr_login')
+export async function createQrLogin(platform: string): Promise<QrLoginResult> {
+    const json = await invoke<string>('create_qr_login', { platform })
     return JSON.parse(json) as QrLoginResult
 }
 
 // 轮询二维码登录状态
-export async function checkQrLogin(qrcodeId: string): Promise<LoginCheckResult> {
-    const json = await invoke<string>('check_qr_login', { qrcodeId })
+export async function checkQrLogin(platform: string, qrcodeId: string): Promise<LoginCheckResult> {
+    const json = await invoke<string>('check_qr_login', { platform, qrcodeId })
     return JSON.parse(json) as LoginCheckResult
 }
 
-// 使用 uin + authst 手动登录，可选字段用于刷新登录（不填传空字符串）
+// 使用 uin + authst 手动登录，可选字段用于刷新登录
 export async function loginWithUinAuthst(
+    platform: string,
     uin: string,
     authst: string,
     refreshToken: string = '',
@@ -135,6 +144,7 @@ export async function loginWithUinAuthst(
     openid: string = ''
 ): Promise<LoginCredentials> {
     const json = await invoke<string>('login_with_uin_authst', {
+        platform,
         uin,
         authst,
         refreshToken,
@@ -146,12 +156,12 @@ export async function loginWithUinAuthst(
 }
 
 // 退出登录
-export async function logout(): Promise<void> {
-    await invoke('logout')
+export async function logout(platform: string): Promise<void> {
+    await invoke('logout', { platform })
 }
 
 // 查询登录状态
-export async function getLoginStatus(): Promise<{ logged_in: boolean; uin: string }> {
-    const json = await invoke<string>('get_login_status')
+export async function getLoginStatus(platform: string): Promise<{ logged_in: boolean; uin: string }> {
+    const json = await invoke<string>('get_login_status', { platform })
     return JSON.parse(json) as { logged_in: boolean; uin: string }
 }

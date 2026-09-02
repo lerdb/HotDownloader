@@ -197,6 +197,7 @@ export function useDownloadActions() {
                 const taskId = generateTaskId()
                 taskStore.addTask({
                     id: taskId,
+                    platform: song.platform,
                     songId: song.id,
                     songMid: song.mid,
                     songTitle: song.title,
@@ -223,6 +224,7 @@ export function useDownloadActions() {
             const taskId = generateTaskId()
             taskStore.addTask({
                 id: taskId,
+                platform: song.platform,
                 songId: song.id,
                 songMid: song.mid,
                 songTitle: song.title,
@@ -268,6 +270,7 @@ export function useDownloadActions() {
                         const taskId = generateTaskId()
                         taskStore.addTask({
                             id: taskId,
+                            platform: song.platform,
                             songId: song.id,
                             songMid: song.mid,
                             songTitle: song.title,
@@ -304,6 +307,7 @@ export function useDownloadActions() {
                     const taskId = generateTaskId()
                     taskStore.addTask({
                         id: taskId,
+                        platform: song.platform,
                         songId: song.id,
                         songMid: song.mid,
                         songTitle: song.title,
@@ -330,6 +334,7 @@ export function useDownloadActions() {
                 const taskId = generateTaskId()
                 taskStore.addTask({
                     id: taskId,
+                    platform: song.platform,
                     songId: song.id,
                     songMid: song.mid,
                     songTitle: song.title,

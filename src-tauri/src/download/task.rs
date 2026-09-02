@@ -22,6 +22,7 @@ use super::task_lrc::write_lrc_file;
 use super::task_metadata::write_metadata;
 use super::task_path::{get_download_settings, resolve_download_path};
 use crate::commands::api::lyrics;
+use crate::platforms::Platform;
 use crate::utils::crypto;
 
 /// 下载专用 HTTP 客户端：不设总超时，避免大文件下载中断；设置读取超时 5 分钟
@@ -48,6 +49,7 @@ pub struct SongInfo {
 #[derive(Clone)]
 pub struct TaskContext {
     pub task_id: String,
+    pub platform: Platform,
     pub song_mid: String, // 歌曲字符串标识（QQ音乐 mid）
     pub song_id: u64,     // 歌曲数字 ID
     pub url: String,
@@ -160,6 +162,7 @@ pub async fn download_task(
                 &ctx.song_mid,
                 &ctx.quality_filename,
                 &ctx.task_id,
+                ctx.platform, // 添加平台参数
             )
             .await
             {
@@ -464,7 +467,7 @@ pub async fn download_task(
 
         // 获取歌词（仅当需要写入 metadata 或单独下载 lrc 时才请求）
         let lyric_resp = if write_metadata_enabled || download_lrc_enabled {
-            match lyrics::get_lyric_by_id(ctx.song_id).await {
+            match lyrics::get_lyric_by_id_inner(ctx.platform, ctx.song_id).await {
                 Ok(resp) => Some(resp),
                 Err(e) => {
                     log::warn!("获取歌词失败: {}", e);

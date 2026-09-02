@@ -59,6 +59,8 @@ import { NTabs, NTabPane, NForm, NFormItem, NInput, NButton, useNotification } f
 import * as musicApi from '../../api/musicApi'
 import { useSettingsStore } from '../../stores/settingsStore'
 
+const PLATFORM = "qqmusic"
+
 const notification = useNotification()
 const settingsStore = useSettingsStore()
 const isLoggedIn = ref(false)
@@ -86,7 +88,7 @@ async function refreshQr() {
     if (pollTimer) clearInterval(pollTimer)
     qrLoading.value = true
     try {
-        const res = await musicApi.createQrLogin()
+        const res = await musicApi.createQrLogin(PLATFORM)
         console.log('[登录] 获取二维码成功:', res)
         qrBase64.value = res.qr_base64
         qrId.value = res.qrcode_id
@@ -106,7 +108,7 @@ function startPolling() {
     console.log('[登录] 开始轮询二维码状态')
     pollTimer = setInterval(async () => {
         try {
-            const result = await musicApi.checkQrLogin(qrId.value)
+            const result = await musicApi.checkQrLogin(PLATFORM, qrId.value)
             console.log('[登录] 轮询结果:', result)
             qrStatus.value = result.status
             if (result.status === 'confirmed') {
@@ -183,7 +185,7 @@ async function handleManualLogin() {
 // 退出登录
 async function handleLogout() {
     try {
-        await musicApi.logout()
+        await musicApi.logout(PLATFORM)
         settingsStore.settings.loginUin = ''
         settingsStore.settings.authst = ''
         settingsStore.settings.refreshToken = ''
@@ -200,7 +202,7 @@ async function handleLogout() {
 
 onMounted(async () => {
     try {
-        const status = await musicApi.getLoginStatus()
+        const status = await musicApi.getLoginStatus(PLATFORM)
         isLoggedIn.value = status.logged_in
         loginUin.value = status.uin
     } catch (error) {

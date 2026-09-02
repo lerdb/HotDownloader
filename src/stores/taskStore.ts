@@ -65,6 +65,7 @@ export const useTaskStore = defineStore('tasks', () => {
         saveTasks()
         invoke('add_download_task', {
             taskId: task.id,
+            platform: task.platform, // 从任务记录中获取平台
             songId: task.songId,
             songMid: task.songMid,
             url: '',

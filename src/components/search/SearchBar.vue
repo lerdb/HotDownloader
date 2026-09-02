@@ -1,5 +1,13 @@
 <template>
     <div class="search-bar">
+        <!-- 平台选择下拉 -->
+        <n-dropdown :options="platformDropdownOptions" trigger="click" @select="handlePlatformSelect">
+            <n-button quaternary size="small" class="platform-btn">
+                <span class="platform-label">{{ currentPlatformLabel }}</span>
+                <span class="platform-arrow">▾</span>
+            </n-button>
+        </n-dropdown>
+
         <n-input v-model:value="keywordModel" :placeholder="placeholder" clearable @keyup.enter="handleSearch"
             @clear="handleClear" class="search-input" />
         <n-button type="primary" @click="handleSearch" :disabled="!keywordModel.trim() || loading" :loading="loading"
@@ -10,8 +18,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { NInput, NButton } from 'naive-ui'
+import { ref, watch, computed } from 'vue'
+import { NInput, NButton, NDropdown } from 'naive-ui'
+import type { PlatformOption } from '../../config/platforms'
 
 const props = withDefaults(
     defineProps<{
@@ -19,6 +28,8 @@ const props = withDefaults(
         placeholder?: string
         buttonText?: string
         loading?: boolean
+        platform: string
+        platformOptions: PlatformOption[]
     }>(),
     {
         placeholder: '搜索歌曲、歌手、专辑',
@@ -29,18 +40,38 @@ const props = withDefaults(
 
 const emit = defineEmits<{
     (e: 'update:keyword', value: string): void
+    (e: 'update:platform', value: string): void
     (e: 'search'): void
     (e: 'clear'): void
 }>()
 
 const keywordModel = ref(props.keyword)
 
-// 向上同步
+// 当前平台对应的显示 label
+const currentPlatformLabel = computed(() => {
+    const found = props.platformOptions.find(p => p.key === props.platform)
+    return found ? found.label : props.platform
+})
+
+// 下拉选项格式：Naive UI 需要 { label, key } 结构
+const platformDropdownOptions = computed(() => {
+    return props.platformOptions.map(p => ({
+        label: p.label,
+        key: p.key,
+    }))
+})
+
+// 平台选择处理：触发 update:platform 事件，父组件更新 platform 值
+function handlePlatformSelect(key: string) {
+    emit('update:platform', key)
+}
+
+// 向上同步 keyword
 watch(keywordModel, (val) => {
     emit('update:keyword', val)
 })
 
-// 向下同步：当父组件 keyword 变化时更新输入框
+// 向下同步 keyword：当父组件 keyword 变化时更新输入框
 watch(
     () => props.keyword,
     (newVal) => {
@@ -104,6 +135,19 @@ function handleClear() {
 
 .search-bar:focus-within {
     box-shadow: var(--search-shadow-focus);
+}
+
+/* 平台按钮样式 */
+.platform-btn {
+    height: var(--search-height) !important;
+    min-width: 52px;
+    padding: 0 8px !important;
+    font-size: 13px !important;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
 }
 
 /* 输入框容器自动撑开 */

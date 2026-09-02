@@ -10,6 +10,7 @@ use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
 use super::task::{download_task, TaskContext};
+use crate::platforms::Platform;
 
 #[derive(Clone)]
 pub struct TaskController {
@@ -66,6 +67,7 @@ impl DownloadEngine {
     pub async fn add_task(
         &self,
         task_id: String,
+        platform: Platform,
         song_id: u64,
         song_mid: String,
         url: String,
@@ -93,6 +95,7 @@ impl DownloadEngine {
 
         let ctx = TaskContext {
             task_id: task_id.clone(),
+            platform,
             song_id,
             song_mid,
             url,

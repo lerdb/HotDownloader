@@ -1,6 +1,7 @@
 mod commands;
 mod download;
 mod events;
+mod platforms;
 mod storage;
 mod utils;
 

@@ -3,6 +3,7 @@ use std::time::Duration;
 use tauri::AppHandle;
 
 use crate::commands::api::download; // 获取下载链接
+use crate::platforms::Platform;
 
 /// 重试获取下载链接（网络错误时最多尝试 3 次）
 /// 传入 AppHandle，使下载链接获取函数能够读取登录态
@@ -11,10 +12,15 @@ pub(crate) async fn fetch_download_link_with_retry(
     song_mid: &str,
     filename: &str,
     task_id: &str,
+    platform: Platform,
 ) -> Result<(String, String), String> {
     let mut last_err = String::new();
     for attempt in 0..3 {
-        match download::get_download_link(app_handle, song_mid, filename).await {
+        // 调用命令层内部函数，平台判断在内部完成
+        let result =
+            download::fetch_download_link_inner(app_handle, platform, song_mid, filename).await;
+
+        match result {
             Ok(link) => return Ok(link),
             Err(e) => {
                 last_err = e.clone();

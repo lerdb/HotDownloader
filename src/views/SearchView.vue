@@ -1,6 +1,8 @@
 <template>
     <div class="search-view">
-        <SearchBar v-model:keyword="keyword" @search="handleSearch" />
+        <!-- 平台绑定 -->
+        <SearchBar v-model:keyword="keyword" v-model:platform="currentPlatform" :platform-options="PLATFORMS"
+            @search="handleSearch" />
 
         <!-- 输入非空且未搜索：显示搜索建议 -->
         <SearchSuggestions v-if="showSuggestions" :data="suggestions" @select="onSuggestionSelect" />
@@ -40,12 +42,14 @@ import { useHistoryStore } from '../stores/historyStore'
 import { useDownloadActions } from '../composables/useDownloadActions'
 import * as musicApi from '../api/musicApi'
 import type { SongInfo, SearchSuggestionData } from '../types'
+import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
 
 const keyword = ref('')
 const searchResults = ref<SongInfo[]>([])
 const selectedIds = ref<string[]>([])
 const loading = ref(false)
 const hasSearched = ref(false)
+const currentPlatform = ref(DEFAULT_PLATFORM) // 当前平台
 
 // ==================== 分页加载更多状态 ====================
 // 每页数量与后端 search_songs 的 limit 参数保持一致
@@ -99,7 +103,7 @@ watch(keyword, (newVal) => {
         const controller = new AbortController()
         abortController = controller
         try {
-            const res = await musicApi.fetchSuggestions(term)
+            const res = await musicApi.fetchSuggestions(currentPlatform.value, term)
             if (!controller.signal.aborted) {
                 suggestions.value = res
             }
@@ -139,7 +143,7 @@ watch(keyword, (newVal) => {
 async function fetchHotKeywords() {
     hotLoading.value = true
     try {
-        hotKeywords.value = await musicApi.getHotKeywords()
+        hotKeywords.value = await musicApi.getHotKeywords(currentPlatform.value)
     } catch {
         hotKeywords.value = []
     } finally {
@@ -179,8 +183,7 @@ async function handleSearch() {
     loadingMore.value = false
 
     try {
-        // 修改点：使用新的 SearchResponse 返回结构
-        const response = await musicApi.searchSongs(term, currentPage.value, PAGE_SIZE)
+        const response = await musicApi.searchSongs(currentPlatform.value, term, currentPage.value, PAGE_SIZE)
         searchResults.value = response.songs
         hasMore.value = response.has_more
         historyStore.addHistory(term)
@@ -202,7 +205,7 @@ async function loadMore() {
     loadingMore.value = true
 
     try {
-        const response = await musicApi.searchSongs(keyword.value.trim(), nextPage, PAGE_SIZE)
+        const response = await musicApi.searchSongs(currentPlatform.value, keyword.value.trim(), nextPage, PAGE_SIZE)
         const more = response.songs
 
         // 按歌曲 id 去重，避免接口偶发重复数据导致列表混乱

@@ -56,6 +56,7 @@ export interface QualityItem {
 
 // 歌曲基本信息
 export interface SongInfo {
+    platform: string    // 平台标识
     id: number
     mid: string
     title: string
@@ -117,6 +118,7 @@ export interface LyricResponse {
 
 export interface TaskRecord {
     id: string
+    platform: string    // 平台标识
     songId: number
     songMid: string
     songTitle: string

@@ -9,8 +9,8 @@ use tauri::AppHandle;
 use tauri_plugin_android_fs::{AndroidFsExt, FileAccessMode, FsUri};
 
 use super::progress;
-use crate::commands::api::client::CLIENT; // 全局 HTTP 客户端，用于下载封面
-use crate::commands::api::lyrics::LyricResponse;
+use crate::platforms::lyric::LyricData;
+use crate::utils::http::CLIENT; // 全局 HTTP 客户端，用于下载封面
 
 /// 将歌词与封面写入音频文件 metadata
 /// 普通模式直接操作文件路径；SAF 模式通过临时文件回写实现跨平台支持
@@ -22,7 +22,7 @@ pub(crate) async fn write_metadata(
     is_saf: bool,
     saf_file_uri: Option<String>,
     cover_url: &str,
-    lyric: Option<LyricResponse>,
+    lyric: Option<LyricData>,
 ) {
     // 1. 从已获取的歌词响应中提取歌词内容：优先逐字歌词（elrc），其次普通歌词（lrc）
     let lyric_text = lyric.and_then(|resp| {

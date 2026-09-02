@@ -1,9 +1,7 @@
-pub(crate) mod client;
-pub(crate) mod download;
-pub(crate) mod login;
-pub(crate) mod lyrics;
-pub(crate) mod parser;
-pub(crate) mod playlist;
-pub(crate) mod search;
-pub(crate) mod suggest;
-pub(crate) mod update;
+pub mod download;
+pub mod login;
+pub mod lyrics;
+pub mod playlist;
+pub mod search;
+pub mod suggest;
+pub mod update;

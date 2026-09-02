@@ -1,7 +1,7 @@
 <template>
     <div class="playlist-view">
-        <SearchBar v-model:keyword="input" placeholder="请输入歌单链接或 ID" button-text="导入歌单" :loading="loading"
-            @search="handleImport" @clear="resetPage" />
+        <SearchBar v-model:keyword="input" v-model:platform="currentPlatform" :platform-options="PLATFORMS"
+            placeholder="请输入歌单链接或 ID" button-text="导入歌单" :loading="loading" @search="handleImport" @clear="resetPage" />
 
         <div v-if="loading" class="loading-wrapper">
             <n-spin size="medium" />
@@ -53,6 +53,7 @@ import { useDownloadActions } from '../composables/useDownloadActions'
 import SongItem from '../components/search/SongItem.vue'
 import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
 import SearchBar from '../components/search/SearchBar.vue'
+import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
 
 const input = ref('')
 const loading = ref(false)
@@ -60,6 +61,7 @@ const errorMsg = ref('')
 const playlist = ref<PlaylistInfo | null>(null)
 const songs = ref<SongInfo[]>([])
 const selectedIds = ref<string[]>([])
+const currentPlatform = ref(DEFAULT_PLATFORM)
 
 const { downloadSingle, batchDownload } = useDownloadActions()
 
@@ -102,7 +104,7 @@ async function handleImport() {
     selectedIds.value = []
 
     try {
-        const res: PlaylistSongsResponse = await musicApi.fetchPlaylistSongs(term)
+        const res: PlaylistSongsResponse = await musicApi.fetchPlaylistSongs(currentPlatform.value, term)
         playlist.value = res.playlist
         songs.value = res.songs
     } catch (e: any) {

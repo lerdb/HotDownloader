@@ -1,4 +1,5 @@
 use crate::download::engine::DownloadEngine;
+use crate::platforms::Platform;
 use crate::storage::store_wrapper;
 use serde_json::json;
 use tauri::{command, AppHandle, Manager};
@@ -18,6 +19,7 @@ pub fn save_tasks(app: AppHandle, tasks_json: String) -> Result<(), String> {
 pub async fn add_download_task(
     app: AppHandle,
     task_id: String,
+    platform: String,
     song_id: u64,
     song_mid: String,
     url: String,
@@ -31,10 +33,11 @@ pub async fn add_download_task(
     album: String,
     cover_url: String,
 ) -> Result<(), String> {
+    let p = Platform::from_str(&platform)?;
     let engine = app.state::<DownloadEngine>();
     engine
         .add_task(
-            task_id, song_id, song_mid, url, save_path, quality, filename, key, file_size,
+            task_id, p, song_id, song_mid, url, save_path, quality, filename, key, file_size,
             song_title, artist, album, cover_url,
         )
         .await;

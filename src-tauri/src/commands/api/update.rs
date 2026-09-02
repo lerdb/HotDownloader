@@ -5,7 +5,7 @@
 use serde_json::{json, Value};
 use tauri::command;
 
-use super::client::CLIENT;
+use crate::utils::http::CLIENT;
 
 /// 检查 GitHub 最新发布版本。
 ///
