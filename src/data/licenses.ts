@@ -11,6 +11,10 @@ export const rustComponents: ComponentInfo[] = [
     "license": "MIT"
   },
   {
+    "name": "base64",
+    "license": "Apache-2.0 OR MIT"
+  },
+  {
     "name": "bytes",
     "license": "MIT"
   },
@@ -51,15 +55,7 @@ export const rustComponents: ComponentInfo[] = [
     "license": "Apache-2.0 OR MIT"
   },
   {
-    "name": "rand",
-    "license": "Apache-2.0 OR MIT"
-  },
-  {
     "name": "regex",
-    "license": "Apache-2.0 OR MIT"
-  },
-  {
-    "name": "reqwest",
     "license": "Apache-2.0 OR MIT"
   },
   {
@@ -133,6 +129,10 @@ export const rustComponents: ComponentInfo[] = [
   {
     "name": "url",
     "license": "Apache-2.0 OR MIT"
+  },
+  {
+    "name": "urlencoding",
+    "license": "MIT"
   }
 ];
 

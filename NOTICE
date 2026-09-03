@@ -10,6 +10,7 @@ Third-party components:
 
 Rust:
   async-tungstenite         (MIT)
+  base64                    (Apache-2.0 OR MIT)
   bytes                     (MIT)
   dirs                      (Apache-2.0 OR MIT)
   flate2                    (Apache-2.0 OR MIT)
@@ -20,9 +21,7 @@ Rust:
   once_cell                 (Apache-2.0 OR MIT)
   open                      (MIT)
   rand                      (Apache-2.0 OR MIT)
-  rand                      (Apache-2.0 OR MIT)
   regex                     (Apache-2.0 OR MIT)
-  reqwest                   (Apache-2.0 OR MIT)
   reqwest                   (Apache-2.0 OR MIT)
   rumqttc                   (Apache-2.0)
   rustls                    (Apache-2.0 OR ISC OR MIT)
@@ -41,6 +40,7 @@ Rust:
   tokio-util                (MIT)
   umc_qmc                   (Apache-2.0 OR MIT)
   url                       (Apache-2.0 OR MIT)
+  urlencoding               (MIT)
 
 Frontend:
   @tauri-apps/api           (Apache-2.0 OR MIT)

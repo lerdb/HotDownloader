@@ -62,6 +62,16 @@ try {
     console.warn('⚠️ Rust 许可证收集失败:', error.message);
 }
 
+// ---------- 去重：按 crate 名称保留第一个，并排序 ----------
+const seen = new Set();
+rustLicenses = rustLicenses.filter(dep => {
+    const key = dep.name;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+});
+rustLicenses.sort((a, b) => a.name.localeCompare(b.name));
+
 // ---------- 手动许可证覆盖表 ----------
 const licenseOverrides = {
     'umc_qmc': 'Apache-2.0 OR MIT',
