@@ -155,6 +155,17 @@ onMounted(() => {
     fetchHotKeywords()
 })
 
+// 平台切换时刷新热搜和搜索建议
+watch(currentPlatform, () => {
+    fetchHotKeywords()
+    // 清空旧平台的搜索建议（避免误导用户）
+    suggestions.value = { song: [], singer: [], album: [], mv: [] }
+    // 如果有正在进行的建议请求，取消
+    if (abortController) {
+        abortController.abort()
+    }
+})
+
 // 热搜点击
 function onHotClick(word: string) {
     keyword.value = word

@@ -126,6 +126,7 @@ pub fn run() {
             commands::file_ops::pick_saf_folder,
             commands::file_ops::delete_saf_file,
             commands::api::search::search_songs,
+            commands::api::search::fetch_cover,
             commands::api::download::fetch_download_link,
             commands::api::suggest::fetch_hot_keywords,
             commands::api::suggest::fetch_suggestions,

@@ -8,5 +8,6 @@ pub async fn fetch_playlist_songs(platform: String, input: String) -> Result<Str
     let p = Platform::from_str(&platform)?;
     match p {
         Platform::QqMusic => crate::platforms::qqmusic::playlist::fetch_playlist_songs(input).await,
+        Platform::Kuwo => Err("该平台暂不支持歌单导入".into()),
     }
 }

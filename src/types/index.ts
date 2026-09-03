@@ -4,14 +4,17 @@ export const ALL_QUALITY_ORDER: string[] = [
     '96kacc',
     '192kacc',
     '96kogg',
+    '100kogg',
     '192kogg',
+    '300kogg',
     '128kmp3',
     '320kmp3',
     'ape',
     'flac',
     'hires',
-    '杜比全景声',
     '臻品全景声',
+    '臻品全景声 5.1',
+    '臻品全景声 7.1.4',
     '臻品母带',
 ]
 
@@ -50,7 +53,7 @@ export interface Settings {
 /** 歌曲可用的单个品质项 */
 export interface QualityItem {
     quality: string   // 品质标签，如 "128kmp3", "flac", "臻品母带" 等
-    filename: string  // 对应下载文件名，如 "M800xxxx.mp3"
+    filename: string  // 对应下载文件名
     size: number      // 文件字节大小
 }
 

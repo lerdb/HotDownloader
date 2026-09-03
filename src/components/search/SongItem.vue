@@ -1,7 +1,11 @@
 <template>
     <div class="song-item">
         <n-checkbox :checked="selected" @update:checked="$emit('toggleSelect', $event)" />
-        <img v-if="song.coverUrl" :src="song.coverUrl" class="cover" alt="封面" />
+        <div class="cover-wrapper">
+            <img v-if="coverUrl" :src="coverUrl" class="cover" alt="封面" loading="lazy" />
+            <div v-else-if="coverLoading" class="cover placeholder" />
+            <div v-else class="cover placeholder default" />
+        </div>
         <div class="info">
             <div class="title">{{ song.title }}</div>
             <div class="subtitle">{{ song.artist }} · {{ song.album }}</div>
@@ -22,10 +26,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { NCheckbox, NButton, NTag } from 'naive-ui'
 import type { SongInfo } from '../../types'
 import { ALL_QUALITY_ORDER } from '../../types'
+import { fetchCover } from '../../api/musicApi'
 
 const props = defineProps<{
     song: SongInfo
@@ -48,6 +53,42 @@ const sortedQualities = computed(() => {
         return idxB - idxA  // 降序
     })
 })
+
+// 封面 URL 懒加载：QQ 音乐自带 coverUrl；酷我需要通过后端接口按需获取
+const coverUrl = ref<string>('')
+const coverLoading = ref(false)
+
+async function loadCoverIfNeeded() {
+    // 已有 URL 直接使用
+    if (props.song.coverUrl) {
+        coverUrl.value = props.song.coverUrl
+        return
+    }
+    // 酷我场景下按需加载
+    if (!props.song.id) return
+    coverLoading.value = true
+    try {
+        const url = await fetchCover('kuwo', props.song.id)
+        // 检查组件是否已被卸载（song prop 改变）
+        if (props.song.id === props.song.id) {
+            coverUrl.value = url
+        }
+    } catch {
+        // 加载失败保持占位
+    } finally {
+        coverLoading.value = false
+    }
+}
+
+onMounted(() => {
+    loadCoverIfNeeded()
+})
+
+// 切换 song prop 时（如列表项重用）重新加载
+watch(() => props.song.id, () => {
+    coverUrl.value = props.song.coverUrl
+    loadCoverIfNeeded()
+})
 </script>
 
 <style scoped>
@@ -60,11 +101,26 @@ const sortedQualities = computed(() => {
     border-radius: 8px;
 }
 
+.cover-wrapper {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+}
+
 .cover {
     width: 48px;
     height: 48px;
     border-radius: 6px;
     object-fit: cover;
+    display: block;
+}
+
+.cover.placeholder {
+    background-color: var(--n-color-hover, rgba(0, 0, 0, 0.04));
+}
+
+.cover.placeholder.default {
+    background-color: var(--bg-body, #f5f5f5);
 }
 
 .info {

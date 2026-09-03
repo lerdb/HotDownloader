@@ -6,7 +6,7 @@
             <div v-for="(item, index) in data.song" :key="item.mid ?? item.id ?? `song-${index}`" class="suggest-item"
                 @click="handleSelect(item)">
                 <span class="item-name">{{ item.name }}</span>
-                <span class="item-singer">- {{ item.singer }}</span>
+                <span v-if="item.singer" class="item-singer">- {{ item.singer }}</span>
             </div>
         </div>
 
@@ -25,7 +25,7 @@
             <div v-for="(item, index) in data.album" :key="item.mid ?? item.id ?? `album-${index}`" class="suggest-item"
                 @click="handleSelect(item)">
                 <span class="item-name">{{ item.name }}</span>
-                <span class="item-singer">- {{ item.singer }}</span>
+                <span v-if="item.singer" class="item-singer">- {{ item.singer }}</span>
             </div>
         </div>
 
@@ -35,7 +35,7 @@
             <div v-for="(item, index) in data.mv" :key="item.vid ?? item.mid ?? item.id ?? `mv-${index}`"
                 class="suggest-item" @click="handleSelect(item)">
                 <span class="item-name">{{ item.name }}</span>
-                <span class="item-singer">- {{ item.singer }}</span>
+                <span v-if="item.singer" class="item-singer">- {{ item.singer }}</span>
             </div>
         </div>
     </div>

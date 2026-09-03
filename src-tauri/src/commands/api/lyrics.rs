@@ -18,6 +18,7 @@ pub(crate) async fn get_lyric_by_id_inner(
                 raw: resp.raw,
                 instrumental: resp.instrumental,
             }),
+        Platform::Kuwo => Err("该平台暂不支持歌词获取".into()),
     }
 }
 

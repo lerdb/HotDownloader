@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { SongInfo, SearchResponse, SearchSuggestionData, PlaylistSongsResponse, UpdateInfo, LyricResponse } from '../types'
+import { cachedInvoke } from '../composables/useCachedInvoke'
 
 export async function searchSongs(
     platform: string,
@@ -94,6 +95,20 @@ export async function requestNotificationPermission(): Promise<boolean> {
 // 检查系统通知权限是否已授予
 export async function checkNotificationPermission(): Promise<boolean> {
     return invoke<boolean>('check_notification_permission')
+}
+
+/**
+ * 按需获取歌曲封面 URL（酷我专用）。
+ *
+ * 搜索接口不再并发拉封面，改为搜索结果展示时由各 SongItem 组件
+ * 单独调用此函数获取。多次调用自动去重并缓存。
+ *
+ * @param platform 平台标识
+ * @param songId 歌曲数字 ID
+ * @returns 封面图片 URL
+ */
+export function fetchCover(platform: string, songId: number): Promise<string> {
+    return cachedInvoke<string>('fetch_cover', { platform, songId })
 }
 
 // ==================== 登录相关 API ====================

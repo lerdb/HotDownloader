@@ -154,7 +154,7 @@ pub(crate) async fn fetch_playlist_songs(input: String) -> Result<String, String
 
     // 获取歌曲列表并逐首解析
     let songlist = cd["songlist"].as_array().ok_or("未找到歌曲列表")?;
-    let mut songs = Vec::new();
+    let mut songs: Vec<Value> = Vec::new();
 
     for song in songlist {
         if let Some(song_obj) = parse_song(song) {

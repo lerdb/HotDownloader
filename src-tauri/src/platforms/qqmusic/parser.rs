@@ -113,21 +113,21 @@ pub(crate) fn parse_song(song: &Value) -> Option<Value> {
 /// 根据歌曲的 `file` 和 `vs` 字段生成可用品质列表。
 ///
 /// 品质列表包含标准品质（如各种比特率的 AAC、OGG、MP3、APE、FLAC、Hi-Res）
-/// 以及特殊高品质（杜比全景声、臻品全景声、臻品母带）。
+/// 以及特殊高品质（臻品全景声、臻品母带）。
 /// 每个品质项包含品质标签、文件名（由前缀 + media_mid + 后缀构成）和文件大小。
 ///
 /// # 参数
 /// - `file`: 歌曲文件信息 JSON 对象，通常来自原始数据的 `file` 字段，
 ///   需包含 `media_mid` 以及各个品质对应的 `size_*` 字段，可能还包含 `size_new` 数组。
 /// - `vs`: 特殊品质对应的验证字符串数组，通常来自原始数据的 `vs` 字段，
-///   其中第 3 项用于臻品母带，第 4 项用于杜比全景声和臻品全景声。
+///   其中第 3 项用于臻品母带，第 4 项用于臻品全景声。
 ///
 /// # 返回
 /// 一个 `Vec<Value>`，每个元素为包含 `quality`、`filename`、`size` 字段的 JSON 对象。
 /// 只返回文件大小大于 0 的品质项；特殊品质还需满足对应的 vs 字符串非空。
 pub(crate) fn build_qualities(file: &Value, vs: &Value) -> Vec<Value> {
     let media_mid = file["media_mid"].as_str().unwrap_or("");
-    let mut list = Vec::new();
+    let mut list: Vec<Value> = Vec::new();
 
     // 标准品质定义：(前端显示标签, 文件名前缀, 文件扩展名, file 中的大小字段名)
     let standard_qualities: Vec<(&str, &str, &str, &str)> = vec![
@@ -156,7 +156,7 @@ pub(crate) fn build_qualities(file: &Value, vs: &Value) -> Vec<Value> {
     }
 
     // 特殊品质处理：依赖 size_new 数组和 vs 数组
-    // 顺序：杜比全景声 → 臻品全景声 → 臻品母带
+    // 顺序：臻品全景声 → 臻品全景声 5.1 → 臻品母带
     let size_new = file["size_new"].as_array();
     let vs_arr = vs.as_array();
     if let (Some(size_new), Some(vs_arr)) = (size_new, vs_arr) {
@@ -164,23 +164,23 @@ pub(crate) fn build_qualities(file: &Value, vs: &Value) -> Vec<Value> {
         let vs3 = vs_arr.get(3).and_then(|v| v.as_str()).unwrap_or("");
         let vs4 = vs_arr.get(4).and_then(|v| v.as_str()).unwrap_or("");
 
-        // 杜比全景声：size_new[1] 为文件大小，vs[4] 为验证字符串
-        let size_dolby = size_new.get(1).and_then(|v| v.as_u64()).unwrap_or(0);
-        if size_dolby > 0 && !vs4.is_empty() {
-            list.push(json!({
-                "quality": "杜比全景声",
-                "filename": format!("Q0M0{}.mflac", vs4),
-                "size": size_dolby
-            }));
-        }
-
-        // 臻品全景声：size_new[2] 为文件大小，vs[4] 为验证字符串
-        let size_panorama = size_new.get(2).and_then(|v| v.as_u64()).unwrap_or(0);
+        // 臻品全景声：size_new[1] 为文件大小，vs[4] 为验证字符串
+        let size_panorama = size_new.get(1).and_then(|v| v.as_u64()).unwrap_or(0);
         if size_panorama > 0 && !vs4.is_empty() {
             list.push(json!({
                 "quality": "臻品全景声",
-                "filename": format!("Q0M1{}.mflac", vs4),
+                "filename": format!("Q0M0{}.mflac", vs4),
                 "size": size_panorama
+            }));
+        }
+
+        // 臻品全景声 5.1：size_new[2] 为文件大小，vs[4] 为验证字符串
+        let size_panorama_51 = size_new.get(2).and_then(|v| v.as_u64()).unwrap_or(0);
+        if size_panorama_51 > 0 && !vs4.is_empty() {
+            list.push(json!({
+                "quality": "臻品全景声 5.1",
+                "filename": format!("Q0M1{}.mflac", vs4),
+                "size": size_panorama_51
             }));
         }
 

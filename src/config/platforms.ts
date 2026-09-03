@@ -7,6 +7,7 @@ export interface PlatformOption {
 
 export const PLATFORMS: PlatformOption[] = [
     { key: 'qqmusic', label: 'QQ' },
+    { key: 'kuwo', label: 'KW' },
 ]
 
 // 默认平台 key

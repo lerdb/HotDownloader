@@ -78,7 +78,7 @@ pub(crate) async fn fetch_hot_keywords() -> Result<String, String> {
         .ok_or("未找到热搜列表")?;
 
     // 收集前 30 个非空关键词
-    let mut keywords = Vec::new();
+    let mut keywords: Vec<String> = Vec::new();
     for item in vec_hotkey.iter().take(30) {
         if let Some(q) = item["query"].as_str() {
             if !q.is_empty() {
@@ -163,39 +163,33 @@ pub(crate) async fn fetch_suggestions(keyword: String) -> Result<String, String>
 
     // 遍历每种类型，提取对应的建议条目
     for (type_key, _type_name) in types {
-        let mut items = Vec::new();
+        let mut items: Vec<Value> = Vec::new();
 
         // 获取该类型下的 itemlist 数组
         if let Some(obj) = root_data.get(type_key).and_then(|v| v.as_object()) {
             if let Some(itemlist) = obj.get("itemlist").and_then(|v| v.as_array()) {
                 for item in itemlist {
-                    let mut map = serde_json::Map::new();
-                    // 通用字段
-                    if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                        map.insert("id".to_string(), json!(id));
-                    }
-                    if let Some(mid) = item.get("mid").and_then(|v| v.as_str()) {
-                        map.insert("mid".to_string(), json!(mid));
-                    }
-                    if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
-                        map.insert("name".to_string(), json!(name));
-                    }
-                    if let Some(singer) = item.get("singer").and_then(|v| v.as_str()) {
-                        map.insert("singer".to_string(), json!(singer));
-                    }
                     // 封面图片（歌手、专辑可能有，单曲通常没有）
-                    if let Some(pic) = item.get("pic").and_then(|v| v.as_str()) {
-                        map.insert("cover".to_string(), json!(pic));
-                    } else {
-                        map.insert("cover".to_string(), json!(null));
-                    }
+                    let cover = item
+                        .get("pic")
+                        .and_then(|v| v.as_str())
+                        .map(|s| json!(s))
+                        .unwrap_or(json!(null));
+
+                    let mut entry = json!({
+                        "id": item.get("id").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
+                        "mid": item.get("mid").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
+                        "name": item.get("name").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
+                        "singer": item.get("singer").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
+                        "cover": cover,
+                    });
                     // MV 特有字段 vid
                     if type_key == "mv" {
                         if let Some(vid) = item.get("vid").and_then(|v| v.as_str()) {
-                            map.insert("vid".to_string(), json!(vid));
+                            entry["vid"] = json!(vid);
                         }
                     }
-                    items.push(Value::Object(map));
+                    items.push(entry);
                 }
             }
         }

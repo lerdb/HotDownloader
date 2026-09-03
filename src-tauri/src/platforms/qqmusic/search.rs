@@ -122,7 +122,7 @@ pub(crate) async fn search_songs(keyword: String, page: u32, limit: u32) -> Resu
     let has_more = nextpage != -1;
 
     // 逐首解析歌曲，过滤无法解析的条目
-    let mut songs = Vec::new();
+    let mut songs: Vec<Value> = Vec::new();
     for item in item_song {
         if let Some(song_obj) = parse_song(item) {
             songs.push(song_obj);

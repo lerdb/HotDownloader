@@ -1,6 +1,7 @@
 //! QQ音乐扫码登录、uin+authst 手动登录、退出登录、登录状态查询模块。
 //!
 //! 该模块提供登录态管理功能，用于为下载链接等接口提供登录凭据，解锁更高音质或会员歌曲。
+//! 参考实现：<https://github.com/L-1124/QQMusicApi/blob/108617ffe80abefec6358717b9f4d3677550db10/qqmusic_api/modules/login.py>
 
 use std::collections::HashMap;
 use std::sync::Arc;
