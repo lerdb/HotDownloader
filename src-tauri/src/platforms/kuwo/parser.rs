@@ -8,6 +8,8 @@
 //! - 酷我没有字符串 mid，前端 `mid` 字段填数字 ID 的字符串形式。
 //! - 品质从 `N_MINFO`（优先）或 `MINFO` 字段解析，按 `bitrate` → 品质标签映射。
 //! - 封面 URL 需要通过独立接口（见 `cover.rs`）获取，本模块不做处理。
+//! - 酷我接口的 `ARTIST` 字段本身使用 `&` 作为歌手分隔符；解析后按用户设置的
+//!   `artistSeparator` 重新拼接，保持与其他平台一致的展示形式。
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -18,19 +20,22 @@ use serde_json::{json, Value};
 ///
 /// # 参数
 /// - `song`: 歌曲原始 JSON 对象（搜索接口中的一项）。
+/// - `artist_separator`: 多名歌手之间的连接字符串（来自 `artistSeparator` 设置）。
+///   酷我原始 `ARTIST` 字段使用 `&` 分隔，本函数先按 `&` 拆分为数组，
+///   再用 `artist_separator` 拼接为字符串，便于跨平台保持一致。
 ///
 /// # 返回
 /// - `Some(Value)`：成功解析的歌曲信息 JSON 对象，包含以下字段：
 ///   - `id`: 数字歌曲 ID（去掉 `MUSIC_` 前缀的数字部分）
 ///   - `mid`: 歌曲唯一标识（酷我用数字 ID 字符串代替）
 ///   - `title`: 歌曲标题
-///   - `artist`: 歌手名（多个歌手以 `&` 连接）
+///   - `artist`: 歌手名（多个歌手以 `artist_separator` 连接）
 ///   - `album`: 专辑名
 ///   - `coverUrl`: 封面图片 URL（搜索阶段为空，由外部独立接口填充）
 ///   - `mediaMid`: 媒体文件标识（酷我用歌曲数字 ID）
 ///   - `qualities`: 可用品质列表，每项含 `quality`、`format`、`bitrate`、`size`、`filename`
 /// - `None`：当歌曲缺少 `MUSICRID` 时返回 `None`，表示该歌曲无法解析或不可下载。
-pub(crate) fn parse_song(song: &Value) -> Option<Value> {
+pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> {
     // 提取数字歌曲 ID（去掉 MUSIC_ 前缀）
     let music_rid = song["MUSICRID"].as_str().unwrap_or("");
     let id_str = music_rid.strip_prefix("MUSIC_").unwrap_or("");
@@ -63,8 +68,10 @@ pub(crate) fn parse_song(song: &Value) -> Option<Value> {
         })
         .unwrap_or_default();
 
-    // 歌手：优先 ARTIST（含 & 分隔的多歌手），回退 AARTIST（通常是英文名）
-    let artist = song["ARTIST"]
+    // 歌手：优先 ARTIST（含 & 分隔的多歌手），回退 AARTIST（通常是英文名）。
+    // 原始字段使用 `&` 分割，统一按 `&` 拆分后再用设置中的分隔符拼接，
+    // 避免前端展示形式在不同平台间出现割裂感。
+    let raw_artist = song["ARTIST"]
         .as_str()
         .map(|s| s.to_string())
         .filter(|s| !s.is_empty())
@@ -75,6 +82,21 @@ pub(crate) fn parse_song(song: &Value) -> Option<Value> {
                 .filter(|s| !s.is_empty())
         })
         .unwrap_or_default();
+
+    // 拆分时忽略空白与空字符串；找不到分隔符时退化为单元素数组。
+    let artists: Vec<String> = if raw_artist.contains('&') {
+        raw_artist
+            .split('&')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
+    } else if raw_artist.is_empty() {
+        Vec::new()
+    } else {
+        vec![raw_artist]
+    };
+    let artist = artists.join(artist_separator);
 
     // 专辑
     let album = song["ALBUM"].as_str().unwrap_or("").to_string();

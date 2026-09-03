@@ -24,6 +24,8 @@
                 <n-form label-placement="top">
                     <DirectorySetting />
                     <NamingTemplate />
+                    <ArtistSeparator />
+                    <NamingPreview />
                     <WriteMetadataSetting />
                     <DownloadLrcSetting />
                     <ConcurrencySetting />
@@ -47,6 +49,8 @@
                 <DowngradeSetting />
                 <DirectorySetting />
                 <NamingTemplate />
+                <ArtistSeparator />
+                <NamingPreview />
                 <WriteMetadataSetting />
                 <DownloadLrcSetting />
                 <ConcurrencySetting />
@@ -75,6 +79,8 @@ import QualitySetting from '../components/settings/QualitySetting.vue'
 import DowngradeSetting from '../components/settings/DowngradeSetting.vue'
 import DirectorySetting from '../components/settings/DirectorySetting.vue'
 import NamingTemplate from '../components/settings/NamingTemplate.vue'
+import ArtistSeparator from '../components/settings/ArtistSeparator.vue'
+import NamingPreview from '../components/settings/NamingPreview.vue'
 import ConcurrencySetting from '../components/settings/ConcurrencySetting.vue'
 import JumpToTaskSetting from '../components/settings/JumpToTaskSetting.vue'
 import ClearHistoryButton from '../components/settings/ClearHistoryButton.vue'

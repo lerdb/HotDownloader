@@ -11,9 +11,11 @@
 //!   `fetch_cover(songId)` 按需加载，避免搜索接口被大量并发封面请求拖慢。
 
 use serde_json::{json, Value};
+use tauri::AppHandle;
 use urlencoding::encode;
 
 use super::parser::parse_song;
+use crate::utils::filename::get_artist_separator;
 use crate::utils::http::CLIENT;
 
 /// 搜索歌曲，返回 JSON 字符串，包含 `songs` 和 `has_more`。
@@ -30,7 +32,12 @@ use crate::utils::http::CLIENT;
 /// # 返回
 /// - `Ok(String)`：JSON 字符串，包含 `songs`（歌曲数组，`coverUrl` 留空）和 `has_more`。
 /// - `Err(String)`：错误信息。
-pub(crate) async fn search_songs(keyword: String, page: u32, limit: u32) -> Result<String, String> {
+pub(crate) async fn search_songs(
+    app_handle: &AppHandle,
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
     // 酷我 pn 从 0 开始，page 从 1 开始
     let pn = page.saturating_sub(1);
 
@@ -63,9 +70,10 @@ pub(crate) async fn search_songs(keyword: String, page: u32, limit: u32) -> Resu
         .ok_or("未找到歌曲列表（abslist 字段缺失）")?;
 
     // 解析每首歌曲（coverUrl 留空，由前端按需调用 fetch_cover 接口）
+    let artist_separator = get_artist_separator(app_handle);
     let mut songs: Vec<Value> = Vec::new();
     for item in abslist {
-        if let Some(song_obj) = parse_song(item) {
+        if let Some(song_obj) = parse_song(item, &artist_separator) {
             songs.push(song_obj);
         }
     }

@@ -1,10 +1,11 @@
 //! 搜索命令路由层
 
 use crate::platforms::Platform;
-use tauri::command;
+use tauri::{command, AppHandle};
 
 #[command]
 pub async fn search_songs(
+    app: AppHandle,
     platform: String,
     keyword: String,
     page: u32,
@@ -13,9 +14,11 @@ pub async fn search_songs(
     let p = Platform::from_str(&platform)?;
     match p {
         Platform::QqMusic => {
-            crate::platforms::qqmusic::search::search_songs(keyword, page, limit).await
+            crate::platforms::qqmusic::search::search_songs(&app, keyword, page, limit).await
         }
-        Platform::Kuwo => crate::platforms::kuwo::search::search_songs(keyword, page, limit).await,
+        Platform::Kuwo => {
+            crate::platforms::kuwo::search::search_songs(&app, keyword, page, limit).await
+        }
     }
 }
 

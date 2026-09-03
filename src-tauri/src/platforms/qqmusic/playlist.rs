@@ -4,9 +4,11 @@
 //! 歌曲列表中的每一项通过 [`super::parser::parse_song`] 解析为统一格式。
 
 use serde_json::{json, Value};
+use tauri::AppHandle;
 use url::Url;
 
 use super::parser::parse_song;
+use crate::utils::filename::get_artist_separator;
 use crate::utils::http::CLIENT;
 
 /// 从用户输入中提取歌单 ID。
@@ -74,7 +76,10 @@ fn extract_playlist_id(input: &str) -> Result<String, String> {
 /// # 返回
 /// - `Ok(String)`：JSON 字符串，包含 `playlist`（歌单信息）和 `songs`（歌曲列表数组）两个字段。
 /// - `Err(String)`：错误信息，例如 ID 提取失败、接口错误、解析失败等。
-pub(crate) async fn fetch_playlist_songs(input: String) -> Result<String, String> {
+pub(crate) async fn fetch_playlist_songs(
+    app_handle: &AppHandle,
+    input: String,
+) -> Result<String, String> {
     // 从输入中提取歌单 ID
     let disstid = extract_playlist_id(&input)?;
 
@@ -154,10 +159,11 @@ pub(crate) async fn fetch_playlist_songs(input: String) -> Result<String, String
 
     // 获取歌曲列表并逐首解析
     let songlist = cd["songlist"].as_array().ok_or("未找到歌曲列表")?;
+    let artist_separator = get_artist_separator(app_handle);
     let mut songs: Vec<Value> = Vec::new();
 
     for song in songlist {
-        if let Some(song_obj) = parse_song(song) {
+        if let Some(song_obj) = parse_song(song, &artist_separator) {
             songs.push(song_obj);
         }
     }

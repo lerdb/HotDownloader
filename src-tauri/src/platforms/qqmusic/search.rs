@@ -4,8 +4,10 @@
 //! 歌曲解析复用 [`super::parser::parse_song`] 函数。
 
 use serde_json::{json, Value};
+use tauri::AppHandle;
 
 use super::parser::parse_song;
+use crate::utils::filename::get_artist_separator;
 use crate::utils::guid::get_guid;
 use crate::utils::http::CLIENT;
 
@@ -25,7 +27,12 @@ use crate::utils::http::CLIENT;
 /// # 返回
 /// - `Ok(String)`：JSON 字符串，包含 `songs`（歌曲数组）和 `has_more`（是否有下一页）两个字段。
 /// - `Err(String)`：错误信息，包括网络错误、接口错误、序列化错误等。
-pub(crate) async fn search_songs(keyword: String, page: u32, limit: u32) -> Result<String, String> {
+pub(crate) async fn search_songs(
+    app_handle: &AppHandle,
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
     // 生成搜索 ID（当前毫秒时间戳）
     let searchid = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -122,9 +129,10 @@ pub(crate) async fn search_songs(keyword: String, page: u32, limit: u32) -> Resu
     let has_more = nextpage != -1;
 
     // 逐首解析歌曲，过滤无法解析的条目
+    let artist_separator = get_artist_separator(app_handle);
     let mut songs: Vec<Value> = Vec::new();
     for item in item_song {
-        if let Some(song_obj) = parse_song(item) {
+        if let Some(song_obj) = parse_song(item, &artist_separator) {
             songs.push(song_obj);
         }
     }

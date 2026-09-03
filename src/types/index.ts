@@ -32,6 +32,8 @@ export interface Settings {
     namingTemplate: string
     maxConcurrent: number
     jumpToTask: boolean
+    // 多名歌手之间的连接字符串
+    artistSeparator: string
     // 新增 SAF 文件夹 URI 和名称
     safFolderUri?: string
     safFolderName?: string
@@ -171,6 +173,7 @@ export const DEFAULT_SETTINGS: Settings = {
     namingTemplate: '{song} - {artist}',
     maxConcurrent: 3,
     jumpToTask: true,
+    artistSeparator: '、',
     writeMetadata: false,
     downloadLrc: false,
     loginUin: '',

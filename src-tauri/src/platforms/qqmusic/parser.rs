@@ -13,19 +13,20 @@ use serde_json::{json, Value};
 ///
 /// # 参数
 /// - `song`: 歌曲原始 JSON 对象（搜索或歌单接口中的一项）。
+/// - `artist_separator`: 多名歌手之间的连接字符串（来自 `artistSeparator` 设置）。
 ///
 /// # 返回
 /// - `Some(Value)`：成功解析的歌曲信息 JSON 对象，包含以下字段：
 ///   - `id`: 数字歌曲 ID（用于歌词等需要数字 ID 的接口）
 ///   - `mid`: 歌曲唯一标识（字符串 mid）
 ///   - `title`: 歌曲标题（优先取 `name` 字段，若为空则取 `title` 字段）
-///   - `artist`: 歌手名（多个歌手用逗号连接）
+///   - `artist`: 歌手名（多个歌手用 `artist_separator` 连接）
 ///   - `album`: 专辑名
 ///   - `coverUrl`: 封面图片 URL（优先专辑封面，其次歌手头像，均无则为空字符串）
 ///   - `mediaMid`: 媒体文件 mid（用于下载链接生成）
 ///   - `qualities`: 可用品质列表（由 [`build_qualities`] 生成）
 /// - `None`：当歌曲缺少 `mid` 或 `media_mid` 时返回 `None`，表示该歌曲无法解析或不可下载。
-pub(crate) fn parse_song(song: &Value) -> Option<Value> {
+pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> {
     // 歌曲唯一标识（使用 mid），缺失则跳过该歌曲
     let mid = song["mid"].as_str().unwrap_or("").to_string();
     if mid.is_empty() {
@@ -58,7 +59,7 @@ pub(crate) fn parse_song(song: &Value) -> Option<Value> {
         })
         .unwrap_or_default();
 
-    // 歌手列表，提取所有歌手的 name 并用逗号连接
+    // 歌手列表，提取所有歌手的 name 并使用设置中的分隔符连接
     let singers: Vec<String> = song["singer"]
         .as_array()
         .map(|arr| {
@@ -67,7 +68,7 @@ pub(crate) fn parse_song(song: &Value) -> Option<Value> {
                 .collect()
         })
         .unwrap_or_default();
-    let artist = singers.join(", ");
+    let artist = singers.join(artist_separator);
 
     // 专辑名
     let album_name = song["album"]["name"].as_str().unwrap_or("").to_string();
