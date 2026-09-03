@@ -154,6 +154,7 @@ async function handleManualLogin() {
     manualLoading.value = true
     try {
         const creds = await musicApi.loginWithUinAuthst(
+            PLATFORM,
             manualUin.value,
             manualAuthst.value,
             manualRefreshToken.value,
