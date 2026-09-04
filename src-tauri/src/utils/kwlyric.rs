@@ -194,6 +194,7 @@ pub(crate) fn format_timestamp(ms: i64) -> String {
 fn parse_lyric_lines(lrc: &str, offset: i64, offset2: i64) -> (Vec<LyricLine>, Vec<EnhancedLine>) {
     let time_exp = Regex::new(r"^\[([\d:.]*)]").unwrap();
     let word_tag = Regex::new(r"<-?\d+,-?\d+>").unwrap();
+    let norm_time = Regex::new(r"\.\d\d$").unwrap();
 
     let mut lyric_lines = Vec::new();
     let mut enhanced_lines = Vec::new();
@@ -209,7 +210,7 @@ fn parse_lyric_lines(lrc: &str, offset: i64, offset2: i64) -> (Vec<LyricLine>, V
         };
         let time_str = caps.get(1).unwrap().as_str().to_string();
         // 标准化毫秒部分为三位（不足补零）
-        let normalized_time = if Regex::new(r"\.\d\d$").unwrap().is_match(&time_str) {
+        let normalized_time = if norm_time.is_match(&time_str) {
             format!("{}0", time_str)
         } else {
             time_str.clone()
