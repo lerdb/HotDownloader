@@ -478,6 +478,24 @@ pub async fn download_task(
             None
         };
 
+        // 修复酷我封面缺失问题：酷我搜索阶段不返回封面，因此封面 URL 为空。
+        // 若用户开启了 metadata 写入且平台为酷我，且当前 cover_url 为空，则主动调用酷我封面接口获取。
+        // 获取失败时保留原值（空字符串），不阻断歌词写入。
+        let cover_url_to_use = if write_metadata_enabled && ctx.song_info.cover_url.is_empty() && matches!(ctx.platform, Platform::Kuwo) {
+            match crate::platforms::kuwo::cover::fetch_cover(ctx.song_id).await {
+                Ok(url) => {
+                    log::info!("任务 {} 成功获取酷我封面 URL: {}", ctx.task_id, url);
+                    url
+                }
+                Err(e) => {
+                    log::warn!("任务 {} 获取酷我封面失败，将继续使用空封面: {}", ctx.task_id, e);
+                    ctx.song_info.cover_url.clone()
+                }
+            }
+        } else {
+            ctx.song_info.cover_url.clone()
+        };
+
         // 写入音频文件 metadata（歌词/封面），错误处理在函数内部完成
         if write_metadata_enabled {
             write_metadata(
@@ -486,7 +504,7 @@ pub async fn download_task(
                 &download_dir,
                 is_saf,
                 saf_file_uri.clone(),
-                &ctx.song_info.cover_url,
+                &cover_url_to_use,
                 lyric_resp.clone(),
             )
             .await;
