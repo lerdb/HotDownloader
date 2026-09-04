@@ -23,6 +23,10 @@ export const rustComponents: ComponentInfo[] = [
     "license": "Apache-2.0 OR MIT"
   },
   {
+    "name": "encoding_rs",
+    "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+  },
+  {
     "name": "flate2",
     "license": "Apache-2.0 OR MIT"
   },

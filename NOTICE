@@ -13,6 +13,7 @@ Rust:
   base64                    (Apache-2.0 OR MIT)
   bytes                     (MIT)
   dirs                      (Apache-2.0 OR MIT)
+  encoding_rs               ((Apache-2.0 OR MIT) AND BSD-3-Clause)
   flate2                    (Apache-2.0 OR MIT)
   futures-util              (Apache-2.0 OR MIT)
   hotdownloader             (Apache-2.0)
