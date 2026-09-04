@@ -10,15 +10,8 @@ pub(crate) async fn get_lyric_by_id_inner(
     song_id: u64,
 ) -> Result<LyricData, String> {
     match platform {
-        Platform::QqMusic => crate::platforms::qqmusic::lyrics::get_lyric_by_id(song_id)
-            .await
-            .map(|resp| LyricData {
-                lrc: resp.lrc,
-                elrc: resp.elrc,
-                raw: resp.raw,
-                instrumental: resp.instrumental,
-            }),
-        Platform::Kuwo => Err("该平台暂不支持歌词获取".into()),
+        Platform::QqMusic => crate::platforms::qqmusic::lyrics::get_lyric_by_id(song_id).await,
+        Platform::Kuwo => crate::platforms::kuwo::lyrics::get_lyric_by_id(song_id).await,
     }
 }
 
