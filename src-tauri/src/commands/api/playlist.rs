@@ -14,6 +14,6 @@ pub async fn fetch_playlist_songs(
         Platform::QqMusic => {
             crate::platforms::qqmusic::playlist::fetch_playlist_songs(&app, input).await
         }
-        Platform::Kuwo => Err("该平台暂不支持歌单导入".into()),
+        Platform::Kuwo => crate::platforms::kuwo::playlist::fetch_playlist_songs(&app, input).await,
     }
 }

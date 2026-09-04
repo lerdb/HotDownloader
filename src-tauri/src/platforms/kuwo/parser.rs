@@ -36,16 +36,30 @@ use serde_json::{json, Value};
 ///   - `qualities`: 可用品质列表，每项含 `quality`、`format`、`bitrate`、`size`、`filename`
 /// - `None`：当歌曲缺少 `MUSICRID` 时返回 `None`，表示该歌曲无法解析或不可下载。
 pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> {
-    // 提取数字歌曲 ID（去掉 MUSIC_ 前缀）
-    let music_rid = song["MUSICRID"].as_str().unwrap_or("");
-    let id_str = music_rid.strip_prefix("MUSIC_").unwrap_or("");
-    let song_id: u64 = match id_str.parse() {
-        Ok(n) => n,
-        Err(_) => return None,
-    };
-    if song_id == 0 {
-        return None;
+    // 提取数字歌曲 ID：优先使用 `id` 字段（歌单接口返回），若不存在则回退到 `MUSICRID`。
+    let song_id: u64 = if let Some(id_val) = song.get("id") {
+        // 优先从 `id` 字段解析：支持字符串和数字类型
+        match id_val {
+            Value::String(s) => s.parse().ok(),
+            Value::Number(n) => n.as_u64(),
+            _ => None,
+        }
+    } else {
+        None
     }
+    .or_else(|| {
+        // 回退到 `MUSICRID` 字段
+        let music_rid = song["MUSICRID"].as_str().unwrap_or("");
+        if let Some(stripped) = music_rid.strip_prefix("MUSIC_") {
+            // 带前缀：去掉前缀后解析
+            stripped.parse().ok()
+        } else {
+            // 不带前缀：尝试直接解析为数字
+            music_rid.parse().ok()
+        }
+    })
+    .filter(|id| *id > 0)?; // 过滤无效 ID（0 或解析失败）
+
     // mid 字段复用数字 ID 字符串
     let mid = song_id.to_string();
 
@@ -101,11 +115,18 @@ pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> 
     // 专辑
     let album = song["ALBUM"].as_str().unwrap_or("").to_string();
 
-    // 时长（秒），用于前端展示
-    let duration = song["DURATION"].as_u64().unwrap_or(0);
+    // 时长（秒），用于前端展示。兼容字符串和数字两种类型：
+    // 歌单接口返回字符串，搜索接口返回数字。
+    let duration = match song["DURATION"].clone() {
+        Value::String(s) => s.parse::<u64>().unwrap_or(0),
+        Value::Number(n) => n.as_u64().unwrap_or(0),
+        _ => 0,
+    };
 
-    // 封面 URL 在搜索阶段为空，由搜索模块并发调用封面接口填充
-    let cover_url = String::new();
+    // 封面 URL：优先使用歌曲对象中已有的 `albumpic` 字段（歌单接口返回），
+    // 如果不存在则为空字符串，由前端按需调用 fetch_cover 获取。
+    // 这样避免在已有封面链接时重复请求封面接口，减少耗时。
+    let cover_url = song["albumpic"].as_str().unwrap_or("").to_string();
 
     // 构建品质列表（优先解析 N_MINFO，回退 MINFO）
     let info_str = song["N_MINFO"]
