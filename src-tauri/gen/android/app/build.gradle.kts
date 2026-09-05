@@ -18,7 +18,7 @@ android {
     compileSdk = 36
     namespace = "lerd.hotdownloader"
     defaultConfig {
-        manifestPlaceholders["usesCleartextTraffic"] = "false"
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
         applicationId = "lerd.hotdownloader"
         minSdk = 24
         targetSdk = 36
