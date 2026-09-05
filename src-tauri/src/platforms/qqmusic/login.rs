@@ -719,6 +719,141 @@ pub(crate) async fn get_login_credentials(app: &AppHandle) -> (Option<String>, O
     (uin, authst)
 }
 
+/// 检查当前登录凭证是否已过期。
+///
+/// 通过调用 `music.UserInfo.userInfoServer.GetLoginUserInfo` 接口验证凭证有效性。
+/// 若凭证不存在或接口返回非零 code（1000/104401/104400），则视为已过期。
+pub(crate) async fn check_credential_expired(app: &AppHandle) -> Result<bool, String> {
+    let Some(creds) = read_full_credentials(app).await else {
+        return Ok(true);
+    };
+    if creds.authst.is_empty() {
+        return Ok(true);
+    }
+
+    let param = json!({});
+    match login_api_call(
+        "music.UserInfo.userInfoServer",
+        "GetLoginUserInfo",
+        param,
+        json!({
+            "uin": creds.uin,
+            "authst": creds.authst,
+            "tmeLoginType": "6",
+        }),
+    )
+    .await
+    {
+        Ok(_) => Ok(false),
+        Err(e) => {
+            if e.starts_with("接口错误:") {
+                // 接口明确返回错误码，视为凭证已过期
+                log::warn!("[check_credential_expired] 凭证校验失败，视为已过期: {}", e);
+                Ok(true)
+            } else {
+                // 网络错误、解析错误等，不应视为凭证过期，原样返回错误
+                Err(e)
+            }
+        }
+    }
+}
+
+/// 尝试刷新登录凭证。
+///
+/// 使用存储中的刷新令牌（refresh_token/refresh_key）调用 `music.login.LoginServer.Login` 接口获取新凭证，
+/// 并更新到设置存储中。
+pub(crate) async fn refresh_credential(app: &AppHandle) -> Result<LoginCredentials, String> {
+    // 读取完整凭证，若不存在则直接返回错误（无需清除，因为本来就没有）
+    let creds = match read_full_credentials(app).await {
+        Some(c) => c,
+        None => return Err("未找到登录凭证".into()),
+    };
+    if creds.refresh_token.is_empty() && creds.refresh_key.is_empty() {
+        // 缺少刷新令牌，无法刷新，清除当前凭证并返回错误
+        let _ = logout(app.clone()).await;
+        return Err("缺少刷新令牌，无法自动刷新".into());
+    }
+
+    // 执行刷新流程，任意步骤失败都会清除凭证
+    let refresh_result = async {
+        let music_id = creds.uin.parse::<u64>().map_err(|_| "uin 必须为数字")?;
+        let param = json!({
+            "musicid": music_id,
+            "musickey": creds.authst,
+            "refresh_key": creds.refresh_key,
+            "refresh_token": creds.refresh_token,
+            "access_token": creds.access_token,
+            "openid": creds.openid,
+            "str_musicid": creds.uin,
+            "loginMode": 2,
+            "expired_in": 0,
+        });
+        let data = login_api_call(
+            "music.login.LoginServer",
+            "Login",
+            param,
+            json!({"tmeLoginType": "6"}),
+        )
+        .await?;
+
+        let new_creds: LoginCredentials = serde_json::from_value::<TLoginInfoData>(data)
+            .map(|d| d.into_credentials())
+            .map_err(|e| format!("解析凭据失败: {e}"))?;
+
+        // 保存新凭证
+        save_credentials(app, &new_creds).await?;
+        log::info!("[登录] 凭证刷新成功，uin = {}", new_creds.uin);
+        Ok(new_creds)
+    }
+    .await;
+
+    match refresh_result {
+        Ok(new_creds) => Ok(new_creds),
+        Err(e) => {
+            // 刷新失败，清除存储的登录凭证，确保后续不再使用过期状态
+            let _ = logout(app.clone()).await;
+            log::warn!("[登录] 凭证刷新失败，已清除登录凭证: {}", e);
+            Err(e)
+        }
+    }
+}
+
+/// 从应用设置中读取完整的登录凭据（包含刷新令牌等字段）。
+async fn read_full_credentials(app: &AppHandle) -> Option<LoginCredentials> {
+    let settings_json = store_wrapper::load_string(app, "settings").ok()?;
+    let settings: Value = serde_json::from_str(&settings_json).ok()?;
+    let uin = settings.get("loginUin")?.as_str()?.to_string();
+    let authst = settings.get("authst")?.as_str()?.to_string();
+    let refresh_token = settings
+        .get("refreshToken")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let refresh_key = settings
+        .get("refreshKey")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let access_token = settings
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let openid = settings
+        .get("openid")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Some(LoginCredentials {
+        uin,
+        authst,
+        refresh_token,
+        refresh_key,
+        access_token,
+        openid,
+    })
+}
+
 /// 创建二维码登录会话。
 ///
 /// 该命令会生成二维码 ID 和 Base64 编码的二维码图片数据，

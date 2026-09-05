@@ -7,6 +7,7 @@
 
 use serde_json::{json, Value};
 use std::path::Path;
+use tauri::Emitter;
 
 use super::login::get_login_credentials;
 use crate::utils::guid::get_guid;
@@ -148,7 +149,34 @@ pub(crate) async fn get_download_link(
 ) -> Result<(String, String), String> {
     // 读取登录态（未登录时返回 None）
     // 从 settings 获取 loginUin 与 authst
-    let (uin, authst) = get_login_credentials(app_handle).await;
+    let (mut uin, mut authst) = get_login_credentials(app_handle).await;
+
+    // 若存在登录态，则自动检查凭证是否过期，过期则尝试刷新
+    if let (Some(u), Some(a)) = (&uin, &authst) {
+        if !u.is_empty() && !a.is_empty() {
+            let expired = super::login::check_credential_expired(app_handle)
+                .await
+                .unwrap_or(false); // 如果调用出错，例如网络错误，不认为是过期
+            if expired {
+                log::warn!("QQ音乐凭证已过期，尝试自动刷新");
+                match super::login::refresh_credential(app_handle).await {
+                    Ok(creds) => {
+                        uin = Some(creds.uin);
+                        authst = Some(creds.authst);
+                        log::info!("QQ音乐凭证自动刷新成功");
+                    }
+                    Err(e) => {
+                        log::warn!("QQ音乐凭证自动刷新失败，继续使用旧凭证: {}", e);
+                        // 发射登录刷新失败事件，通知前端弹窗提示用户
+                        let _ = app_handle.emit(
+                            crate::events::LOGIN_REFRESH_FAILED,
+                            format!("QQ音乐登录已过期，自动刷新失败：{}", e),
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     // 统一调用新接口获取链接和密钥
     let (url, ekey) =

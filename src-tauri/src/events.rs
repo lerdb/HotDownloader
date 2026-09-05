@@ -8,6 +8,8 @@ pub const DOWNLOAD_LINK_EXPIRED: &str = "download-link-expired";
 pub const DOWNLOAD_FILE_COMPLETE: &str = "download-file-complete";
 // 元数据写入失败（仅提示，不阻断完成）
 pub const DOWNLOAD_METADATA_ERROR: &str = "download-metadata-error";
+// 登录凭证刷新失败（自动刷新场景，用于通知前端弹窗提示用户）
+pub const LOGIN_REFRESH_FAILED: &str = "login-refresh-failed";
 
 #[derive(Serialize, Clone)]
 pub struct DownloadProgressPayload {

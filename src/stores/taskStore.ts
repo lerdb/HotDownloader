@@ -312,6 +312,17 @@ export const useTaskStore = defineStore('tasks', () => {
             })
         )
 
+        // 监听登录刷新失败事件，弹窗提示用户重新登录
+        unlisteners.push(
+            listen<string>('login-refresh-failed', (event) => {
+                notify()?.error({
+                    title: '登录刷新失败，请重新登录',
+                    description: event.payload,
+                    duration: 5000
+                })
+            })
+        )
+
         // 返回清理函数：异步调用每个 UnlistenFn，触发注销，然后清空数组
         return () => {
             unlisteners.forEach((unlistenPromise) => {
