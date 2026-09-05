@@ -21,6 +21,9 @@ pub(crate) async fn write_metadata(
     file_path: &str,
     is_saf: bool,
     saf_file_uri: Option<String>,
+    song_title: &str,
+    song_artist: &str,
+    song_album: &str,
     cover_url: &str,
     lyric: Option<LyricData>,
 ) {
@@ -148,6 +151,21 @@ pub(crate) async fn write_metadata(
             return;
         }
     };
+
+    // 写入歌曲标题、艺术家、专辑，覆盖原始文件中的信息。
+    // 这些字段来自下载任务的 SongInfo，确保音频文件显示正确的元数据。
+    tag.remove_key(&ItemKey::TrackTitle);
+    if !song_title.is_empty() {
+        tag.insert_text(ItemKey::TrackTitle, song_title.to_string());
+    }
+    tag.remove_key(&ItemKey::TrackArtist);
+    if !song_artist.is_empty() {
+        tag.insert_text(ItemKey::TrackArtist, song_artist.to_string());
+    }
+    tag.remove_key(&ItemKey::AlbumTitle);
+    if !song_album.is_empty() {
+        tag.insert_text(ItemKey::AlbumTitle, song_album.to_string());
+    }
 
     // 写入歌词
     if let Some(lyric) = lyric_text {

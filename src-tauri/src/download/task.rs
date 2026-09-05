@@ -511,6 +511,9 @@ pub async fn download_task(
                 &download_dir,
                 is_saf,
                 saf_file_uri.clone(),
+                &ctx.song_info.title,
+                &ctx.song_info.artist,
+                &ctx.song_info.album,
                 &cover_url_to_use,
                 lyric_resp.clone(),
             )
