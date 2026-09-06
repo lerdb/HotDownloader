@@ -174,3 +174,118 @@ pub(crate) async fn fetch_playlist_songs(
     })
     .to_string())
 }
+
+/// 搜索 QQ 音乐歌单。
+///
+/// 调用 QQ 音乐歌单搜索接口 `http://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist`。
+/// 参数 `page` 从 1 开始，内部转换为接口要求的 `page_no`。
+/// 分页判断依据接口返回的 `sum`（总歌单数）和当前 offset 计算。
+///
+/// 参考实现：<https://github.com/lyswhut/lx-music-desktop/blob/9c364b482e5621a1d38b50e8610d2fb974457e6e/src/renderer/utils/musicSdk/tx/songList.js#L292>
+///
+/// # 参数
+/// - `keyword`: 搜索关键词。
+/// - `page`: 页码。
+/// - `limit`: 每页数量。
+///
+/// # 返回
+/// - `Ok(String)`：JSON 字符串，包含 `playlists`（歌单数组）和 `has_more`。
+/// - `Err(String)`：错误信息。
+pub(crate) async fn search_playlists(
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    // 接口的 page_no 从 0 开始，前端 page 从 1 开始，需要减一
+    let page_no = page.saturating_sub(1);
+
+    // 构建请求 URL
+    let url = format!(
+        "http://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist?page_no={}&num_per_page={}&format=json&query={}&remoteplace=txt.yqq.playlist&inCharset=utf8&outCharset=utf-8",
+        page_no,
+        limit,
+        &keyword
+    );
+
+    // 发送 GET 请求，必须携带 Referer 和 User-Agent
+    let resp = CLIENT
+        .get(&url)
+        .header("Referer", "http://y.qq.com/portal/search.html")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)",
+        )
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {}", e))?;
+    let data: Value = serde_json::from_str(&text).map_err(|e| format!("解析响应失败: {}", e))?;
+
+    // 检查返回码
+    let code = data["code"].as_i64().unwrap_or(-1);
+    let subcode = data["subcode"].as_i64().unwrap_or(-1);
+    if code != 0 || subcode != 0 {
+        // 如果没有 data 字段，可能是 "ids empty 0" 这类提示
+        if data.get("data").is_none() {
+            // 无结果视为正常，返回空列表
+            return Ok(json!({
+                "playlists": [],
+                "has_more": false
+            })
+            .to_string());
+        }
+        return Err(format!(
+            "接口错误: code={}, subcode={}, message={}",
+            code,
+            subcode,
+            data["message"].as_str().unwrap_or("")
+        ));
+    }
+
+    // 提取歌单列表
+    let list = data["data"]["list"]
+        .as_array()
+        .map(|arr| arr.to_vec())
+        .unwrap_or_default();
+
+    // 解析每个歌单
+    let mut playlists: Vec<Value> = Vec::new();
+    for item in list {
+        let playlist_id = item["dissid"].as_str().unwrap_or("").to_string();
+        if playlist_id.is_empty() {
+            continue;
+        }
+        let name = item["dissname"].as_str().unwrap_or("").to_string();
+        let creator = item["creator"]["name"].as_str().unwrap_or("").to_string();
+        let cover_url = item["imgurl"].as_str().unwrap_or("").to_string();
+        let song_count = item["song_count"].as_u64().unwrap_or(0);
+        let play_count = item["listennum"].as_u64().unwrap_or(0);
+        let introduction = item["introduction"].as_str().unwrap_or("").to_string();
+
+        playlists.push(json!({
+            "id": playlist_id,
+            "name": name,
+            "creator": creator,
+            "coverUrl": cover_url,
+            "songCount": song_count,
+            "playCount": play_count,
+            "introduction": introduction
+        }));
+    }
+
+    // 分页判断：page_no 是当前页码（从 0 开始），sum 是总歌单数
+    let sum: u64 = data["data"]["sum"].as_u64().unwrap_or(0);
+    let offset = (page_no as u64) * (limit as u64);
+    let returned = playlists.len() as u64;
+    let has_more = offset + returned < sum;
+
+    Ok(json!({
+        "playlists": playlists,
+        "has_more": has_more
+    })
+    .to_string())
+}

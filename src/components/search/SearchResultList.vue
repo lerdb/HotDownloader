@@ -14,12 +14,8 @@
                     @download="(song) => $emit('download', song)" />
             </div>
 
-            <!-- 分页加载更多：仅当 hasMore 为 true 时显示，loadingMore 控制按钮加载状态 -->
-            <div v-if="hasMore" class="load-more-wrapper">
-                <n-button :loading="loadingMore" :disabled="loadingMore" @click="$emit('load-more')">
-                    {{ loadingMore ? '加载中...' : '加载更多' }}
-                </n-button>
-            </div>
+            <!-- 使用 LoadMoreButton 组件替代原有按钮 -->
+            <LoadMoreButton v-if="hasMore" :loading="loadingMore" :disabled="loadingMore" @click="$emit('load-more')" />
         </template>
 
         <div v-else class="empty-result">
@@ -36,6 +32,7 @@ import { computed } from 'vue'
 import { NCheckbox, NEmpty, NButton } from 'naive-ui'
 import type { SongInfo } from '../../types'
 import SongItem from './SongItem.vue'
+import LoadMoreButton from './LoadMoreButton.vue'
 
 // hasMore/loadingMore 由父组件 SearchView 传入，控制分页加载按钮显示与加载状态
 const props = withDefaults(defineProps<{
@@ -99,12 +96,6 @@ function toggleSelect(songMid: string, selected: boolean) {
     display: flex;
     flex-direction: column;
     gap: 8px;
-}
-
-.load-more-wrapper {
-    display: flex;
-    justify-content: center;
-    margin-top: 16px;
 }
 
 .empty-result {

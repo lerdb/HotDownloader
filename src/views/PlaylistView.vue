@@ -1,7 +1,7 @@
 <template>
     <div class="playlist-view">
         <SearchBar v-model:keyword="input" v-model:platform="currentPlatform" :platform-options="PLATFORMS"
-            placeholder="请输入歌单链接或 ID" button-text="导入歌单" :loading="loading" @search="handleImport" @clear="resetPage" />
+            placeholder="请输入歌单链接或 ID" button-text="导入歌单" :loading="loading" @search="handleImport" @clear="reset" />
 
         <div v-if="loading" class="loading-wrapper">
             <n-spin size="medium" />
@@ -45,73 +45,46 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, onMounted, onActivated, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { NSpin, NAlert, NEmpty, NCheckbox } from 'naive-ui'
-import type { PlaylistInfo, SongInfo, PlaylistSongsResponse } from '../types'
-import * as musicApi from '../api/musicApi'
-import { useDownloadActions } from '../composables/useDownloadActions'
+import SearchBar from '../components/search/SearchBar.vue'
 import SongItem from '../components/search/SongItem.vue'
 import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
-import SearchBar from '../components/search/SearchBar.vue'
+import { usePlaylistImport } from '../composables/usePlaylistImport'
+import { useDownloadActions } from '../composables/useDownloadActions'
 import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
 
-const input = ref('')
-const loading = ref(false)
-const errorMsg = ref('')
-const playlist = ref<PlaylistInfo | null>(null)
-const songs = ref<SongInfo[]>([])
-const selectedIds = ref<string[]>([])
+const route = useRoute()
 const currentPlatform = ref(DEFAULT_PLATFORM)
 
+// 使用歌单导入 composable，并解构出响应式状态和方法
+const {
+    input,
+    loading,
+    errorMsg,
+    playlist,
+    songs,
+    selectedIds,
+    isAllSelected,
+    isIndeterminate,
+    toggleAll,
+    toggleSelect,
+    importPlaylist,
+    reset,
+} = usePlaylistImport()
+
 const { downloadSingle, batchDownload } = useDownloadActions()
-
-const isAllSelected = computed(() => songs.value.length > 0 && selectedIds.value.length === songs.value.length)
-const isIndeterminate = computed(() => selectedIds.value.length > 0 && selectedIds.value.length < songs.value.length)
-
-function toggleAll(checked: boolean) {
-    selectedIds.value = checked ? songs.value.map(s => s.mid) : []
-}
-
-function toggleSelect(songMid: string, selected: boolean) {
-    if (selected) {
-        if (!selectedIds.value.includes(songMid)) selectedIds.value.push(songMid)
-    } else {
-        selectedIds.value = selectedIds.value.filter(id => id !== songMid)
-    }
-}
 
 function formatPlayCount(count: number): string {
     if (count >= 10000) return (count / 10000).toFixed(1) + '万'
     return count.toString()
 }
 
-function resetPage() {
-    loading.value = false
-    errorMsg.value = ''
-    playlist.value = null
-    songs.value = []
-    selectedIds.value = []
-}
-
 async function handleImport() {
     const term = input.value.trim()
-    if (!term || loading.value) return
-
-    loading.value = true
-    errorMsg.value = ''
-    playlist.value = null
-    songs.value = []
-    selectedIds.value = []
-
-    try {
-        const res: PlaylistSongsResponse = await musicApi.fetchPlaylistSongs(currentPlatform.value, term)
-        playlist.value = res.playlist
-        songs.value = res.songs
-    } catch (e: any) {
-        errorMsg.value = e?.message || String(e) || '导入歌单失败'
-    } finally {
-        loading.value = false
-    }
+    if (!term) return
+    await importPlaylist(currentPlatform.value, term)
 }
 
 function onBatchDownload() {
@@ -120,6 +93,27 @@ function onBatchDownload() {
         batchDownload(selectedSongs)
     }
 }
+
+// 从路由参数加载歌单
+async function loadPlaylistFromQuery() {
+    const qPlatform = route.query.platform as string | undefined
+    const qId = route.query.id as string | undefined
+    if (qPlatform && qId) {
+        currentPlatform.value = qPlatform
+        input.value = qId
+        await handleImport()
+    }
+}
+
+onMounted(loadPlaylistFromQuery)
+onActivated(loadPlaylistFromQuery)
+
+watch(
+    () => route.query.platform + '|' + route.query.id,
+    (newVal, oldVal) => {
+        if (newVal && newVal !== oldVal) loadPlaylistFromQuery()
+    }
+)
 </script>
 
 <style scoped>

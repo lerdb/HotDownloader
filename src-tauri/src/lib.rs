@@ -131,6 +131,7 @@ pub fn run() {
             commands::api::suggest::fetch_hot_keywords,
             commands::api::suggest::fetch_suggestions,
             commands::api::playlist::fetch_playlist_songs,
+            commands::api::playlist::search_playlists,
             commands::api::update::check_update,
             commands::api::lyrics::get_lyric_by_id,
             commands::api::login::create_qr_login,

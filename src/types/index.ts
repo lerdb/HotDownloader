@@ -94,6 +94,24 @@ export interface PlaylistSongsResponse {
     songs: SongInfo[]
 }
 
+// 歌单搜索结果项
+export interface PlaylistSearchItem {
+    id: string
+    name: string
+    creator: string
+    coverUrl: string
+    songCount: number
+    playCount: number
+    introduction?: string
+    platform?: string
+}
+
+// 歌单搜索完整返回
+export interface PlaylistSearchResponse {
+    playlists: PlaylistSearchItem[]
+    has_more: boolean
+}
+
 // 搜索建议条目（对应后端 fetch_suggestions 返回的每个 item）
 export interface SearchSuggestionItem {
     id?: string

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { SongInfo, SearchResponse, SearchSuggestionData, PlaylistSongsResponse, UpdateInfo, LyricResponse } from '../types'
+import type { SongInfo, SearchResponse, SearchSuggestionData, PlaylistSongsResponse, PlaylistSearchResponse, UpdateInfo, LyricResponse } from '../types'
 import { cachedInvoke } from '../composables/useCachedInvoke'
 
 export async function searchSongs(
@@ -45,6 +45,20 @@ export async function fetchPlaylistSongs(platform: string, input: string): Promi
     const parsed = JSON.parse(json) as PlaylistSongsResponse
     // 为返回的歌曲补充平台信息
     parsed.songs = parsed.songs.map(s => ({ ...s, platform }))
+    return parsed
+}
+
+// 搜索歌单
+export async function searchPlaylists(
+    platform: string,
+    keyword: string,
+    page: number = 1,
+    limit: number = 20
+): Promise<PlaylistSearchResponse> {
+    const json = await invoke<string>('search_playlists', { platform, keyword, page, limit })
+    const parsed = JSON.parse(json) as PlaylistSearchResponse
+    // 为返回的歌单补充平台信息
+    parsed.playlists = parsed.playlists.map(p => ({ ...p, platform }))
     return parsed
 }
 

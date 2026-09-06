@@ -204,3 +204,104 @@ pub(crate) async fn fetch_playlist_songs(
     })
     .to_string())
 }
+
+/// 搜索酷我歌单。
+///
+/// 调用酷我歌单搜索接口 `http://search.kuwo.cn/r.s`，指定 `ft=playlist`。
+/// 参数 `page` 从 1 开始，内部转换为接口要求的 `pn`（从 0 开始）。
+/// 分页判断依据接口返回的 `TOTAL`（字符串）和当前 offset 计算。
+///
+/// 参考实现：<https://github.com/lyswhut/lx-music-desktop/blob/9c364b482e5621a1d38b50e8610d2fb974457e6e/src/renderer/utils/musicSdk/kw/songList.js#L459>
+///
+/// # 参数
+/// - `keyword`: 搜索关键词。
+/// - `page`: 页码。
+/// - `limit`: 每页数量。
+///
+/// # 返回
+/// - `Ok(String)`：JSON 字符串，包含 `playlists`（歌单数组）和 `has_more`。
+/// - `Err(String)`：错误信息。
+pub(crate) async fn search_playlists(
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    // 酷我 pn 从 0 开始，page 从 1 开始
+    let pn = page.saturating_sub(1);
+
+    let url = format!(
+        "http://search.kuwo.cn/r.s?all={}&pn={}&rn={}&rformat=json&encoding=utf8&ver=mbox&vipver=MUSIC_8.7.7.0_BCS37&plat=pc&devid=28156413&ft=playlist&pay=1&needliveshow=1&client=kt&newver=1&vermerge=1&mobi=1",
+        urlencoding::encode(&keyword),
+        pn,
+        limit
+    );
+
+    let resp = CLIENT
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {}", e))?;
+    let data: Value = serde_json::from_str(&text).map_err(|e| format!("解析响应失败: {}", e))?;
+
+    // 提取 abslist 数组
+    let abslist = data["abslist"]
+        .as_array()
+        .map(|arr| arr.to_vec())
+        .unwrap_or_default();
+
+    // 解析每个歌单
+    let mut playlists: Vec<Value> = Vec::new();
+    for item in abslist {
+        let playlist_id = item["playlistid"].as_str().unwrap_or("").to_string();
+        if playlist_id.is_empty() {
+            continue;
+        }
+        let name = item["name"].as_str().unwrap_or("").to_string();
+        let creator = item["nickname"].as_str().unwrap_or("").to_string();
+        let cover_url = item["pic"].as_str().unwrap_or("").to_string();
+        // songnum 和 playcnt 可能是字符串，需要解析
+        let song_count = item["songnum"]
+            .as_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .or_else(|| item["songnum"].as_u64())
+            .unwrap_or(0);
+        let play_count = item["playcnt"]
+            .as_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .or_else(|| item["playcnt"].as_u64())
+            .unwrap_or(0);
+        let introduction = item["intro"].as_str().unwrap_or("").to_string();
+
+        playlists.push(json!({
+            "id": playlist_id,
+            "name": name,
+            "creator": creator,
+            "coverUrl": cover_url,
+            "songCount": song_count,
+            "playCount": play_count,
+            "introduction": introduction
+        }));
+    }
+
+    // 分页判断：TOTAL 字段为字符串，表示总歌单数
+    let total: u64 = data["TOTAL"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .or_else(|| data["TOTAL"].as_u64())
+        .unwrap_or(0);
+    let offset = (pn as u64) * (limit as u64);
+    let returned = playlists.len() as u64;
+    let has_more = offset + returned < total;
+
+    Ok(json!({
+        "playlists": playlists,
+        "has_more": has_more
+    })
+    .to_string())
+}
