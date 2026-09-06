@@ -58,6 +58,8 @@ pub struct LoginCredentials {
     pub access_token: String,
     /// OpenID。
     pub openid: String,
+    /// 完整的登录响应数据（原始 JSON）
+    pub raw_data: Option<Value>,
 }
 
 /// MQTT 扫码登录过程中接收到的事件类型。
@@ -118,7 +120,7 @@ static LOGIN_SESSIONS: Lazy<SharedLoginSessionMap> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// `music.login.LoginServer.Login` 接口返回的数据结构。
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct TLoginInfoData {
     /// 音乐 ID（数字 uin）。
     musicid: u64,
@@ -152,6 +154,11 @@ impl TLoginInfoData {
     ///
     /// 优先使用 `str_musicid` 作为 uin，如果缺失则使用数字 `musicid` 转换。
     fn into_credentials(self) -> LoginCredentials {
+        // 将整个响应数据序列化为 JSON Value，保存到 raw_data 中，
+        // 这样后续如果需要 loginType、unionid、str_musicid 等字段，可以直接从 raw_data 获取，
+        // 无需为每个字段单独增加结构体成员。
+        let raw_data = serde_json::to_value(&self).ok();
+
         let uin = self
             .str_musicid
             .filter(|s| !s.is_empty())
@@ -163,6 +170,7 @@ impl TLoginInfoData {
             refresh_key: self.refresh_key,
             access_token: self.access_token,
             openid: self.openid,
+            raw_data,
         }
     }
 }
@@ -693,6 +701,8 @@ async fn save_credentials(app: &AppHandle, creds: &LoginCredentials) -> Result<(
     settings["refreshKey"] = json!(creds.refresh_key);
     settings["accessToken"] = json!(creds.access_token);
     settings["openid"] = json!(creds.openid);
+    // 保存完整的登录响应数据（若存在），以便后续按需解析 loginType 等字段
+    settings["loginResponseData"] = creds.raw_data.clone().unwrap_or(json!({}));
     store_wrapper::save_string(app, "settings", &settings.to_string()).map_err(|e| e.to_string())
 }
 
@@ -777,17 +787,46 @@ pub(crate) async fn refresh_credential(app: &AppHandle) -> Result<LoginCredentia
     // 执行刷新流程，任意步骤失败都会清除凭证
     let refresh_result = async {
         let music_id = creds.uin.parse::<u64>().map_err(|_| "uin 必须为数字")?;
-        let param = json!({
-            "musicid": music_id,
-            "musickey": creds.authst,
-            "refresh_key": creds.refresh_key,
-            "refresh_token": creds.refresh_token,
-            "access_token": creds.access_token,
-            "openid": creds.openid,
-            "str_musicid": creds.uin,
-            "loginMode": 2,
-            "expired_in": 0,
-        });
+        // 从原始响应数据中获取 loginType，若缺失则默认为 0（走通用分支）
+        let login_type = creds
+            .raw_data
+            .as_ref()
+            .and_then(|raw| raw.get("loginType"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+
+        // 根据登录类型构造不同的刷新参数（参考 QQMusicApi 实现）。
+        let param = match login_type {
+            1 => json!({
+                "openid": creds.openid,
+                "refresh_token": creds.refresh_token,
+                "str_musicid": creds.uin,
+                "musickey": creds.authst,
+                "refresh_key": creds.refresh_key,
+                "loginMode": 2,
+            }),
+            2 => json!({
+                "openid": creds.openid,
+                "access_token": creds.access_token,
+                "refresh_token": creds.refresh_token,
+                "expired_in": 0,
+                "musicid": music_id,
+                "musickey": creds.authst,
+                "refresh_key": creds.refresh_key,
+                "loginMode": 2,
+            }),
+            _ => json!({
+                "openid": creds.openid,
+                "access_token": creds.access_token,
+                "refresh_token": creds.refresh_token,
+                "expired_in": 0,
+                "str_musicid": creds.uin,
+                "musicid": music_id,
+                "musickey": creds.authst,
+                "refresh_key": creds.refresh_key,
+                "loginMode": 2,
+            }),
+        };
         let data = login_api_call(
             "music.login.LoginServer",
             "Login",
@@ -844,6 +883,8 @@ async fn read_full_credentials(app: &AppHandle) -> Option<LoginCredentials> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // 读取完整的原始响应数据（可能不存在，例如手动登录只保存了基础字段）
+    let raw_data = settings.get("loginResponseData").cloned();
     Some(LoginCredentials {
         uin,
         authst,
@@ -851,6 +892,7 @@ async fn read_full_credentials(app: &AppHandle) -> Option<LoginCredentials> {
         refresh_key,
         access_token,
         openid,
+        raw_data,
     })
 }
 
@@ -1125,7 +1167,7 @@ pub(crate) async fn login_with_uin_authst(
         || !openid.is_empty();
 
     if !has_refresh_fields {
-        // 直接保存临时凭据，刷新字段留空。
+        // 直接保存临时凭据，刷新字段留空，原始数据为 None
         let creds = LoginCredentials {
             uin: uin.clone(),
             authst: authst.clone(),
@@ -1133,6 +1175,7 @@ pub(crate) async fn login_with_uin_authst(
             refresh_key: String::new(),
             access_token: String::new(),
             openid: String::new(),
+            raw_data: None,
         };
         save_credentials(&app, &creds).await?;
         log::info!("[登录] 手动登录（仅 uin/authst）成功，已保存 uin = {}", uin);
@@ -1203,6 +1246,7 @@ pub(crate) async fn logout(app: AppHandle) -> Result<(), String> {
             "refreshKey",
             "accessToken",
             "openid",
+            "loginResponseData",
         ] {
             obj.remove(key);
         }
