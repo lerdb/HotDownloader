@@ -12,6 +12,7 @@ import { h, ref, onMounted, onUnmounted } from 'vue'
 import { NDataTable, NTag, NProgress, NSpace, NEllipsis } from 'naive-ui'
 import type { DataTableColumn } from 'naive-ui'
 import type { TaskRecord } from '../../types'
+import { formatSpeed } from '../../utils/format'
 import { renderActions } from './TaskRowActions'
 import MobileTaskList from './MobileTaskList.vue'
 // 导入 OS 插件，用于获取平台信息
@@ -61,21 +62,6 @@ const emit = defineEmits<{
     // 增加第三个参数 extra，用于传递删除文件标志等
     (e: 'action', action: string, taskId: string, extra?: Record<string, any>): void
 }>()
-
-/**
- * 格式化速度 (bytes/s) 为人类可读字符串
- */
-function formatSpeed(bytesPerSec: number): string {
-    if (bytesPerSec === 0) return ''
-    const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
-    let unitIndex = 0
-    let value = bytesPerSec
-    while (value >= 1024 && unitIndex < units.length - 1) {
-        value /= 1024
-        unitIndex++
-    }
-    return `${value.toFixed(1)} ${units[unitIndex]}`
-}
 
 /**
  * 渲染进度列

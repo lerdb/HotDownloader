@@ -23,6 +23,7 @@
 import { NEmpty } from 'naive-ui'
 import type { PlaylistSearchItem } from '../../types'
 import LoadMoreButton from './LoadMoreButton.vue'
+import { formatPlayCount } from '../../utils/format'
 
 defineProps<{
     playlists: PlaylistSearchItem[]
@@ -34,11 +35,6 @@ defineEmits<{
     (e: 'click-playlist', playlist: PlaylistSearchItem): void
     (e: 'load-more'): void
 }>()
-
-function formatPlayCount(count: number): string {
-    if (count >= 10000) return (count / 10000).toFixed(1) + '万'
-    return count.toString()
-}
 </script>
 
 <style scoped>

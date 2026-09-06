@@ -7,6 +7,7 @@ import semver from 'semver'
 // Tauri OS 插件，用于获取当前平台信息
 import { platform } from '@tauri-apps/plugin-os'
 import { checkForUpdate } from '../api/musicApi'
+import { formatFileSize } from '../utils/format'
 import type { UpdateInfo } from '../types'
 
 export function useUpdateChecker() {
@@ -46,15 +47,6 @@ export function useUpdateChecker() {
         const rawHtml = marked.parse(markdown) as string
         // 使用 DOMPurify 过滤，允许常见安全标签
         return DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } })
-    }
-
-    // 将字节大小格式化为人类可读字符串
-    function formatFileSize(bytes: number): string {
-        if (bytes === 0) return '0 B'
-        const units = ['B', 'KB', 'MB', 'GB', 'TB']
-        const i = Math.floor(Math.log(bytes) / Math.log(1024))
-        const value = bytes / Math.pow(1024, i)
-        return `${value.toFixed(2)} ${units[i]}`
     }
 
     // 检查更新功能优化，使用成熟库替代手写比较，正确处理预发布版本等复杂情况

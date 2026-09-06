@@ -54,6 +54,7 @@ import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
 import { usePlaylistImport } from '../composables/usePlaylistImport'
 import { useDownloadActions } from '../composables/useDownloadActions'
 import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
+import { formatPlayCount } from '../utils/format'
 
 const route = useRoute()
 const currentPlatform = ref(DEFAULT_PLATFORM)
@@ -75,11 +76,6 @@ const {
 } = usePlaylistImport()
 
 const { downloadSingle, batchDownload } = useDownloadActions()
-
-function formatPlayCount(count: number): string {
-    if (count >= 10000) return (count / 10000).toFixed(1) + '万'
-    return count.toString()
-}
 
 async function handleImport() {
     const term = input.value.trim()
