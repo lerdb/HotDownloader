@@ -66,5 +66,8 @@ incremental = true # 以较小的步骤编译您的二进制文件。
 codegen-units = 1 # 允许 LLVM 执行更好的优化。
 lto = true        # 启用链接时优化。
 opt-level = "s"   # 优先考虑小的二进制文件大小。如果您更喜欢速度，请使用 `3`。
-panic = "abort"   # 通过禁用 panic 处理程序来提高性能。
+# 注意：这里刻意不使用 panic = "abort"。
+# 一旦某个下载任务（或第三方库，如 lofty 的 ID3v1 写入）触发 panic，
+# panic = "abort" 会让整个进程立即退出，用户看到的就是“软件直接崩溃”且没有任何提示。
+# 使用默认的 unwind 后，panic 会被任务级捕获并转为该任务的错误提示，应用继续可用。
 strip = true      # 确保移除调试符号。
