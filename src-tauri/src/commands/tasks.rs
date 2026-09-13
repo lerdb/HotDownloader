@@ -51,8 +51,8 @@ pub async fn add_download_task(
 #[command]
 pub async fn enqueue_task(app: AppHandle, task_id: String, offset: u64) -> Result<(), String> {
     let engine = app.state::<DownloadEngine>().clone();
-    engine.enqueue_task(&task_id, offset).await;
-    Ok(())
+    // 上下文缺失时返回 ERR_TASK_CONTEXT_MISSING，前端会据此重新注册任务
+    engine.enqueue_task(&task_id, offset).await
 }
 
 #[command]

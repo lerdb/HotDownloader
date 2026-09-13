@@ -12,6 +12,10 @@ use tokio_util::sync::CancellationToken;
 use super::task::{download_task, TaskContext};
 use crate::platforms::Platform;
 
+/// 引擎中没有对应任务上下文时的错误码。
+/// 前端据此判断需要“重新注册任务”，而不是把失败当成普通错误。
+pub const ERR_TASK_CONTEXT_MISSING: &str = "TASK_CONTEXT_MISSING";
+
 #[derive(Clone)]
 pub struct TaskController {
     pub cancel_token: CancellationToken,
@@ -134,12 +138,20 @@ impl DownloadEngine {
         self.scheduler_notify.notify_one();
     }
 
-    /// 异步更新任务 URL 并移入就绪队列（重试时调用）
-    pub async fn enqueue_task(&self, task_id: &str, offset: u64) {
+    /// 异步更新任务 URL 并移入就绪队列（重试时调用）。
+    ///
+    /// 若引擎中不存在该任务的上下文（典型场景：应用重启后从磁盘恢复的任务，
+    /// 引擎是全新的、没有任何上下文），返回 [`ERR_TASK_CONTEXT_MISSING`] 而不是
+    /// 静默返回 —— 否则前端会以为入队成功，任务将永远停留在“等待中”。
+    /// 调用方收到该错误后可以用任务记录重新注册任务。
+    pub async fn enqueue_task(&self, task_id: &str, offset: u64) -> Result<(), String> {
         // 获取任务上下文（克隆后修改）
         let mut ctx = match self.task_contexts.lock().await.get(task_id).cloned() {
             Some(c) => c,
-            None => return,
+            None => {
+                log::warn!("任务 {} 不存在于引擎上下文中，无法入队", task_id);
+                return Err(ERR_TASK_CONTEXT_MISSING.to_string());
+            }
         };
         ctx.downloaded_offset = offset;
         ctx.url.clear(); // 强制在下载线程中重新获取链接
@@ -177,6 +189,7 @@ impl DownloadEngine {
         // 放入就绪队列
         self.ready_tasks.lock().await.push_back(ctx);
         self.scheduler_notify.notify_one();
+        Ok(())
     }
 
     /// 异步暂停任务
