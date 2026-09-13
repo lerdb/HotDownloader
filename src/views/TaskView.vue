@@ -2,13 +2,49 @@
     <div class="task-view">
         <TaskTabs v-model:activeTab="activeTab" :counts="tabCounts" />
 
-        <!-- 错误任务较多时逐个点太麻烦，提供一键重试（并发仍由后端调度器按最大并发数控制） -->
-        <div v-if="activeTab === 'error' && tabCounts.error > 0" class="task-toolbar">
-            <n-button size="small" type="primary" :loading="retryingAll" :disabled="retryingAll"
-                @click="handleRetryAll">
+        <!-- 批量操作栏：按当前标签页显示可用的一键操作 -->
+        <div v-if="showToolbar" class="task-toolbar">
+            <!-- 错误任务较多时逐个点太麻烦，提供一键重试（并发仍由后端调度器按最大并发数控制） -->
+            <n-button v-if="activeTab === 'error' && tabCounts.error > 0" size="small" type="primary"
+                :loading="retryingAll" :disabled="retryingAll" @click="handleRetryAll">
                 全部重试（{{ tabCounts.error }}）
             </n-button>
-            <span class="task-toolbar-hint">会依次重新入队，实际同时下载数量由“最大并发数”决定</span>
+            <span v-if="activeTab === 'error'" class="task-toolbar-hint">
+                会依次重新入队，实际同时下载数量由“最大并发数”决定
+            </span>
+
+            <!-- 清除所有已下载（已完成）的任务记录 -->
+            <n-popconfirm v-if="canClearCompleted" @positive-click="handleClearCompleted">
+                <template #trigger>
+                    <n-button size="small" type="warning" :loading="clearing" :disabled="clearing">
+                        清除所有已下载的任务（{{ tabCounts.completed }}）
+                    </n-button>
+                </template>
+                <n-space vertical :size="8" class="task-toolbar-confirm">
+                    <span>确定清除 {{ tabCounts.completed }} 个已下载的任务记录吗？</span>
+                    <n-checkbox v-model:checked="deleteFileForCompleted">
+                        同时删除磁盘上已下载的文件（不可恢复）
+                    </n-checkbox>
+                </n-space>
+            </n-popconfirm>
+
+            <!-- 清除所有历史任务（含进行中的任务，会被取消） -->
+            <n-popconfirm v-if="canClearAll" @positive-click="handleClearAll">
+                <template #trigger>
+                    <n-button size="small" type="error" :loading="clearing" :disabled="clearing">
+                        清除所有历史任务（{{ tabCounts.total }}）
+                    </n-button>
+                </template>
+                <n-space vertical :size="8" class="task-toolbar-confirm">
+                    <span>确定清除全部 {{ tabCounts.total }} 个任务记录吗？</span>
+                    <span v-if="activeTaskCount > 0" class="task-toolbar-warn">
+                        其中 {{ activeTaskCount }} 个任务正在进行（等待/下载/暂停/处理中），会被一并取消。
+                    </span>
+                    <n-checkbox v-model:checked="deleteFileForAll">
+                        同时删除磁盘上的文件（不可恢复）
+                    </n-checkbox>
+                </n-space>
+            </n-popconfirm>
         </div>
 
         <TaskTable :tasks="pagedTasks" :selectedRowKeys="selectedRowKeys"
@@ -27,7 +63,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { NPagination, NButton, useNotification } from 'naive-ui'
+import { NPagination, NButton, NPopconfirm, NCheckbox, NSpace, useNotification } from 'naive-ui'
 import { useTaskStore } from '../stores/taskStore'
 import { useDownloadActions } from '../composables/useDownloadActions'
 import TaskTabs from '../components/task/TaskTabs.vue'
@@ -41,6 +77,10 @@ const notification = useNotification()
 const activeTab = ref('all')
 const selectedRowKeys = ref<string[]>([])
 const retryingAll = ref(false)
+const clearing = ref(false)
+// 两个清除操作各自的“同时删除文件”勾选项，默认不勾选，避免误删磁盘文件
+const deleteFileForCompleted = ref(false)
+const deleteFileForAll = ref(false)
 
 // 分页：任务列表可能包含上千条记录（尤其是“全部/已完成”），
 // 一次渲染全部任务会创建大量组件实例并频繁重渲染，是崩溃与卡顿的主因之一。
@@ -81,6 +121,24 @@ const pagedTasks = computed(() => {
     const start = (page.value - 1) * pageSize.value
     return filteredTasks.value.slice(start, start + pageSize.value)
 })
+
+/** 进行中的任务（清空全部历史时会被取消） */
+const ACTIVE_STATUSES: string[] = ['waiting', 'downloading', 'paused', 'processing']
+const activeTaskCount = computed(
+    () => taskStore.tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).length
+)
+
+/** “全部 / 已完成”标签页提供批量清除入口 */
+const inClearableTab = computed(() => activeTab.value === 'all' || activeTab.value === 'completed')
+const canClearCompleted = computed(() => inClearableTab.value && tabCounts.value.completed > 0)
+const canClearAll = computed(() => inClearableTab.value && tabCounts.value.total > 0)
+
+const showToolbar = computed(
+    () =>
+        (activeTab.value === 'error' && tabCounts.value.error > 0) ||
+        canClearCompleted.value ||
+        canClearAll.value
+)
 
 // 切换标签页时回到第一页
 watch(activeTab, () => {
@@ -160,6 +218,52 @@ async function handleRetryAll() {
         retryingAll.value = false
     }
 }
+
+/** 清除所有“已下载（已完成）”的任务记录，可选同时删除磁盘文件 */
+async function handleClearCompleted() {
+    if (clearing.value) return
+    const deleteFile = deleteFileForCompleted.value
+    deleteFileForCompleted.value = false
+
+    const ids = taskStore.tasks.filter((t) => t.status === 'completed').map((t) => t.id)
+    if (ids.length === 0) return
+
+    selectedRowKeys.value = []
+    clearing.value = true
+    try {
+        await taskStore.removeTasks(ids, deleteFile)
+        notification.success({
+            title: '已清除',
+            description: `已清除 ${ids.length} 个已下载的任务记录${deleteFile ? '，并删除对应文件' : ''}`,
+            duration: 4000,
+        })
+    } finally {
+        clearing.value = false
+    }
+}
+
+/** 清除所有历史任务（含等待/下载/暂停/处理中的任务，会被一并取消） */
+async function handleClearAll() {
+    if (clearing.value) return
+    const deleteFile = deleteFileForAll.value
+    deleteFileForAll.value = false
+
+    const ids = taskStore.tasks.map((t) => t.id)
+    if (ids.length === 0) return
+
+    selectedRowKeys.value = []
+    clearing.value = true
+    try {
+        await taskStore.removeTasks(ids, deleteFile)
+        notification.success({
+            title: '已清除',
+            description: `已清除全部 ${ids.length} 个任务记录${deleteFile ? '，并删除对应文件' : ''}`,
+            duration: 4000,
+        })
+    } finally {
+        clearing.value = false
+    }
+}
 </script>
 
 <style scoped>
@@ -186,5 +290,14 @@ async function handleRetryAll() {
 .task-toolbar-hint {
     font-size: 12px;
     color: var(--n-text-color-3, #999);
+}
+
+.task-toolbar-confirm {
+    max-width: 320px;
+}
+
+.task-toolbar-warn {
+    font-size: 12px;
+    color: var(--n-warning-color, #f0a020);
 }
 </style>

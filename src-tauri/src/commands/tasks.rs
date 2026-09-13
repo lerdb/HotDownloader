@@ -82,6 +82,29 @@ pub async fn remove_task(app: AppHandle, task_id: String, delete_file: bool) -> 
     engine.remove(&task_id, delete_file).await
 }
 
+/// 批量移除任务。用于“清除所选”等场景，
+/// 避免前端逐个 invoke（每个任务一次 IPC + 一次整表写盘）导致的卡顿。
+#[command]
+pub async fn remove_tasks(
+    app: AppHandle,
+    task_ids: Vec<String>,
+    delete_file: bool,
+) -> Result<(), String> {
+    let engine = app.state::<DownloadEngine>().clone();
+    let mut errors: Vec<String> = Vec::new();
+    for task_id in task_ids {
+        if let Err(e) = engine.remove(&task_id, delete_file).await {
+            log::error!("批量移除任务失败 {}: {}", task_id, e);
+            errors.push(e);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
 #[command]
 pub fn set_max_concurrent(app: AppHandle, max: u32) -> Result<(), String> {
     let engine = app.state::<DownloadEngine>();
