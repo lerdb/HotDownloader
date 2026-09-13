@@ -48,7 +48,23 @@ export const useTaskStore = defineStore('tasks', () => {
         }
     }
 
-    async function saveTasks() {
+    /**
+     * 持久化写的合并（coalescing）控制。
+     *
+     * 背景：data.json 由 tauri-plugin-store 管理，每次保存都会把整个 store
+     * 序列化（且是 pretty print）后整体覆盖写盘。任务数量很多时，这一步是
+     * 毫秒级到百毫秒级的重操作。若每次状态变化都直接写盘（例如下载进度事件
+     * 每 500ms 一次、批量添加/删除任务时每个任务一次），会瞬间产生大量整表
+     * 写盘，把磁盘与 IPC 打满，界面直接卡死。
+     *
+     * 因此这里保证：任意时刻最多只有一次写入在途；写入期间产生的新变更合并到
+     * 下一轮（最多再写一次），所有调用方在“自己那次变更已经落盘”后统一 resolve。
+     */
+    let saveInFlight = false
+    let saveDirty = false
+    let saveWaiters: Array<() => void> = []
+
+    async function persistTasks() {
         try {
             await invoke('save_tasks', {
                 tasksJson: JSON.stringify(tasks.value),
@@ -59,17 +75,54 @@ export const useTaskStore = defineStore('tasks', () => {
         }
     }
 
+    async function drainSaveQueue() {
+        if (saveInFlight) return
+        saveInFlight = true
+        try {
+            // 循环直到没有新的变更：期间产生的变更会被合并进下一轮写入
+            while (saveDirty) {
+                saveDirty = false
+                await persistTasks()
+            }
+        } finally {
+            saveInFlight = false
+            const waiters = saveWaiters
+            saveWaiters = []
+            waiters.forEach((resolve) => resolve())
+        }
+    }
+
+    function saveTasks(): Promise<void> {
+        saveDirty = true
+        const promise = new Promise<void>((resolve) => {
+            saveWaiters.push(resolve)
+        })
+        void drainSaveQueue()
+        return promise
+    }
+
     // ---- 任务操作 ----
-    function addTask(task: TaskRecord, savePath?: string) {
-        tasks.value.push(task)
-        saveTasks()
-        invoke('add_download_task', {
+
+    /** 后端在执行 enqueue_task 时找不到任务上下文（应用重启后从磁盘恢复的任务） */
+    const ERR_TASK_CONTEXT_MISSING = 'TASK_CONTEXT_MISSING'
+
+    function isTaskContextMissing(e: any): boolean {
+        const msg = typeof e === 'string' ? e : (e?.message ?? String(e ?? ''))
+        return msg.includes(ERR_TASK_CONTEXT_MISSING)
+    }
+
+    /**
+     * 调用后端注册下载任务：创建（或覆盖）引擎中的任务上下文并加入就绪队列。
+     * 下载链接会在下载线程中实时获取，所以这里 url/key 传空字符串即可。
+     */
+    function registerDownloadTask(task: TaskRecord, savePath: string = ''): Promise<void> {
+        return invoke('add_download_task', {
             taskId: task.id,
             platform: task.platform, // 从任务记录中获取平台
             songId: task.songId,
             songMid: task.songMid,
             url: '',
-            savePath: savePath || '',
+            savePath,
             quality: task.quality,
             filename: task.filename,   // 传递品质文件名
             key: '',
@@ -78,7 +131,13 @@ export const useTaskStore = defineStore('tasks', () => {
             artist: task.artist,
             album: task.album,
             coverUrl: task.coverUrl,
-        }).catch((e: any) => {
+        })
+    }
+
+    function addTask(task: TaskRecord, savePath?: string) {
+        tasks.value.push(task)
+        saveTasks()
+        registerDownloadTask(task, savePath || '').catch((e: any) => {
             console.error('添加任务失败:', e)
             notify()?.error({ title: '添加任务失败', description: e?.message || String(e), duration: 3000 })
         })
@@ -90,32 +149,62 @@ export const useTaskStore = defineStore('tasks', () => {
                 console.error('取消任务失败:', e)
                 notify()?.error({ title: '取消任务失败', description: e?.message || String(e), duration: 3000 })
             })
-        tasks.value = tasks.value.filter((t) => t.id !== taskId)
+        removeFromList([taskId])
         saveTasks()
     }
 
-    // 移除任务，统一由后端处理文件删除（包括 SAF 模式）
-    async function removeTask(taskId: string, deleteFile: boolean = false) {
+    /** 从内存列表中移除指定任务（使用 Set，避免批量操作退化成 O(n²)） */
+    function removeFromList(taskIds: string[]) {
+        const idSet = new Set(taskIds)
+        tasks.value = tasks.value.filter((t) => !idSet.has(t.id))
+    }
+
+    /**
+     * 批量移除任务，统一由后端处理文件删除（包括 SAF 模式）。
+     * 前端先乐观地把任务从列表移除（界面立刻响应），再调用一次后端批量命令，
+     * 最后只做一次整表落盘 —— 避免逐个任务 invoke + 逐个整表写盘。
+     */
+    async function removeTasks(taskIds: string[], deleteFile: boolean = false) {
+        if (taskIds.length === 0) return
+        removeFromList(taskIds)
+        const saved = saveTasks()
         try {
-            await invoke('remove_task', { taskId, deleteFile })
+            await invoke('remove_tasks', { taskIds, deleteFile })
         } catch (e: any) {
             console.error('移除任务失败:', e)
             notify()?.error({ title: '移除任务失败', description: e?.message || String(e), duration: 3000 })
         }
-        tasks.value = tasks.value.filter((t) => t.id !== taskId)
-        await saveTasks()
+        await saved
+    }
+
+    // 移除单个任务
+    async function removeTask(taskId: string, deleteFile: boolean = false) {
+        await removeTasks([taskId], deleteFile)
     }
 
     // 现在 enqueueTask 等待后端结果，并处理错误
     async function enqueueTask(taskId: string, offset: number): Promise<boolean> {
+        const task = tasks.value.find((t) => t.id === taskId)
         try {
             await invoke('enqueue_task', { taskId, offset })
             return true
         } catch (e: any) {
-            console.error('重新入队失败:', e)
-            notify()?.error({ title: '重新入队失败', description: e?.message || String(e), duration: 3000 })
-            // 将任务恢复为 error 状态
-            const task = tasks.value.find((t) => t.id === taskId)
+            // 引擎里没有这个任务的上下文（多是应用重启后从磁盘恢复的任务）。
+            // 此时必须用任务记录重新注册一次，否则任务会永远停在“等待中”。
+            if (task && isTaskContextMissing(e)) {
+                try {
+                    console.warn('引擎中缺少任务上下文，重新注册任务:', taskId)
+                    await registerDownloadTask(task)
+                    return true
+                } catch (e2: any) {
+                    console.error('重新注册任务失败:', e2)
+                    notify()?.error({ title: '重试失败', description: e2?.message || String(e2), duration: 3000 })
+                }
+            } else {
+                console.error('重新入队失败:', e)
+                notify()?.error({ title: '重新入队失败', description: e?.message || String(e), duration: 3000 })
+            }
+            // 入队彻底失败：把任务恢复为 error，避免一直显示“等待中”
             if (task && task.status === 'waiting') {
                 task.status = 'error'
                 task.errorMsg = '启动下载失败，请稍后重试'
@@ -200,6 +289,22 @@ export const useTaskStore = defineStore('tasks', () => {
         return true
     }
 
+    /**
+     * 批量重试（“全部重试”）。逐个复用 retryTask，保证降级/计数逻辑一致；
+     * 实际的并发下载仍由后端调度器按最大并发数排队，前端只负责入队。
+     * 返回成功入队 / 失败（例如重试次数用尽）的数量。
+     */
+    async function retryTasks(taskIds: string[]): Promise<{ total: number; succeeded: number; failed: number }> {
+        let succeeded = 0
+        let failed = 0
+        for (const taskId of taskIds) {
+            const ok = await retryTask(taskId)
+            if (ok) succeeded++
+            else failed++
+        }
+        return { total: taskIds.length, succeeded, failed }
+    }
+
     function errorTask(taskId: string, errorMsg: string) {
         const task = tasks.value.find((t) => t.id === taskId)
         if (task) {
@@ -224,8 +329,10 @@ export const useTaskStore = defineStore('tasks', () => {
                 // 如果任务尚未处于 downloading，则切换为 downloading
                 if (task.status !== 'downloading') {
                     task.status = 'downloading'
+                    // 状态变化才需要落盘；纯进度（downloaded/speed）是易失数据，
+                    // 加载时会重置，因此不写盘，避免每个进度事件都整表写盘。
+                    saveTasks()
                 }
-                saveTasks()
             })
         )
 
@@ -341,10 +448,12 @@ export const useTaskStore = defineStore('tasks', () => {
         addTask,
         cancelTask,
         removeTask,
+        removeTasks,
         enqueueTask,
         pauseTask,
         resumeTask,
         retryTask,
+        retryTasks,
         errorTask,
         setupListeners,
     }
