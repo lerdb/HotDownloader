@@ -512,16 +512,19 @@ impl DownloadEngine {
             }
         };
 
+        // 用 delete_error 暂存主文件删除错误，继续执行 LRC 删除和 final_paths/task_contexts 清理，最后统一返回错误。
+        let mut delete_error: Option<String> = None;
+
         // 6. 删除文件（如果要求）
         if delete_file {
             if let Some(path) = &final_path {
                 if let Err(e) = self.delete_file_path(path).await {
                     log::error!("删除文件失败 {}: {}", path, e);
-                    self.final_paths.lock().await.remove(task_id);
-                    self.task_contexts.lock().await.remove(task_id);
-                    return Err(e);
+                    // 删除主文件失败时不再提前返回，确保 LRC 文件删除与路径映射清理仍会执行。
+                    delete_error = Some(e);
+                } else {
+                    log::info!("已删除文件: {}", path);
                 }
-                log::info!("已删除文件: {}", path);
             }
         }
 
@@ -543,6 +546,11 @@ impl DownloadEngine {
         // 7. 清除 final_paths 和 task_contexts
         self.final_paths.lock().await.remove(task_id);
         self.task_contexts.lock().await.remove(task_id);
-        Ok(())
+
+        if let Some(e) = delete_error {
+            Err(e)
+        } else {
+            Ok(())
+        }
     }
 }
