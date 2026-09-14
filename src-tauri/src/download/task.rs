@@ -340,7 +340,13 @@ pub async fn download_task(
                 break; // 暂停跳出内部循环
             }
 
-            let chunk_result = stream.next().await;
+            // 让下载线程在等待网络数据时也能立即响应取消，避免 remove/清理操作长时间阻塞
+            let chunk_result = tokio::select! { // 使用 tokio::select! 同时等待取消令牌与流数据
+                _ = controller.cancel_token.cancelled() => {
+                    break 'download; // 取消令牌触发时直接跳出外层下载循环
+                }
+                chunk = stream.next() => chunk,
+            };
             let chunk = match chunk_result {
                 Some(Ok(bytes)) => bytes,
                 Some(Err(e)) => {
