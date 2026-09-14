@@ -110,9 +110,6 @@ const tabCounts = computed(() => {
 const filteredTasks = computed(() => {
     const tab = activeTab.value
     return taskStore.tasks.filter((t) => {
-        // 显式读取进度相关字段，建立响应式依赖
-        void t.downloaded;
-        void t.fileSize;
         return tab === 'all' || t.status === tab;
     });
 })
