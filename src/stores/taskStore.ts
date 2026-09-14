@@ -165,17 +165,27 @@ export const useTaskStore = defineStore('tasks', () => {
      * 前端先乐观地把任务从列表移除（界面立刻响应），再调用一次后端批量命令，
      * 最后只做一次整表落盘 —— 避免逐个任务 invoke + 逐个整表写盘。
      */
-    async function removeTasks(taskIds: string[], deleteFile: boolean = false) {
-        if (taskIds.length === 0) return
+    async function removeTasks(taskIds: string[], deleteFile: boolean = false): Promise<{ succeeded: number; failed: number; errors: string[] }> {
+        if (taskIds.length === 0) return { succeeded: 0, failed: 0, errors: [] }
         removeFromList(taskIds)
         const saved = saveTasks()
+        let result = { succeeded: 0, failed: 0, errors: [] as string[] }
         try {
-            await invoke('remove_tasks', { taskIds, deleteFile })
+            // 解析后端 remove_tasks 返回的真实成功/失败数量。
+            const json = await invoke<string>('remove_tasks', { taskIds, deleteFile })
+            const parsed = JSON.parse(json) as { succeeded: number; failed: number; errors: string[] }
+            result = {
+                succeeded: parsed.succeeded ?? 0,
+                failed: parsed.failed ?? 0,
+                errors: parsed.errors ?? [],
+            }
         } catch (e: any) {
             console.error('移除任务失败:', e)
             notify()?.error({ title: '移除任务失败', description: e?.message || String(e), duration: 3000 })
+            result = { succeeded: 0, failed: taskIds.length, errors: [e?.message || String(e)] }
         }
         await saved
+        return result
     }
 
     // 移除单个任务

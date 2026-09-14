@@ -89,21 +89,28 @@ pub async fn remove_tasks(
     app: AppHandle,
     task_ids: Vec<String>,
     delete_file: bool,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let engine = app.state::<DownloadEngine>().clone();
     let mut errors: Vec<String> = Vec::new();
+    // 让前端获得后端真实成功/失败数量，用于清除完成后的准确通知。
+    let mut succeeded: usize = 0;
+    let mut failed: usize = 0;
     for task_id in task_ids {
         if let Err(e) = engine.remove(&task_id, delete_file).await {
             log::error!("批量移除任务失败 {}: {}", task_id, e);
             // 批量移除失败时保留 task_id，便于前端/日志定位具体失败任务。
             errors.push(format!("{}: {}", task_id, e));
+            failed += 1;
+        } else {
+            succeeded += 1;
         }
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("; "))
-    }
+    let result = serde_json::json!({
+        "succeeded": succeeded,
+        "failed": failed,
+        "errors": errors,
+    });
+    Ok(result.to_string())
 }
 
 #[command]

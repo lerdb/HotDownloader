@@ -229,10 +229,11 @@ async function handleClearCompleted() {
     selectedRowKeys.value = []
     clearing.value = true
     try {
-        await taskStore.removeTasks(ids, deleteFile)
+        // 成功通知使用后端真实成功数
+        const result = await taskStore.removeTasks(ids, deleteFile)
         notification.success({
             title: '已清除',
-            description: `已清除 ${ids.length} 个已下载的任务记录${deleteFile ? '，并删除对应文件' : ''}`,
+            description: `已清除 ${result.succeeded} 个已下载的任务记录${deleteFile ? '，并删除对应文件' : ''}${result.failed > 0 ? `，${result.failed} 个失败` : ''}`,
             duration: 4000,
         })
     } finally {
@@ -252,10 +253,11 @@ async function handleClearAll() {
     selectedRowKeys.value = []
     clearing.value = true
     try {
-        await taskStore.removeTasks(ids, deleteFile)
+        // 成功通知使用后端真实成功数
+        const result = await taskStore.removeTasks(ids, deleteFile)
         notification.success({
             title: '已清除',
-            description: `已清除全部 ${ids.length} 个任务记录${deleteFile ? '，并删除对应文件' : ''}`,
+            description: `已清除全部 ${result.succeeded} 个任务记录${deleteFile ? '，并删除对应文件' : ''}${result.failed > 0 ? `，${result.failed} 个失败` : ''}`,
             duration: 4000,
         })
     } finally {
