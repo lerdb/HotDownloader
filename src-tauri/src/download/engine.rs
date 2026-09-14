@@ -9,8 +9,39 @@ use tauri_plugin_android_fs::{AndroidFsExt, FsUri};
 use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
+use futures_util::FutureExt;
+
+use super::progress;
 use super::task::{download_task, TaskContext};
 use crate::platforms::Platform;
+
+/// 引擎中没有对应任务上下文时的错误码。
+/// 前端据此判断需要“重新注册任务”，而不是把失败当成普通错误。
+pub const ERR_TASK_CONTEXT_MISSING: &str = "TASK_CONTEXT_MISSING";
+
+/// 并发槽位守卫：任务无论以何种方式结束（正常/取消/panic）都会归还槽位并唤醒调度器。
+struct ActiveDownloadGuard {
+    counter: Arc<AtomicU32>,
+    notify: Arc<Notify>,
+}
+
+impl Drop for ActiveDownloadGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::SeqCst);
+        self.notify.notify_one();
+    }
+}
+
+/// 从 panic 载荷中提取可读信息，用于上报给前端。
+fn panic_payload_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "未知 panic".to_string()
+    }
+}
 
 #[derive(Clone)]
 pub struct TaskController {
@@ -134,12 +165,20 @@ impl DownloadEngine {
         self.scheduler_notify.notify_one();
     }
 
-    /// 异步更新任务 URL 并移入就绪队列（重试时调用）
-    pub async fn enqueue_task(&self, task_id: &str, offset: u64) {
+    /// 异步更新任务 URL 并移入就绪队列（重试时调用）。
+    ///
+    /// 若引擎中不存在该任务的上下文（典型场景：应用重启后从磁盘恢复的任务，
+    /// 引擎是全新的、没有任何上下文），返回 [`ERR_TASK_CONTEXT_MISSING`] 而不是
+    /// 静默返回 —— 否则前端会以为入队成功，任务将永远停留在“等待中”。
+    /// 调用方收到该错误后可以用任务记录重新注册任务。
+    pub async fn enqueue_task(&self, task_id: &str, offset: u64) -> Result<(), String> {
         // 获取任务上下文（克隆后修改）
         let mut ctx = match self.task_contexts.lock().await.get(task_id).cloned() {
             Some(c) => c,
-            None => return,
+            None => {
+                log::warn!("任务 {} 不存在于引擎上下文中，无法入队", task_id);
+                return Err(ERR_TASK_CONTEXT_MISSING.to_string());
+            }
         };
         ctx.downloaded_offset = offset;
         ctx.url.clear(); // 强制在下载线程中重新获取链接
@@ -177,6 +216,7 @@ impl DownloadEngine {
         // 放入就绪队列
         self.ready_tasks.lock().await.push_back(ctx);
         self.scheduler_notify.notify_one();
+        Ok(())
     }
 
     /// 异步暂停任务
@@ -238,6 +278,7 @@ impl DownloadEngine {
                 }
 
                 let mut should_start = false;
+                let mut stale_task_id: Option<String> = None;
                 let ctrl = {
                     // 先获取 start_lock，再在锁内获取控制器并设置 started
                     let _guard = self.start_lock.lock().await;
@@ -255,6 +296,11 @@ impl DownloadEngine {
                                 // 任务已被取消，通知 done 并返回 None
                                 ctrl.done.notify_one();
                                 None
+                            } else if ctrl.started.load(Ordering::SeqCst) {
+                                // 该任务已经在下载中，说明就绪队列里存在重复条目，
+                                // 直接忽略，避免同一任务被并发下载两次（会互相覆盖文件）
+                                log::warn!("任务 {} 已在运行，忽略重复的就绪条目", ctx.task_id);
+                                None
                             } else {
                                 // 设置 started 并标记可以启动
                                 ctrl.started.store(true, Ordering::SeqCst);
@@ -262,9 +308,20 @@ impl DownloadEngine {
                                 Some(ctrl)
                             }
                         }
-                        None => None,
+                        None => {
+                            // 没有控制器，无法启动。记录下来并通知前端，
+                            // 否则任务会永远停留在“等待中”且没有任何提示。
+                            stale_task_id = Some(ctx.task_id.clone());
+                            None
+                        }
                     }
                 }; // 锁在此处释放
+
+                if let Some(stale_id) = stale_task_id {
+                    log::warn!("任务 {} 缺少控制器，已通知前端标记失败", stale_id);
+                    progress::emit_error(&self.app_handle, &stale_id, "任务已失效，请重新添加或重试");
+                    continue;
+                }
 
                 if let Some(ctrl) = ctrl {
                     if !should_start {
@@ -284,7 +341,41 @@ impl DownloadEngine {
                     let notify_app_handle = app_handle.clone();
 
                     tokio::spawn(async move {
-                        let completed_ok = download_task(ctx, ctrl_clone.clone(), app_handle).await;
+                        // 并发槽位守卫：无论任务是正常结束、被取消还是中途 panic，
+                        // 都保证 active_downloads 会被归还并唤醒调度器。
+                        // （旧实现把 fetch_sub 写在函数末尾，一旦下载任务 panic 就永远不会执行，
+                        //   槽位会永久泄漏，最终所有任务都停在“等待中”。）
+                        let _slot = ActiveDownloadGuard {
+                            counter: active_downloads.clone(),
+                            notify: scheduler_notify.clone(),
+                        };
+
+                        // 捕获 download_task 内部的 panic（例如第三方库按字节切分多字节字符串），
+                        // 把 panic 转成任务级错误，避免整个应用被 panic = "abort" 直接终止，
+                        // 也避免任务永远停在“处理中”。
+                        let panic_task_id = task_id.clone();
+                        let panic_app_handle = notify_app_handle.clone();
+                        let completed_ok =
+                            match std::panic::AssertUnwindSafe(download_task(
+                                ctx,
+                                ctrl_clone.clone(),
+                                app_handle,
+                            ))
+                            .catch_unwind()
+                            .await
+                            {
+                                Ok(ok) => ok,
+                                Err(payload) => {
+                                    let msg = panic_payload_message(&payload);
+                                    log::error!("任务 {} 执行中发生 panic: {}", panic_task_id, msg);
+                                    progress::emit_error(
+                                        &panic_app_handle,
+                                        &panic_task_id,
+                                        &format!("任务内部错误: {}", msg),
+                                    );
+                                    false
+                                }
+                            };
 
                         // 提取最终路径并存入 final_paths（在通知 done 之前）
                         let final_path = ctrl_clone.final_path.lock().await.clone();
@@ -331,10 +422,6 @@ impl DownloadEngine {
                             // 任务成功完成后自动清理 task_contexts，减少内存占用
                             engine.task_contexts.lock().await.remove(&task_id);
                         }
-
-                        // 活动计数减一，唤醒调度器
-                        active_downloads.fetch_sub(1, Ordering::SeqCst);
-                        scheduler_notify.notify_one();
                     });
                 }
                 // 如果 ctrl 不存在，跳过该任务（可能已被取消）

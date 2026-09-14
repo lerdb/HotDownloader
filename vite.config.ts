@@ -20,7 +20,10 @@ export default defineConfig({
   server: {
     watch: {
       // 告诉 Vite 忽略监听 `src-tauri` 目录
-      ignored: ['**/src-tauri/**'],
+      // 同时忽略编辑器/工具链“原子写”产生的临时文件与临时目录：
+      // 这类文件写完即被重命名/删除，Windows 上 chokidar 监听它们会抛 EBUSY，
+      // 未捕获时会导致 dev server（以及 tauri dev）直接退出。
+      ignored: ['**/src-tauri/**', '**/.*.tmpdir/**', '**/*.tmp'],
     },
     // 热更新（HMR）配置
     hmr: {

@@ -119,6 +119,7 @@ pub fn run() {
             commands::tasks::resume_task,
             commands::tasks::cancel_task,
             commands::tasks::remove_task,
+            commands::tasks::remove_tasks,
             commands::tasks::set_max_concurrent,
             commands::file_ops::get_default_download_dir,
             commands::file_ops::create_directory,

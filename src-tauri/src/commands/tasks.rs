@@ -5,13 +5,17 @@ use serde_json::json;
 use tauri::{command, AppHandle, Manager};
 use tauri_plugin_android_fs::{AndroidFsExt, FsUri};
 
+// 注意：非 async 的 command 会在主线程上执行（见 Tauri 官方文档），
+// 而 store_wrapper 的读写会整体序列化并写盘 data.json，任务数量大时耗时很长，
+// 放在主线程会直接卡死窗口（甚至被系统判定为无响应后强杀）。
+// 因此这里统一声明为 async，让 Tauri 把它们派发到异步运行时执行。
 #[command]
-pub fn load_tasks(app: AppHandle) -> Result<String, String> {
+pub async fn load_tasks(app: AppHandle) -> Result<String, String> {
     store_wrapper::load_string(&app, "tasks").map_err(|e| e.to_string())
 }
 
 #[command]
-pub fn save_tasks(app: AppHandle, tasks_json: String) -> Result<(), String> {
+pub async fn save_tasks(app: AppHandle, tasks_json: String) -> Result<(), String> {
     store_wrapper::save_string(&app, "tasks", &tasks_json).map_err(|e| e.to_string())
 }
 
@@ -47,8 +51,8 @@ pub async fn add_download_task(
 #[command]
 pub async fn enqueue_task(app: AppHandle, task_id: String, offset: u64) -> Result<(), String> {
     let engine = app.state::<DownloadEngine>().clone();
-    engine.enqueue_task(&task_id, offset).await;
-    Ok(())
+    // 上下文缺失时返回 ERR_TASK_CONTEXT_MISSING，前端会据此重新注册任务
+    engine.enqueue_task(&task_id, offset).await
 }
 
 #[command]
@@ -76,6 +80,29 @@ pub async fn cancel_task(app: AppHandle, task_id: String, delete_file: bool) -> 
 pub async fn remove_task(app: AppHandle, task_id: String, delete_file: bool) -> Result<(), String> {
     let engine = app.state::<DownloadEngine>().clone();
     engine.remove(&task_id, delete_file).await
+}
+
+/// 批量移除任务。用于“清除所选”等场景，
+/// 避免前端逐个 invoke（每个任务一次 IPC + 一次整表写盘）导致的卡顿。
+#[command]
+pub async fn remove_tasks(
+    app: AppHandle,
+    task_ids: Vec<String>,
+    delete_file: bool,
+) -> Result<(), String> {
+    let engine = app.state::<DownloadEngine>().clone();
+    let mut errors: Vec<String> = Vec::new();
+    for task_id in task_ids {
+        if let Err(e) = engine.remove(&task_id, delete_file).await {
+            log::error!("批量移除任务失败 {}: {}", task_id, e);
+            errors.push(e);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 #[command]

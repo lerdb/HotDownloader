@@ -124,12 +124,20 @@ pub(crate) async fn write_metadata(
         }
     };
 
-    // 尽量保留 ID3v1 标签，仅当待写入歌词含有多字节字符（如中文）且文件存在 ID3v1 时，主动移除 ID3v1，避免 lofty 保存时因编码转换导致 panic。
-    let needs_remove_id3v1 = lyric_text
-        .as_ref()
-        .is_some_and(|text| text.chars().any(|c| c as u32 > 0xFF));
-    if needs_remove_id3v1 && tagged_file.remove(TagType::Id3v1).is_some() {
-        log::info!("歌词包含非 Latin-1 字符，已移除 ID3v1 标签");
+    // 始终移除 ID3v1 标签（重要：这是应用“崩溃”的根因之一）。
+    //
+    // lofty 0.22 在写 ID3v1 时，用 `val.split_at(30)` 按【字节】截断标题/歌手/专辑
+    // （见 lofty/src/id3/v1/write.rs 的 resize_string；ID3v1 字段固定 30 字节）。
+    // 只要字符串超过 30 字节且第 30 个字节正好落在多字节字符（中文/日文/带变音符号的
+    // 拉丁字母等）中间，split_at 就会 panic：
+    //   "end byte index 30 is not a char boundary; it is inside 'è' (bytes 29..31 of string)"
+    // release 构建带 panic = "abort"，该 panic 会让整个应用瞬间退出（表现为“崩溃”）。
+    //
+    // 旧实现只在“歌词含多字节字符”时才移除 ID3v1，标题/歌手/专辑含中文时依旧会触发。
+    // ID3v1 是 128 字节的遗留标签（仅支持 Latin-1、字段上限 30 字节），而标题/歌手/专辑/
+    // 歌词都会写入主标签（MP3 为 ID3v2），因此直接移除它不会丢失信息。
+    if tagged_file.remove(TagType::Id3v1).is_some() {
+        log::info!("已移除 ID3v1 标签（避免其 30 字节字段按字节截断多字节字符时崩溃）");
     }
 
     // 确保存在主标签
