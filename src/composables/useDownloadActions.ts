@@ -239,7 +239,8 @@ export function useDownloadActions() {
                 downloaded: 0,
                 retryCount: 0,
                 addedAt: Date.now(),
-            }, savePath)
+                savePath,
+            })
 
             if (settingsStore.settings.jumpToTask) {
                 router.push('/task')
@@ -349,7 +350,8 @@ export function useDownloadActions() {
                     downloaded: 0,
                     retryCount: 0,
                     addedAt: Date.now(),
-                }, savePath)
+                    savePath,
+                })
             }
 
             if (errorCount > 0) {

@@ -159,6 +159,13 @@ export interface TaskRecord {
     retryCount: number
     addedAt: number
     speed?: number  // 实时下载速度 (bytes/s)，仅 downloading/paused 状态有意义
+    /**
+     * 用户在“文件已存在”弹窗中选定的保存路径。
+     * - 未设置或为空：使用默认路径（覆盖策略）
+     * - 有值：用户选择了“保留两份”，使用建议的重命名路径
+     * 持久化后，应用重启重试时复用之，避免落到错误路径。
+     */
+    savePath?: string
 }
 
 export interface DownloadProgressPayload {

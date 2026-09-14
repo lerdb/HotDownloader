@@ -115,14 +115,14 @@ export const useTaskStore = defineStore('tasks', () => {
      * 调用后端注册下载任务：创建（或覆盖）引擎中的任务上下文并加入就绪队列。
      * 下载链接会在下载线程中实时获取，所以这里 url/key 传空字符串即可。
      */
-    function registerDownloadTask(task: TaskRecord, savePath: string = ''): Promise<void> {
+    function registerDownloadTask(task: TaskRecord): Promise<void> {
         return invoke('add_download_task', {
             taskId: task.id,
             platform: task.platform, // 从任务记录中获取平台
             songId: task.songId,
             songMid: task.songMid,
             url: '',
-            savePath,
+            savePath: task.savePath ?? '',
             quality: task.quality,
             filename: task.filename,   // 传递品质文件名
             key: '',
@@ -134,10 +134,10 @@ export const useTaskStore = defineStore('tasks', () => {
         })
     }
 
-    function addTask(task: TaskRecord, savePath?: string) {
+    function addTask(task: TaskRecord) {
         tasks.value.push(task)
         saveTasks()
-        registerDownloadTask(task, savePath || '').catch((e: any) => {
+        registerDownloadTask(task).catch((e: any) => {
             console.error('添加任务失败:', e)
             notify()?.error({ title: '添加任务失败', description: e?.message || String(e), duration: 3000 })
         })
