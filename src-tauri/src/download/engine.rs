@@ -33,7 +33,8 @@ impl Drop for ActiveDownloadGuard {
 }
 
 /// 从 panic 载荷中提取可读信息，用于上报给前端。
-fn panic_payload_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+// 使用更符合 Rust 惯例的动态 trait 引用，避免对 Box 的额外引用层级。
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(s) = payload.downcast_ref::<&str>() {
         (*s).to_string()
     } else if let Some(s) = payload.downcast_ref::<String>() {
@@ -366,7 +367,7 @@ impl DownloadEngine {
                             {
                                 Ok(ok) => ok,
                                 Err(payload) => {
-                                    let msg = panic_payload_message(&payload);
+                                    let msg = panic_payload_message(payload.as_ref());
                                     log::error!("任务 {} 执行中发生 panic: {}", panic_task_id, msg);
                                     progress::emit_error(
                                         &panic_app_handle,
