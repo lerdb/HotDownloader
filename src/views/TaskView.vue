@@ -189,10 +189,11 @@ async function handleAction(action: string, taskId: string, extra?: any) {
 
 async function handleBatchClear(deleteFile: boolean) {
     const ids = selectedRowKeys.value.slice()
-    selectedRowKeys.value = []
     if (ids.length === 0) return
     // 一次性提交给后端批量删除，前端只落盘一次（旧实现是逐个任务 invoke + 逐个整表写盘）
     await taskStore.removeTasks(ids, deleteFile)
+    // 在批量删除流程完成后再清空选中键，避免删除过程中选中状态提前丢失。
+    selectedRowKeys.value = []
 }
 
 /** 一键重试当前所有“错误”状态的任务 */

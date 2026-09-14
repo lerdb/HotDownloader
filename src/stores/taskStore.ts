@@ -97,7 +97,8 @@ export const useTaskStore = defineStore('tasks', () => {
         const promise = new Promise<void>((resolve) => {
             saveWaiters.push(resolve)
         })
-        void drainSaveQueue()
+        // 防止 drainSaveQueue 出现未捕获异常时产生未处理 Promise 拒绝
+        drainSaveQueue().catch(console.error)
         return promise
     }
 
