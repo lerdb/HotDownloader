@@ -95,7 +95,8 @@ pub async fn remove_tasks(
     for task_id in task_ids {
         if let Err(e) = engine.remove(&task_id, delete_file).await {
             log::error!("批量移除任务失败 {}: {}", task_id, e);
-            errors.push(e);
+            // 批量移除失败时保留 task_id，便于前端/日志定位具体失败任务。
+            errors.push(format!("{}: {}", task_id, e));
         }
     }
     if errors.is_empty() {
