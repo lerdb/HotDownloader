@@ -204,7 +204,7 @@ pub(crate) async fn search_playlists(
         "http://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist?page_no={}&num_per_page={}&format=json&query={}&remoteplace=txt.yqq.playlist&inCharset=utf8&outCharset=utf-8",
         page_no,
         limit,
-        &keyword
+        keyword
     );
 
     // 发送 GET 请求，必须携带 Referer 和 User-Agent

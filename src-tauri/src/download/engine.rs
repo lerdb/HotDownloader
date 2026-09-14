@@ -320,7 +320,11 @@ impl DownloadEngine {
 
                 if let Some(stale_id) = stale_task_id {
                     log::warn!("任务 {} 缺少控制器，已通知前端标记失败", stale_id);
-                    progress::emit_error(&self.app_handle, &stale_id, "任务已失效，请重新添加或重试");
+                    progress::emit_error(
+                        &self.app_handle,
+                        &stale_id,
+                        "任务已失效，请重新添加或重试",
+                    );
                     continue;
                 }
 
@@ -356,27 +360,26 @@ impl DownloadEngine {
                         // 也避免任务永远停在“处理中”。
                         let panic_task_id = task_id.clone();
                         let panic_app_handle = notify_app_handle.clone();
-                        let completed_ok =
-                            match std::panic::AssertUnwindSafe(download_task(
-                                ctx,
-                                ctrl_clone.clone(),
-                                app_handle,
-                            ))
-                            .catch_unwind()
-                            .await
-                            {
-                                Ok(ok) => ok,
-                                Err(payload) => {
-                                    let msg = panic_payload_message(payload.as_ref());
-                                    log::error!("任务 {} 执行中发生 panic: {}", panic_task_id, msg);
-                                    progress::emit_error(
-                                        &panic_app_handle,
-                                        &panic_task_id,
-                                        &format!("任务内部错误: {}", msg),
-                                    );
-                                    false
-                                }
-                            };
+                        let completed_ok = match std::panic::AssertUnwindSafe(download_task(
+                            ctx,
+                            ctrl_clone.clone(),
+                            app_handle,
+                        ))
+                        .catch_unwind()
+                        .await
+                        {
+                            Ok(ok) => ok,
+                            Err(payload) => {
+                                let msg = panic_payload_message(payload.as_ref());
+                                log::error!("任务 {} 执行中发生 panic: {}", panic_task_id, msg);
+                                progress::emit_error(
+                                    &panic_app_handle,
+                                    &panic_task_id,
+                                    &format!("任务内部错误: {}", msg),
+                                );
+                                false
+                            }
+                        };
 
                         // 提取最终路径并存入 final_paths（在通知 done 之前）
                         let final_path = ctrl_clone.final_path.lock().await.clone();
