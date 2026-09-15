@@ -20,6 +20,7 @@ jobs:
           - ubuntu-latest
           - windows-latest
           - macos-latest
+          - macos-26-intel
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -45,8 +46,8 @@ jobs:
             src-tauri/target/release/deps
             src-tauri/target/release/build
             src-tauri/target/release/.fingerprint
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: cargo-${{ matrix.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.os }}-
 
       - name: Install Linux dependencies
         # https://tauri.app/start/prerequisites/#linux
