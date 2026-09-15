@@ -100,9 +100,15 @@ export function useDownloadActions() {
     }
 
     /**
-     * 根据期望品质和歌曲可用品质列表，返回实际可用的品质项（含 filename）
-     * 若无法满足且开启自动降级，则按降级顺序选择第一个可用品质
-     * 若仍无可用品质，返回 null
+     * 根据期望品质和歌曲可用品质列表，返回实际可用的品质项（含 filename）。
+     *
+     * 降级规则（通用，不针对任何具体音质做特判）：
+     * 1. 目标音质直接可用 → 使用目标音质。
+     * 2. 目标音质不可用且开启自动降级 → 在 QUALITY_DOWNGRADE_ORDER（从高到低）
+     *    中目标音质所在索引之后的部分里，取第一个可用品质。
+     * 3. 目标音质不在该列表中、或其后没有任何可用品质 → 返回 null。
+     *
+     * 无论用户默认选择什么音质，降级方向都严格向下，不会选到比目标更高的品质。
      */
     function resolveQualityForSong(
         song: SongInfo,
@@ -112,8 +118,15 @@ export function useDownloadActions() {
         if (direct) return direct
 
         if (settingsStore.settings.autoDowngrade) {
-            for (const fallback of QUALITY_DOWNGRADE_ORDER) {
-                const found = song.qualities.find((q) => q.quality === fallback)
+            // 目标音质在降级顺序（从高到低）中的索引
+            const desiredIndex = QUALITY_DOWNGRADE_ORDER.indexOf(desiredQuality)
+            // 目标音质不在已知顺序中，无法确定“低于目标”的区间，放弃降级
+            if (desiredIndex === -1) return null
+
+            // 从目标音质的下一项开始向后遍历：该区间内的所有品质都严格低于目标，
+            // 且列表本身从高到低排列，因此遇到的第一个可用项就是“低于目标中的最高可用项”
+            for (let i = desiredIndex + 1; i < QUALITY_DOWNGRADE_ORDER.length; i++) {
+                const found = song.qualities.find((q) => q.quality === QUALITY_DOWNGRADE_ORDER[i])
                 if (found) return found
             }
         }
