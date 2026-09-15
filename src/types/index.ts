@@ -1,8 +1,8 @@
 // 所有品质标签，按从低到高排序
 export const ALL_QUALITY_ORDER: string[] = [
-    '48kacc',
-    '96kacc',
-    '192kacc',
+    '48kaac',
+    '96kaac',
+    '192kaac',
     '96kogg',
     '100kogg',
     '192kogg',

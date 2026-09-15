@@ -132,9 +132,9 @@ pub(crate) fn build_qualities(file: &Value, vs: &Value) -> Vec<Value> {
 
     // 标准品质定义：(前端显示标签, 文件名前缀, 文件扩展名, file 中的大小字段名)
     let standard_qualities: Vec<(&str, &str, &str, &str)> = vec![
-        ("48kacc", "C200", ".m4a", "size_48aac"),
-        ("96kacc", "C400", ".m4a", "size_96aac"),
-        ("192kacc", "C600", ".m4a", "size_192aac"),
+        ("48kaac", "C200", ".m4a", "size_48aac"),
+        ("96kaac", "C400", ".m4a", "size_96aac"),
+        ("192kaac", "C600", ".m4a", "size_192aac"),
         ("96kogg", "O4M0", ".mgg", "size_96ogg"),
         ("192kogg", "O6M0", ".mgg", "size_192ogg"),
         ("128kmp3", "M500", ".mp3", "size_128mp3"),
