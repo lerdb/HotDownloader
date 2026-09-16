@@ -11,7 +11,6 @@ import type {
     DownloadFileCompletePayload,
     DownloadMetadataErrorPayload
 } from '../types'
-import { QUALITY_DOWNGRADE_ORDER } from '../types'
 import { useSettingsStore } from './settingsStore'
 
 export const useTaskStore = defineStore('tasks', () => {
@@ -252,30 +251,64 @@ export const useTaskStore = defineStore('tasks', () => {
     }
 
     /**
-     * 重试 / 降级逻辑，等待 enqueue 结果
-     * 返回 true 表示可继续重试（调用方需重新获取链接）
-     * 返回 false 表示已永久失败，不可再重试
+     * 重试 / 降级逻辑，等待后端入队结果。
+     *
+     * 普通重试沿用当前任务上下文和断点；同一品质连续失败超过 3 次后，才按
+     * 用户定义的顺序寻找下一个“歌曲实际提供”的品质。降级时必须同时替换
+     * quality、filename 和 fileSize，并重新注册后端上下文，否则后端仍会拿旧
+     * filename 请求下载链接，表现为界面已降级但实际下载品质没有变化。
+     *
+     * 返回 true 表示已经成功入队，false 表示该任务当前不可继续重试。
      */
     async function retryTask(taskId: string): Promise<boolean> {
         const task = tasks.value.find((t) => t.id === taskId)
         if (!task || task.status !== 'error') return false
 
         task.retryCount += 1
+        let didDowngrade = false
 
         if (task.retryCount > 3) {
             const settingsStore = useSettingsStore()
             if (settingsStore.settings.autoDowngrade) {
-                const currentIdx = QUALITY_DOWNGRADE_ORDER.indexOf(task.quality)
-                if (currentIdx >= 0 && currentIdx < QUALITY_DOWNGRADE_ORDER.length - 1) {
-                    task.quality = QUALITY_DOWNGRADE_ORDER[currentIdx + 1]
-                    task.retryCount = 0
-                    task.errorMsg = `自动降级至 ${task.quality}`
-                    task.downloaded = 0 // 文件不同，必须重新下载
-                } else {
-                    task.errorMsg = '已无更低音质可降级'
+                const downgradeOrder = settingsStore.settings.qualityDowngradeOrder
+                const currentIdx = downgradeOrder.indexOf(task.quality)
+
+                if (currentIdx < 0) {
+                    task.errorMsg = '当前音质不在降级顺序中'
                     await saveTasks()
                     return false
                 }
+
+                const availableQualities = task.availableQualities
+                if (!availableQualities) {
+                    // 旧版本任务没有保存 filename 映射，继续降级会错误地请求旧文件。
+                    // 与其产生“伪降级”，明确提示用户重新添加任务更安全。
+                    task.errorMsg = '旧任务缺少可用品质信息，请重新添加下载'
+                    await saveTasks()
+                    return false
+                }
+
+                // 仅在当前项之后查找，并跳过歌曲本身不提供的音质。这样重试逻辑
+                // 与首次创建任务的降级语义完全一致。
+                let nextQuality
+                for (const quality of downgradeOrder.slice(currentIdx + 1)) {
+                    nextQuality = availableQualities.find((item) => item.quality === quality)
+                    if (nextQuality) break
+                }
+
+                if (!nextQuality) {
+                    task.errorMsg = '已无后续可用品质'
+                    await saveTasks()
+                    return false
+                }
+
+                task.quality = nextQuality.quality
+                task.filename = nextQuality.filename
+                task.fileSize = nextQuality.size
+                task.retryCount = 0
+                task.errorMsg = `自动降级至 ${task.quality}`
+                task.downloaded = 0 // 文件已改变，旧品质的断点数据绝不能复用
+                didDowngrade = true
             } else {
                 task.errorMsg = '重试次数已用尽'
                 await saveTasks()
@@ -287,6 +320,22 @@ export const useTaskStore = defineStore('tasks', () => {
         // 清除旧错误信息
         task.errorMsg = undefined
         await saveTasks()
+
+        if (didDowngrade) {
+            try {
+                // add_download_task 会用新的 filename/size 创建完整上下文并直接入队。
+                // 不能调用 enqueue_task，因为它只更新偏移量，不会替换品质信息。
+                await registerDownloadTask(task)
+                return true
+            } catch (e: any) {
+                console.error('降级任务重新注册失败:', e)
+                task.status = 'error'
+                task.errorMsg = '降级后启动下载失败，请稍后重试'
+                await saveTasks()
+                notify()?.error({ title: '重试失败', description: e?.message || String(e), duration: 3000 })
+                return false
+            }
+        }
 
         const success = await enqueueTask(taskId, task.downloaded)
         if (!success) {

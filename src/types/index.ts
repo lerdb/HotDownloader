@@ -18,8 +18,47 @@ export const ALL_QUALITY_ORDER: string[] = [
     '臻品母带',
 ]
 
-/** 降级顺序：从高到低 */
+/**
+ * 默认降级顺序：从高到低。
+ *
+ * 该常量只描述应用内置默认值。运行时必须读取设置中的
+ * `qualityDowngradeOrder`，否则用户在设置页调整顺序后不会真正生效。
+ */
 export const QUALITY_DOWNGRADE_ORDER: string[] = [...ALL_QUALITY_ORDER].reverse()
+
+/**
+ * 将持久化的降级顺序修复为完整、无重复且只包含已知音质的数组。
+ *
+ * 设置数据可能来自旧版本（字段不存在），也可能因为手工修改而含有重复项、
+ * 未知项或错误类型。标准化时先保留用户有效项的相对顺序，再按默认顺序补入
+ * 新版本新增或用户数据中缺失的音质。这样升级应用不会清空用户已有偏好。
+ */
+export function normalizeQualityDowngradeOrder(value: unknown): string[] {
+    const knownQualities = new Set(QUALITY_DOWNGRADE_ORDER)
+    const seen = new Set<string>()
+    const normalized: string[] = []
+
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            if (typeof item !== 'string' || !knownQualities.has(item) || seen.has(item)) {
+                continue
+            }
+            seen.add(item)
+            normalized.push(item)
+        }
+    }
+
+    // 缺失项通常来自应用升级后新增的音质；按默认相对顺序追加，保证所有音质
+    // 始终都能出现在编辑器中，也能作为后续降级候选。
+    for (const quality of QUALITY_DOWNGRADE_ORDER) {
+        if (!seen.has(quality)) {
+            seen.add(quality)
+            normalized.push(quality)
+        }
+    }
+
+    return normalized
+}
 
 export type Quality = string  // 不再限制字面量，兼容所有后端标签
 
@@ -28,6 +67,8 @@ export type TaskStatus = 'waiting' | 'downloading' | 'paused' | 'completed' | 'e
 export interface Settings {
     defaultQuality: Quality
     autoDowngrade: boolean
+    /** 用户定义的降级尝试顺序；排在目标音质之后的项目才会被依次尝试。 */
+    qualityDowngradeOrder: Quality[]
     downloadDir: string
     namingTemplate: string
     maxConcurrent: number
@@ -158,6 +199,13 @@ export interface TaskRecord {
     downloaded: number
     retryCount: number
     addedAt: number
+    /**
+     * 创建任务时歌曲实际提供的全部音质快照。
+     *
+     * 重试降级不仅要改变品质标签，还必须同步切换后端接口所需的 filename
+     * 和预估文件大小；旧任务没有该字段，因此保留为可选以兼容历史数据。
+     */
+    availableQualities?: QualityItem[]
     speed?: number  // 实时下载速度 (bytes/s)，仅 downloading/paused 状态有意义
     /**
      * 用户在“文件已存在”弹窗中选定的保存路径。
@@ -194,6 +242,8 @@ export interface DownloadLinkExpiredPayload {
 export const DEFAULT_SETTINGS: Settings = {
     defaultQuality: 'ask',
     autoDowngrade: true,
+    // 必须克隆默认数组，避免设置页排序时意外修改全局常量。
+    qualityDowngradeOrder: [...QUALITY_DOWNGRADE_ORDER],
     downloadDir: '',
     namingTemplate: '{song} - {artist}',
     maxConcurrent: 3,

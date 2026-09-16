@@ -2,7 +2,6 @@ import { h, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDialog, useNotification, NButton } from 'naive-ui'
 import type { Quality, SongInfo, QualityItem } from '../types'
-import { QUALITY_DOWNGRADE_ORDER } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useTaskStore } from '../stores/taskStore'
 import QualitySelector from '../components/search/QualitySelector.vue'
@@ -18,6 +17,17 @@ export function useDownloadActions() {
 
     function generateTaskId(): string {
         return Date.now().toString(36) + Math.random().toString(36).substring(2)
+    }
+
+    /**
+     * 为任务保存一份创建时的可用品质快照。
+     *
+     * 后续失败重试可能发生在搜索结果已经离开页面、甚至应用重启之后。只有把
+     * quality/filename/size 一起持久化到任务里，降级时才能安全切换真实下载文件，
+     * 而不是只改界面上的品质文字。
+     */
+    function snapshotAvailableQualities(song: SongInfo): QualityItem[] {
+        return song.qualities.map((item) => ({ ...item }))
     }
 
     /** 弹出品质选择弹窗，返回选中的品质标签 */
@@ -104,11 +114,11 @@ export function useDownloadActions() {
      *
      * 降级规则（通用，不针对任何具体音质做特判）：
      * 1. 目标音质直接可用 → 使用目标音质。
-     * 2. 目标音质不可用且开启自动降级 → 在 QUALITY_DOWNGRADE_ORDER（从高到低）
-     *    中目标音质所在索引之后的部分里，取第一个可用品质。
+     * 2. 目标音质不可用且开启自动降级 → 在用户设置的降级顺序中，从目标音质
+     *    所在位置之后开始，取第一个可用品质。
      * 3. 目标音质不在该列表中、或其后没有任何可用品质 → 返回 null。
      *
-     * 无论用户默认选择什么音质，降级方向都严格向下，不会选到比目标更高的品质。
+     * 自定义列表本身定义“降级方向”：只向目标项之后查找，绝不会回头选择前面的项。
      */
     function resolveQualityForSong(
         song: SongInfo,
@@ -118,15 +128,15 @@ export function useDownloadActions() {
         if (direct) return direct
 
         if (settingsStore.settings.autoDowngrade) {
-            // 目标音质在降级顺序（从高到低）中的索引
-            const desiredIndex = QUALITY_DOWNGRADE_ORDER.indexOf(desiredQuality)
-            // 目标音质不在已知顺序中，无法确定“低于目标”的区间，放弃降级
+            const downgradeOrder = settingsStore.settings.qualityDowngradeOrder
+            // 目标音质在用户顺序中的位置决定遍历起点；排在它之前的品质不会回头尝试。
+            const desiredIndex = downgradeOrder.indexOf(desiredQuality)
+            // 目标音质不在已知顺序中，无法确定后续候选区间，放弃降级。
             if (desiredIndex === -1) return null
 
-            // 从目标音质的下一项开始向后遍历：该区间内的所有品质都严格低于目标，
-            // 且列表本身从高到低排列，因此遇到的第一个可用项就是“低于目标中的最高可用项”
-            for (let i = desiredIndex + 1; i < QUALITY_DOWNGRADE_ORDER.length; i++) {
-                const found = song.qualities.find((q) => q.quality === QUALITY_DOWNGRADE_ORDER[i])
+            // 从目标音质的下一项开始向后遍历，遇到的第一个可用项就是用户最优先的候选。
+            for (let i = desiredIndex + 1; i < downgradeOrder.length; i++) {
+                const found = song.qualities.find((q) => q.quality === downgradeOrder[i])
                 if (found) return found
             }
         }
@@ -226,6 +236,7 @@ export function useDownloadActions() {
                     downloaded: 0,
                     retryCount: 0,
                     addedAt: Date.now(),
+                    availableQualities: snapshotAvailableQualities(song),
                 })
                 notification.warning({ title: '下载提示', description: `歌曲“${song.title}”无可用音质“${quality}”，已将任务标记为错误` })
                 return
@@ -252,6 +263,7 @@ export function useDownloadActions() {
                 downloaded: 0,
                 retryCount: 0,
                 addedAt: Date.now(),
+                availableQualities: snapshotAvailableQualities(song),
                 savePath,
             })
 
@@ -300,6 +312,7 @@ export function useDownloadActions() {
                             downloaded: 0,
                             retryCount: 0,
                             addedAt: Date.now(),
+                            availableQualities: snapshotAvailableQualities(song),
                         })
                     }
                     notification.warning({ title: '批量下载', description: '所选歌曲均无可用的音质' })
@@ -337,6 +350,7 @@ export function useDownloadActions() {
                         downloaded: 0,
                         retryCount: 0,
                         addedAt: Date.now(),
+                        availableQualities: snapshotAvailableQualities(song),
                     })
                     errorCount++
                     continue
@@ -363,6 +377,7 @@ export function useDownloadActions() {
                     downloaded: 0,
                     retryCount: 0,
                     addedAt: Date.now(),
+                    availableQualities: snapshotAvailableQualities(song),
                     savePath,
                 })
             }
