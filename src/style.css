@@ -17,17 +17,20 @@ body {
 
 #app {
   height: 100%;
+
+  /* 随可用视口高度调整；旧版 WebView 继续使用上面的百分比高度。 */
+  height: 100dvh;
 }
 
 /* 浅色模式（默认） */
 :root {
-  --bg-body: #fafafc;
+  --bg-body: #f4f7f6;
   --bg-sidebar: #ffffff;
   --bg-bottom: #ffffff;
-  --bg-content: #fafafc;
-  --border-color: #e0e0e0;
-  --color-text: #1f1f1f;            /* 主文字颜色 */
-  --color-text-secondary: #555;     /* 次要文字颜色 */
+  --bg-content: #f4f7f6;
+  --border-color: #dfe7e3;
+  --color-text: #202d28;            /* 主文字颜色 */
+  --color-text-secondary: #6b7b73;  /* 次要文字颜色 */
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
@@ -40,26 +43,30 @@ body {
 /* 深色模式 */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-body: #101014;
-    --bg-sidebar: #1e1e24;
-    --bg-bottom: #1e1e24;
-    --bg-content: #101014;
-    --border-color: #333;
-    --color-text: #eee;              /* 浅色文字 */
-    --color-text-secondary: #aaa;    /* 次要文字 */
+    --bg-body: #111815;
+    --bg-sidebar: #18211d;
+    --bg-bottom: #18211d;
+    --bg-content: #111815;
+    --border-color: #314139;
+    --color-text: #e5eee9;            /* 浅色文字 */
+    --color-text-secondary: #96aaa0;  /* 次要文字 */
   }
 }
 
 /* 应用背景到 body，确保滚动背景不露白 */
 body {
   background-color: var(--bg-body);
+  color: var(--color-text);
+
+  /* 页面在主内容区滚动，底部导航保持正常流占位。 */
+  overflow: hidden;
 }
 
 /* ---------- Android 安全区适配 ---------- */
 
 /* 主内容区顶部预留状态栏高度 */
 html.android .main-content {
-  padding-top: calc(16px + var(--safe-area-top)) !important;
+  padding-top: calc(var(--page-padding, 16px) + var(--safe-area-top)) !important;
 }
 
 /* 移动端底部导航区域避开 Android 手势条/底部安全区 */

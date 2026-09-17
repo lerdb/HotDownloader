@@ -14,7 +14,7 @@
             </router-view>
         </main>
 
-        <!-- 窄屏底部水平导航（固定底部，永远居中） -->
+        <!-- 窄屏底部水平导航：在正常文档流中固定占位，菜单始终居中 -->
         <footer v-if="isNarrow" class="bottom-nav">
             <div class="bottom-nav-inner">
                 <n-menu :value="currentRoute" :options="menuOptions" mode="horizontal"
@@ -29,6 +29,7 @@ import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NMenu, useNotification, type MenuOption } from 'naive-ui'
 import { useCloseGuard } from '../composables/useCloseGuard'
+import { useNarrowLayout } from '../composables/useNarrowLayout'
 
 const router = useRouter()
 const route = useRoute()
@@ -59,34 +60,21 @@ useCloseGuard()
 const notification = useNotification();
 (window as any).$notify = notification
 
-const isNarrow = ref(false)
-
-let mediaQuery: MediaQueryList | null = null
-
-function updateNarrow(e: MediaQueryListEvent | MediaQueryList) {
-    isNarrow.value = e.matches
-}
+// 移动端响应式布局状态；公共方法统一断点，并在组件销毁时清理监听。
+const isNarrow = useNarrowLayout()
 
 onMounted(() => {
-    mediaQuery = window.matchMedia('(max-width: 767px)')
-    updateNarrow(mediaQuery)
-    mediaQuery.addEventListener('change', updateNarrow)
-
     // 注册全局前置守卫，在离开当前路由前保存滚动位置
-    removeRouteGuard = router.beforeEach((_to, from, next) => {
+    removeRouteGuard = router.beforeEach((_to, from) => {
         if (mainContentRef.value) {
             scrollPositions[from.path] = mainContentRef.value.scrollTop
         }
-        next()
     })
     // 初始恢复当前路由的滚动位置（如果有保存过）
     restoreScrollPosition(route.path)
 })
 
 onUnmounted(() => {
-    if (mediaQuery) {
-        mediaQuery.removeEventListener('change', updateNarrow)
-    }
     // 移除路由守卫，避免内存泄漏
     if (removeRouteGuard) {
         removeRouteGuard()
@@ -94,7 +82,10 @@ onUnmounted(() => {
     }
 })
 
-const currentRoute = computed(() => route.path)
+// 关于页属于设置入口，返回时继续保持设置菜单高亮。
+const currentRoute = computed(() => {
+    return route.path.startsWith('/settings/') ? '/settings' : route.path
+})
 
 const menuOptions: MenuOption[] = [
     {
@@ -125,29 +116,43 @@ function handleMenuClick(key: string) {
 <style scoped>
 /* 布局整体 */
 .nav-layout {
+    --page-padding: 24px;
+
     display: flex;
     height: 100%;
+    min-height: 0;
 }
 
 .nav-layout.is-narrow {
+    --page-padding: 16px;
+
     flex-direction: column;
 }
 
 /* 侧边栏：使用自定义背景变量 */
 .sidebar {
-    width: 160px;
+    width: 176px;
     flex-shrink: 0;
     border-right: 1px solid var(--border-color);
-    padding: 12px 0;
+    padding: 16px 8px;
     background-color: var(--bg-sidebar);
+    overflow-y: auto;
+
+    /* 横屏时让导航避开状态栏和侧边安全区。 */
+    padding-top: calc(16px + var(--safe-area-top));
+    padding-left: calc(8px + var(--safe-area-left));
 }
 
 /* 主内容区背景 */
 .main-content {
     flex: 1;
+    /* 允许内容随窗口收缩，避免长列表撑开整个布局。 */
+    min-width: 0;
+    min-height: 0;
     overflow-y: auto;
-    padding: 16px;
+    padding: var(--page-padding);
     background-color: var(--bg-content);
+
     /* 将回弹限制在当前滚动容器内部，保留视觉回弹但阻断滚动链向上传播，恢复主内容区滚动到顶端/底端时的回弹效果，同时避免回弹传播导致底部导航移动 */
     overscroll-behavior: contain;
 }
@@ -155,6 +160,8 @@ function handleMenuClick(key: string) {
 /* 为正常流底部导航保留合适的底部间距，避免内容与导航粘连 */
 .main-content.has-bottom-nav {
     padding-bottom: 16px;
+    padding-left: calc(16px + var(--safe-area-left));
+    padding-right: calc(16px + var(--safe-area-right));
 }
 
 /* 底部导航：改用正常流布局（非 fixed），解决 Android 滚动回弹时导航被拉伸的问题 */
@@ -165,6 +172,8 @@ function handleMenuClick(key: string) {
     flex-shrink: 0;
     border-top: 1px solid var(--border-color);
     background-color: var(--bg-bottom);
+    padding-left: var(--safe-area-left);
+    padding-right: var(--safe-area-right);
 }
 
 /* 居中容器 */
@@ -178,10 +187,21 @@ function handleMenuClick(key: string) {
 
 /* 穿透样式强制菜单项居中 */
 .bottom-nav-inner :deep(.n-menu) {
+    width: 100%;
     justify-content: center;
 }
 
 .bottom-nav-inner :deep(.n-menu .n-menu-item) {
-    flex: none;
+    flex: 1;
+    min-width: 0;
+}
+
+/* 四个入口平分底栏，保持文字居中和足够的触控高度。 */
+.bottom-nav-inner :deep(.n-menu-item-content) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 8px;
 }
 </style>

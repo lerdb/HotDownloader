@@ -44,21 +44,31 @@
                 <LoginSetting />
             </div>
 
-            <n-form label-placement="left" label-width="180">
-                <QualitySetting />
-                <DowngradeSetting />
-                <DirectorySetting />
-                <NamingTemplate />
-                <ArtistSeparator />
-                <NamingPreview />
-                <WriteMetadataSetting />
-                <DownloadLrcSetting />
-                <ConcurrencySetting />
-                <JumpToTaskSetting />
-                <DuplicateStrategySetting />
-                <NotifySetting />
-                <ClearHistoryButton />
-            </n-form>
+            <!-- 桌面端与移动端使用相同的分组，表单标签仍保持左右布局。 -->
+            <div class="settings-section">
+                <h2 class="section-title">基本设置</h2>
+                <n-form label-placement="left" label-width="180">
+                    <QualitySetting />
+                    <DowngradeSetting />
+                    <ClearHistoryButton />
+                </n-form>
+            </div>
+
+            <div class="settings-section">
+                <h2 class="section-title">下载设置</h2>
+                <n-form label-placement="left" label-width="180">
+                    <DirectorySetting />
+                    <NamingTemplate />
+                    <ArtistSeparator />
+                    <NamingPreview />
+                    <WriteMetadataSetting />
+                    <DownloadLrcSetting />
+                    <ConcurrencySetting />
+                    <JumpToTaskSetting />
+                    <DuplicateStrategySetting />
+                    <NotifySetting />
+                </n-form>
+            </div>
         </template>
 
         <!-- 检查更新组件 -->

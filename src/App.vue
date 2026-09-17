@@ -1,6 +1,6 @@
 <template>
-  <n-config-provider :theme="theme" class="app-root">
-    <n-dialog-provider class="app-root">
+  <n-config-provider :theme="theme" :theme-overrides="themeOverrides" class="app-root">
+    <n-dialog-provider>
       <n-notification-provider>
         <NavLayout />
       </n-notification-provider>
@@ -9,11 +9,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { NConfigProvider, NDialogProvider, NNotificationProvider, darkTheme, useOsTheme } from 'naive-ui'
+import { NConfigProvider, NDialogProvider, NNotificationProvider } from 'naive-ui'
 import NavLayout from './components/NavLayout.vue'
+import { useAppTheme } from './composables/useAppTheme'
 
-const theme = computed(() => (useOsTheme().value === 'dark' ? darkTheme : null))
+const { theme, themeOverrides } = useAppTheme()
 </script>
 
 <style scoped>

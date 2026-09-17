@@ -1,5 +1,6 @@
 <template>
-    <n-tabs :value="activeTab" @update:value="$emit('update:activeTab', $event)" type="segment" size="medium">
+    <n-tabs :value="activeTab" @update:value="$emit('update:activeTab', $event)"
+        :type="isNarrow ? 'line' : 'segment'" size="medium">
         <n-tab-pane name="all" :tab="`全部 (${counts.total})`" />
         <n-tab-pane name="waiting" :tab="`等待中 (${counts.waiting})`" />
         <n-tab-pane name="downloading" :tab="`下载中 (${counts.downloading})`" />
@@ -11,6 +12,9 @@
 
 <script setup lang="ts">
 import { NTabs, NTabPane } from 'naive-ui'
+import { useNarrowLayout } from '../../composables/useNarrowLayout'
+
+const isNarrow = useNarrowLayout()
 
 export interface TabCounts {
     total: number
