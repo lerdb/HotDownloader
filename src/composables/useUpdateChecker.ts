@@ -1,4 +1,4 @@
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 // Markdown 渲染依赖
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -10,14 +10,18 @@ import { checkForUpdate } from '../api/musicApi'
 import { formatFileSize } from '../utils/format'
 import type { UpdateInfo } from '../types'
 
-export function useUpdateChecker() {
-    // 检查更新相关状态
-    const checkingUpdate = ref(false)
-    const updateInfo = ref<UpdateInfo | null>(null)
-    const showUpdateModal = ref(false)
+// 更新检查在应用内共享，确保启动自动检查与设置页入口使用同一份结果。
 
-    // 当前平台标识，用于过滤下载资产
-    const currentPlatform = ref<string>('')
+// 检查更新相关状态
+const checkingUpdate = ref(false)
+const updateInfo = ref<UpdateInfo | null>(null)
+const showUpdateModal = ref(false)
+
+// 当前平台标识，用于过滤下载资产
+const currentPlatform = ref<string>('')
+const hasInitialized = ref(false)
+
+export function useUpdateChecker() {
 
     // 根据当前平台过滤下载资产列表，实现平台相关的安装包显示，提升用户体验
     const filteredAssets = computed(() => {
@@ -70,25 +74,38 @@ export function useUpdateChecker() {
         }
     }
 
-    // 后台静默检查更新：仅更新数据，不弹窗，失败仅记录日志
+    // 后台静默检查更新：仅在发现新版本时展示原有更新弹窗。
     async function checkUpdateInBackground() {
-        try {
-            const info = await checkForUpdate()
-            updateInfo.value = info
-        } catch (error) {
-            console.warn('自动检查更新失败:', error)
-            // 静默失败，不打扰用户
-        }
-    }
-
-    // 手动点击检查更新：成功弹窗展示，失败弹出错误通知
-    async function handleCheckUpdate() {
         if (checkingUpdate.value) return
         checkingUpdate.value = true
         try {
             const info = await checkForUpdate()
             updateInfo.value = info
+            if (isNewVersion.value) {
+                showUpdateModal.value = true
+            }
+        } catch (error) {
+            console.warn('自动检查更新失败:', error)
+            // 静默失败，不打扰用户
+        } finally {
+            checkingUpdate.value = false
+        }
+    }
+
+    // 已发现新版本时，入口仅重新打开更新窗口；其余状态则重新检查。
+    async function handleCheckUpdate() {
+        if (isNewVersion.value) {
             showUpdateModal.value = true
+            return
+        }
+        if (checkingUpdate.value) return
+        checkingUpdate.value = true
+        try {
+            const info = await checkForUpdate()
+            updateInfo.value = info
+            if (isNewVersion.value) {
+                showUpdateModal.value = true
+            }
         } catch (error) {
             console.error('检查更新失败:', error)
             showErrorNotification('检查更新失败，请稍后重试')
@@ -97,8 +114,11 @@ export function useUpdateChecker() {
         }
     }
 
-    // 组件挂载时自动获取平台信息和静默检查更新
-    onMounted(async () => {
+    // 由应用根组件调用一次，避免进入设置页前漏检或重复请求。
+    async function initializeUpdateChecker() {
+        if (hasInitialized.value) return
+        hasInitialized.value = true
+
         // 使用 async/await 获取当前平台信息，避免类型不匹配和代码繁琐
         try {
             currentPlatform.value = await platform()
@@ -107,9 +127,9 @@ export function useUpdateChecker() {
             currentPlatform.value = ''
         }
 
-        // 自动静默检查更新
+        // 自动检查失败时仅记录日志，不提示用户。
         await checkUpdateInBackground()
-    })
+    }
 
     return {
         checkingUpdate,
@@ -122,5 +142,6 @@ export function useUpdateChecker() {
         formatFileSize,
         handleCheckUpdate,
         checkUpdateInBackground,
+        initializeUpdateChecker,
     }
 }

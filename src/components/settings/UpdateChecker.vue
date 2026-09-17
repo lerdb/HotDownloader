@@ -1,16 +1,13 @@
 <template>
     <!-- 检查更新入口（移动端与桌面端通用） -->
-    <div class="check-update-entry">
+    <div v-if="showEntry" class="check-update-entry">
         <n-button :loading="checkingUpdate" @click="handleCheckUpdate">
-            检查更新
+            {{ updateButtonText }}
         </n-button>
-        <span v-if="updateInfo && !checkingUpdate" class="update-status-text">
-            {{ isNewVersion ? '发现新版本' : '已是最新版本' }}
-        </span>
     </div>
 
     <!-- 更新信息弹窗：桌面端最大宽度 600px，移动端左右留白 16px -->
-    <n-modal v-model:show="showUpdateModal" preset="card" class="update-modal" :title="isNewVersion ? '发现新版本' : '检查更新'"
+    <n-modal v-if="showModal" v-model:show="showUpdateModal" preset="card" class="update-modal" title="发现新版本"
         style="max-width: 600px; width: calc(100% - 32px);">
         <div v-if="updateInfo" class="update-content">
             <p class="version-line">
@@ -54,7 +51,16 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useUpdateChecker } from '../../composables/useUpdateChecker'
+
+withDefaults(defineProps<{
+    showEntry?: boolean
+    showModal?: boolean
+}>(), {
+    showEntry: true,
+    showModal: false,
+})
 
 const {
     checkingUpdate,
@@ -66,6 +72,12 @@ const {
     formatFileSize,
     handleCheckUpdate,
 } = useUpdateChecker()
+
+const updateButtonText = computed(() => {
+    if (checkingUpdate.value) return '检查更新'
+    if (isNewVersion.value) return '打开更新窗口'
+    return updateInfo.value ? '已是最新版本' : '检查更新'
+})
 </script>
 
 <style scoped>
