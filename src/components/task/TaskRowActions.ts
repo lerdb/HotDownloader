@@ -131,6 +131,7 @@ function createCancelWithDeletePopconfirm(
     return h(
         NPopconfirm,
         {
+            style: { maxWidth: 'calc(100vw - 32px)' },
             onPositiveClick: () => {
                 emit('cancel', taskId, { deleteFile: deleteFile.value })
             },
@@ -177,6 +178,7 @@ function createRemoveWithDeletePopconfirm(
     return h(
         NPopconfirm,
         {
+            style: { maxWidth: 'calc(100vw - 32px)' },
             onPositiveClick: () => {
                 emit('remove', taskId, { deleteFile: deleteFile.value })
             },

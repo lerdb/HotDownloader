@@ -14,7 +14,8 @@
             </span>
 
             <!-- 清除所有已下载（已完成）的任务记录 -->
-            <n-popconfirm v-if="canClearCompleted" @positive-click="handleClearCompleted">
+            <n-popconfirm v-if="canClearCompleted" :style="{ maxWidth: 'calc(100vw - 32px)' }"
+                @positive-click="handleClearCompleted">
                 <template #trigger>
                     <n-button size="small" type="warning" :loading="clearing" :disabled="clearing">
                         清除所有已下载的任务（{{ tabCounts.completed }}）
@@ -29,7 +30,8 @@
             </n-popconfirm>
 
             <!-- 清除所有历史任务（含进行中的任务，会被取消） -->
-            <n-popconfirm v-if="canClearAll" @positive-click="handleClearAll">
+            <n-popconfirm v-if="canClearAll" :style="{ maxWidth: 'calc(100vw - 32px)' }"
+                @positive-click="handleClearAll">
                 <template #trigger>
                     <n-button size="small" type="error" :loading="clearing" :disabled="clearing">
                         清除所有历史任务（{{ tabCounts.total }}）
@@ -270,26 +272,33 @@ async function handleClearAll() {
 .task-view {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    min-height: 100%;
+    min-width: 0;
 }
 
 .task-pagination {
     display: flex;
     justify-content: center;
-    padding: 12px 0 0;
+    padding: 16px 0 0;
+    flex-shrink: 0;
 }
 
 .task-toolbar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 0;
+    gap: 8px 12px;
+    padding: 12px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
 }
 
 .task-toolbar-hint {
     font-size: 12px;
-    color: var(--n-text-color-3, #999);
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
 }
 
 .task-toolbar-confirm {
@@ -299,5 +308,20 @@ async function handleClearAll() {
 .task-toolbar-warn {
     font-size: 12px;
     color: var(--n-warning-color, #f0a020);
+}
+
+@media (max-width: 767px) {
+    .task-toolbar {
+        align-items: stretch;
+    }
+
+    .task-toolbar > .n-button {
+        min-height: 44px;
+        flex: 1 1 auto;
+    }
+
+    .task-toolbar-hint {
+        flex-basis: 100%;
+    }
 }
 </style>

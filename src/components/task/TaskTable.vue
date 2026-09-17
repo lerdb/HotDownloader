@@ -2,19 +2,21 @@
     <MobileTaskList v-if="isMobile" :tasks="tasks" :selected-row-keys="selectedRowKeys" :is-android="isAndroid"
         @update:selected-row-keys="(keys) => emit('update:selectedRowKeys', keys)"
         @action="(action, taskId, extra) => emit('action', action, taskId, extra)" />
-    <n-data-table v-else :columns="columns" :data="tasks" :row-key="(row: TaskRecord) => row.id"
+    <n-data-table v-else class="task-table" :columns="columns" :data="tasks" :row-key="(row: TaskRecord) => row.id"
+        :scroll-x="1080" table-layout="fixed"
         :checked-row-keys="(selectedRowKeys as any)"
         @update:checked-row-keys="(keys: any[]) => $emit('update:selectedRowKeys', keys as string[])" />
 </template>
 
 <script setup lang="ts">
-import { h, ref, onMounted, onUnmounted } from 'vue'
+import { h, ref, onMounted } from 'vue'
 import { NDataTable, NTag, NProgress, NSpace, NEllipsis } from 'naive-ui'
 import type { DataTableColumn } from 'naive-ui'
 import type { TaskRecord } from '../../types'
 import { formatSpeed } from '../../utils/format'
 import { renderActions } from './TaskRowActions'
 import MobileTaskList from './MobileTaskList.vue'
+import { useNarrowLayout } from '../../composables/useNarrowLayout'
 // 导入 OS 插件，用于获取平台信息
 import { platform } from '@tauri-apps/plugin-os'
 
@@ -22,13 +24,8 @@ import { platform } from '@tauri-apps/plugin-os'
 // 使用 Tauri OS 插件准确识别平台，在 onMounted 中异步获取平台并更新
 const isAndroid = ref(false)
 
-// 响应式检测移动端
-const isMobile = ref(false)
-let mediaQuery: MediaQueryList | null = null
-
-function updateMobileStatus(e: MediaQueryListEvent | MediaQueryList) {
-    isMobile.value = e.matches
-}
+// 响应式检测移动端：与导航共用断点，监听由 composable 随组件释放
+const isMobile = useNarrowLayout()
 
 onMounted(async () => {
     // 异步获取当前平台，设置 isAndroid
@@ -38,17 +35,6 @@ onMounted(async () => {
     } catch (error) {
         console.warn('获取平台信息失败，默认按非 Android 处理', error)
         isAndroid.value = false
-    }
-
-    // 原有媒体查询逻辑，保持不变
-    mediaQuery = window.matchMedia('(max-width: 767px)')
-    updateMobileStatus(mediaQuery)
-    mediaQuery.addEventListener('change', updateMobileStatus)
-})
-
-onUnmounted(() => {
-    if (mediaQuery) {
-        mediaQuery.removeEventListener('change', updateMobileStatus)
     }
 })
 
@@ -95,7 +81,7 @@ function renderProgress(row: TaskRecord) {
 
     if (row.speed && row.speed > 0) {
         children.push(
-            h('div', { style: { fontSize: '12px', color: 'var(--n-text-color-3)', marginTop: '4px' } },
+            h('div', { class: 'task-speed' },
                 formatSpeed(row.speed)
             )
         )
@@ -192,7 +178,24 @@ const columns: DataTableColumn<TaskRecord>[] = [
 </script>
 
 <style scoped>
-.song-info {
+.task-table {
+    min-width: 0;
+    flex-shrink: 0;
+}
+
+/* 固定列布局配合表格内部横向滚动，长内容在单元格内换行或省略 */
+.task-table :deep(.n-data-table-td) {
+    overflow-wrap: anywhere;
+}
+
+.task-table :deep(.task-speed) {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin-top: 4px;
+}
+
+/* 列内容由表格的 render 回调创建，使用 deep 将样式限定在当前表格内 */
+.task-table :deep(.song-info) {
     display: flex;
     flex-direction: row;
     align-items: baseline;
@@ -202,7 +205,7 @@ const columns: DataTableColumn<TaskRecord>[] = [
     /* 允许自身收缩 */
 }
 
-.song-title {
+.task-table :deep(.song-title) {
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -213,17 +216,17 @@ const columns: DataTableColumn<TaskRecord>[] = [
     /* 允许收缩 */
 }
 
-.song-separator {
+.task-table :deep(.song-separator) {
     margin: 0 4px;
-    color: var(--n-text-color-3);
+    color: var(--color-text-secondary);
     font-size: 12px;
     flex-shrink: 0;
     /* 分隔符不收缩 */
 }
 
-.song-artist {
+.task-table :deep(.song-artist) {
     font-size: 12px;
-    color: var(--n-text-color-3);
+    color: var(--color-text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

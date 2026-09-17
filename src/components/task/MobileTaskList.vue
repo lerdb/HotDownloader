@@ -180,11 +180,12 @@ export default defineComponent({
 .task-card-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 4px 0;
+    gap: 10px;
+    min-width: 0;
 }
 
 .task-card {
+    min-width: 0;
     background: var(--bg-sidebar);
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -193,14 +194,14 @@ export default defineComponent({
 }
 
 .task-card.is-selected {
-    border-color: var(--n-color-primary, #2080f0);
+    border-color: var(--color-text-secondary);
 }
 
 .task-card-header {
     display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    margin-bottom: 8px;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
 }
 
 .task-card-song {
@@ -211,8 +212,8 @@ export default defineComponent({
 
 .task-card-title {
     font-weight: 500;
-    font-size: 14px;
-    line-height: 1.4;
+    font-size: 15px;
+    line-height: 1.5;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -220,7 +221,7 @@ export default defineComponent({
 }
 
 .task-card-artist {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--color-text-secondary, #555);
     white-space: nowrap;
     overflow: hidden;
@@ -237,6 +238,8 @@ export default defineComponent({
 }
 
 .task-card-quality {
+    max-width: 100%;
+    overflow-wrap: anywhere;
     font-size: 12px;
     color: var(--color-text-secondary, #555);
     background: var(--bg-body);
@@ -255,6 +258,8 @@ export default defineComponent({
 
 /* 新增文件路径样式 */
 .task-card-filepath {
+    min-width: 0;
+    overflow-wrap: anywhere;
     margin-bottom: 8px;
     padding: 4px 8px;
     background: var(--bg-body);
@@ -272,11 +277,24 @@ export default defineComponent({
     font-size: 12px;
     color: var(--n-error-color, #d03050);
     word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+}
+
+/* 操作沿用原有按钮与确认流程，手机上增大点击区域并与进度信息留出间距 */
+.task-card-actions {
+    padding-top: 8px;
+}
+
+.task-card-actions :deep(.n-button) {
+    min-height: 44px;
+    padding-left: 14px;
+    padding-right: 14px;
 }
 
 .task-card-empty {
     text-align: center;
-    padding: 32px 0;
+    padding: 40px 0;
     color: var(--color-text-secondary, #555);
     font-size: 15px;
 }
