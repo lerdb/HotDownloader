@@ -45,7 +45,21 @@ defineEmits<{
 
 .hot-tag {
     cursor: pointer;
+    max-width: 100%;
     transition: opacity 0.2s;
+}
+
+.hot-tag :deep(.n-tag__content) {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.hot-tag.n-tag {
+    height: auto;
+    min-height: 32px;
+    padding-top: 4px;
+    padding-bottom: 4px;
 }
 
 .hot-tag:hover {

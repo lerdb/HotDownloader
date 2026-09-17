@@ -41,22 +41,24 @@ defineEmits<{
 .playlist-card-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
 }
 
 .playlist-card {
     display: flex;
     gap: 12px;
     align-items: center;
+    min-width: 0;
     padding: 12px;
     background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: border-color 0.2s;
 }
 
 .playlist-card:hover {
-    background-color: var(--bg-hover, rgba(0, 0, 0, 0.05));
+    border-color: var(--color-text-secondary);
 }
 
 .playlist-card-cover {
@@ -81,12 +83,14 @@ defineEmits<{
 }
 
 .playlist-card-creator {
+    overflow-wrap: anywhere;
     color: var(--color-text-secondary);
     font-size: 13px;
     margin-top: 2px;
 }
 
 .playlist-card-meta {
+    overflow-wrap: anywhere;
     color: var(--color-text-secondary);
     font-size: 12px;
     margin-top: 2px;

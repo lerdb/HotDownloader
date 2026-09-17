@@ -117,6 +117,7 @@ watch(
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-width: 0;
 }
 
 /* 覆盖 SearchBar 自带的 margin-bottom，避免与父容器 gap 叠加 */
@@ -136,8 +137,9 @@ watch(
     display: flex;
     gap: 16px;
     align-items: center;
-    padding: 12px;
+    padding: 16px;
     background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
 }
 
@@ -146,10 +148,13 @@ watch(
     height: 80px;
     border-radius: 8px;
     object-fit: cover;
+    flex-shrink: 0;
 }
 
 .playlist-details {
     flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .playlist-name {
@@ -172,8 +177,8 @@ watch(
 .list-header {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
-    margin-bottom: 8px;
 }
 
 .count-text {
@@ -184,6 +189,20 @@ watch(
 .song-items {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
+}
+
+/* 窄屏缩小信息区留白，封面保持比例，长文本自动换行 */
+@media (max-width: 767px) {
+    .playlist-info {
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .playlist-cover {
+        width: 64px;
+        height: 64px;
+    }
 }
 </style>

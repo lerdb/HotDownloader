@@ -72,6 +72,10 @@ const hasAny = computed(
 <style scoped>
 .search-suggestions {
     margin-top: 12px;
+    padding: 12px;
+    background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
 }
 
 .suggest-group {
@@ -87,6 +91,8 @@ const hasAny = computed(
 }
 
 .suggest-item {
+    min-height: 44px;
+    box-sizing: border-box;
     padding: 8px 12px;
     border-radius: 6px;
     cursor: pointer;
@@ -97,10 +103,11 @@ const hasAny = computed(
 }
 
 .suggest-item:hover {
-    background: var(--n-color-hover, rgba(0, 0, 0, 0.04));
+    background: var(--bg-body);
 }
 
 .item-name {
+    min-width: 0;
     font-size: 14px;
     color: var(--color-text);
     white-space: nowrap;
@@ -109,8 +116,12 @@ const hasAny = computed(
 }
 
 .item-singer {
+    min-width: 0;
+    max-width: 50%;
     font-size: 12px;
     color: var(--color-text-secondary);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 </style>

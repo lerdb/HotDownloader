@@ -49,5 +49,20 @@ defineEmits<{
 
 .history-tag {
     cursor: pointer;
+    max-width: 100%;
+}
+
+/* 长关键词换行显示，保留标签末尾的删除入口 */
+.history-tag :deep(.n-tag__content) {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.history-tag.n-tag {
+    height: auto;
+    min-height: 32px;
+    padding-top: 4px;
+    padding-bottom: 4px;
 }
 </style>

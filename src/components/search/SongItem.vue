@@ -1,5 +1,5 @@
 <template>
-    <div class="song-item">
+    <div class="song-item" :class="{ 'is-selected': selected }">
         <n-checkbox :checked="selected" @update:checked="$emit('toggleSelect', $event)" />
         <div class="cover-wrapper">
             <img v-if="coverUrl" :src="coverUrl" class="cover" alt="封面" loading="lazy" />
@@ -19,7 +19,7 @@
                 </n-tag>
             </div>
         </div>
-        <n-button size="small" @click="$emit('download', song)">
+        <n-button size="small" class="download-btn" @click="$emit('download', song)">
             下载
         </n-button>
     </div>
@@ -96,9 +96,15 @@ watch(() => props.song.id, () => {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px;
-    border: 1px solid var(--n-border-color, #eee);
+    min-width: 0;
+    padding: 12px;
+    background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
+}
+
+.song-item.is-selected {
+    border-color: var(--color-text-secondary);
 }
 
 .cover-wrapper {
@@ -125,6 +131,7 @@ watch(() => props.song.id, () => {
 
 .info {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
 }
 
@@ -135,9 +142,11 @@ watch(() => props.song.id, () => {
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--color-text);
+    line-height: 1.5;
 }
 
 .subtitle {
+    margin-top: 2px;
     font-size: 13px;
     color: var(--color-text-secondary);
     white-space: nowrap;
@@ -150,5 +159,21 @@ watch(() => props.song.id, () => {
     flex-wrap: wrap;
     gap: 4px;
     margin-top: 4px;
+}
+
+.download-btn {
+    flex-shrink: 0;
+}
+
+/* 手机保留封面和操作入口，长歌名在剩余空间内省略 */
+@media (max-width: 767px) {
+    .song-item {
+        gap: 8px;
+        padding: 10px 8px;
+    }
+
+    .download-btn {
+        min-height: 44px;
+    }
 }
 </style>

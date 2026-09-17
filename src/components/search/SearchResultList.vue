@@ -82,6 +82,7 @@ function toggleSelect(songMid: string, selected: boolean) {
 <style scoped>
 .list-header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     margin-bottom: 12px;
@@ -95,7 +96,7 @@ function toggleSelect(songMid: string, selected: boolean) {
 .song-items {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
 }
 
 .empty-result {

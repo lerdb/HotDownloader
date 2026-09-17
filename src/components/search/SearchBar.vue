@@ -94,39 +94,33 @@ function handleClear() {
 </script>
 
 <!-- ===== 必要的 CSS 变量（仅布局/主题，非组件颜色） ===== -->
-<style>
-:root {
-    --search-height: 38px;
+<style scoped>
+.search-bar {
+    --search-height: 44px;
     --search-font-size: 14px;
-    --search-radius: 10px;
+    --search-radius: 8px;
     /* 统一圆角 */
-    --search-padding: 4px 12px;
-    --search-gap: 10px;
+    --search-padding: 8px;
+    --search-gap: 8px;
 
     /* 容器背景/阴影（支持深色模式） */
-    --search-bg: #f5f7fa;
-    --search-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-    --search-shadow-focus: 0 2px 8px rgba(0, 0, 0, 0.10);
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        --search-bg: #1e1e24;
-        --search-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
-        --search-shadow-focus: 0 2px 10px rgba(0, 0, 0, 0.8);
-    }
+    --search-bg: var(--bg-sidebar);
+    --search-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    --search-shadow-focus: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 </style>
 
 <!-- ===== 组件样式（仅布局覆盖，颜色/圆角尽量用原生） ===== -->
-<style>
+<style scoped>
 .search-bar {
     display: flex;
     align-items: center;
     gap: var(--search-gap);
+    min-width: 0;
     margin-bottom: 16px;
     background: var(--search-bg);
     padding: var(--search-padding);
+    border: 1px solid var(--border-color);
     border-radius: var(--search-radius);
     /* 外层圆角 */
     box-shadow: var(--search-shadow);
@@ -150,6 +144,11 @@ function handleClear() {
     gap: 4px;
 }
 
+.platform-arrow {
+    margin-left: 4px;
+    color: var(--color-text-secondary);
+}
+
 /* 输入框容器自动撑开 */
 .search-bar .search-input {
     flex: 1;
@@ -157,26 +156,26 @@ function handleClear() {
 }
 
 /* ---------- 让 n-input 透明，只继承外层背景 ---------- */
-.search-bar .search-input .n-input {
+.search-bar .search-input {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     height: var(--search-height) !important;
-    padding: 0 12px !important;
+    --n-padding-left: 12px;
+    --n-padding-right: 12px;
     /* 左右缩进，占位符不再顶左 */
     border-radius: 0 !important;
     /* 取消自身圆角，由外层统一 */
 }
 
-.search-bar .search-input .n-input-wrapper {
+.search-input :deep(.n-input-wrapper) {
     background: transparent !important;
     border: none !important;
-    padding: 0 !important;
     height: 100% !important;
 }
 
 /* 内部 input 零内边距，由父级控制 */
-.search-bar .search-input .n-input__input {
+.search-input :deep(.n-input__input) {
     padding: 0 !important;
     font-size: var(--search-font-size) !important;
     height: 100% !important;
@@ -188,23 +187,25 @@ function handleClear() {
     /* 使用 Naive UI 默认文字颜色 */
 }
 
-.search-bar .search-input .n-input__input::placeholder {
+.search-input :deep(.n-input__input-el) {
+    height: 100%;
+}
+
+.search-input :deep(.n-input__input-el::placeholder) {
     color: inherit !important;
     /* 使用 Naive UI 默认占位符颜色 */
     opacity: 0.6;
 }
 
 /* 隐藏内置边框伪元素 */
-.search-bar .search-input .n-input__border,
-.search-bar .search-input .n-input__state-border {
+.search-input :deep(.n-input__border),
+.search-input :deep(.n-input__state-border) {
     display: none !important;
 }
 
-/* 清除按钮位置微调 */
-.search-bar .search-input .n-input__clear {
-    right: 4px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
+/* 清除按钮与输入文字居中对齐，沿用组件的清除交互 */
+.search-input :deep(.n-input__suffix) {
+    align-items: center;
 }
 
 /* ---------- 按钮：仅控制尺寸，颜色/圆角完全由 type="primary" 决定 ---------- */
@@ -222,11 +223,18 @@ function handleClear() {
 
 /* 保留悬停/禁用等状态，利用 Naive UI 的默认行为，仅微调阴影 */
 .search-bar .search-btn:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(24, 144, 255, 0.3);
+    box-shadow: var(--search-shadow-focus);
 }
 
-.search-bar .search-btn:active:not(:disabled) {
-    transform: scale(0.97);
+/* 窄屏将操作按钮单独放一行，为关键词和歌单链接保留输入空间 */
+@media (max-width: 767px) {
+    .search-bar {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .search-bar .search-btn {
+        grid-column: 1 / -1;
+    }
 }
 </style>

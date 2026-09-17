@@ -63,7 +63,7 @@ import { useDownloadActions } from '../composables/useDownloadActions'
 import { useSongSearch } from '../composables/useSongSearch'
 import { usePlaylistSearch } from '../composables/usePlaylistSearch'
 import * as musicApi from '../api/musicApi'
-import type { SearchSuggestionData, PlaylistSearchItem } from '../types'
+import type { SearchSuggestionData, PlaylistSearchItem, SongInfo } from '../types'
 import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
 
 const router = useRouter()
@@ -255,7 +255,7 @@ function goToPlaylist(pl: PlaylistSearchItem) {
 }
 
 // 单曲下载
-function onSingleDownload(song: any) {
+function onSingleDownload(song: SongInfo) {
     downloadSingle(song)
 }
 
@@ -272,6 +272,7 @@ function onBatchDownload() {
 .search-view {
     display: flex;
     flex-direction: column;
+    min-width: 0;
     /* 防止底部导航遮挡 */
     min-height: 100%;
     padding-bottom: 0;
@@ -287,6 +288,18 @@ function onBatchDownload() {
 .type-switch {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* 搜索栏和类型切换的间距由 search-header 统一控制 */
+.search-header :deep(.search-bar) {
+    margin-bottom: 0;
+}
+
+@media (max-width: 767px) {
+    .type-switch .n-button {
+        min-height: 44px;
+    }
 }
 
 .loading-wrapper {
