@@ -4,17 +4,17 @@
         @action="(action, taskId, extra) => emit('action', action, taskId, extra)" />
     <n-data-table v-else class="task-table" :columns="columns" :data="tasks" :row-key="(row: TaskRecord) => row.id"
         :scroll-x="1080" table-layout="fixed"
-        :checked-row-keys="(selectedRowKeys as any)"
-        @update:checked-row-keys="(keys: any[]) => $emit('update:selectedRowKeys', keys as string[])" />
+        :checked-row-keys="selectedRowKeys" @update:checked-row-keys="handleCheckedRowKeys" />
 </template>
 
 <script setup lang="ts">
 import { h, ref, onMounted } from 'vue'
 import { NDataTable, NTag, NProgress, NSpace, NEllipsis } from 'naive-ui'
-import type { DataTableColumn } from 'naive-ui'
+import type { DataTableColumn, DataTableRowKey, TagProps } from 'naive-ui'
 import type { TaskRecord } from '../../types'
 import { formatSpeed } from '../../utils/format'
 import { renderActions } from './TaskRowActions'
+import type { TaskAction, TaskActionExtra } from './TaskRowActions'
 import MobileTaskList from './MobileTaskList.vue'
 import { useNarrowLayout } from '../../composables/useNarrowLayout'
 // 导入 OS 插件，用于获取平台信息
@@ -46,8 +46,12 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: 'update:selectedRowKeys', keys: string[]): void
     // 增加第三个参数 extra，用于传递删除文件标志等
-    (e: 'action', action: string, taskId: string, extra?: Record<string, any>): void
+    (e: 'action', action: TaskAction, taskId: string, extra?: TaskActionExtra): void
 }>()
+
+function handleCheckedRowKeys(keys: DataTableRowKey[]) {
+    emit('update:selectedRowKeys', keys.map(String))
+}
 
 /**
  * 渲染进度列
@@ -120,7 +124,7 @@ const columns: DataTableColumn<TaskRecord>[] = [
         key: 'status',
         width: 100,
         render(row: TaskRecord) {
-            const statusMap: Record<string, { type: string; label: string }> = {
+            const statusMap: Record<string, { type: TagProps['type']; label: string }> = {
                 waiting: { type: 'info', label: '等待中' },
                 downloading: { type: 'info', label: '下载中' },
                 paused: { type: 'warning', label: '暂停' },
@@ -129,7 +133,7 @@ const columns: DataTableColumn<TaskRecord>[] = [
                 processing: { type: 'info', label: '处理中' },
             }
             const s = statusMap[row.status] || { type: 'default', label: row.status }
-            return h(NTag, { type: s.type as any, size: 'small' }, () => s.label)
+            return h(NTag, { type: s.type, size: 'small' }, () => s.label)
         },
     },
     {
@@ -166,7 +170,7 @@ const columns: DataTableColumn<TaskRecord>[] = [
             return h(NSpace, { justify: 'center' }, () =>
                 renderActions(row, {
                     // 显式传递第三个参数，确保 extra 不被丢弃
-                    emit: (action: string, taskId: string, extra?: Record<string, any>) => {
+                    emit: (action: TaskAction, taskId: string, extra?: TaskActionExtra) => {
                         emit('action', action, taskId, extra)
                     },
                     isAndroid: isAndroid.value,

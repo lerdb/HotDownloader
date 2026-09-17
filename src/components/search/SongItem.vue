@@ -122,11 +122,11 @@ watch(() => props.song.id, () => {
 }
 
 .cover.placeholder {
-    background-color: var(--n-color-hover, rgba(0, 0, 0, 0.04));
+    background-color: var(--border-color);
 }
 
 .cover.placeholder.default {
-    background-color: var(--bg-body, #f5f5f5);
+    background-color: var(--bg-body);
 }
 
 .info {

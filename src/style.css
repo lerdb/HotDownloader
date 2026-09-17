@@ -31,6 +31,7 @@ body {
   --border-color: #dfe7e3;
   --color-text: #202d28;            /* 主文字颜色 */
   --color-text-secondary: #6b7b73;  /* 次要文字颜色 */
+  --color-primary: #178366;
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
@@ -50,6 +51,7 @@ body {
     --border-color: #314139;
     --color-text: #e5eee9;            /* 浅色文字 */
     --color-text-secondary: #96aaa0;  /* 次要文字 */
+    --color-primary: #6ee7bc;
   }
 }
 

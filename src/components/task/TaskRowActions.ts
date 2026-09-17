@@ -2,8 +2,20 @@ import { h, ref, type VNode } from 'vue'
 import { NButton, NPopconfirm, NCheckbox, NSpace } from 'naive-ui'
 import type { TaskRecord } from '../../types'
 
+export type TaskAction = 'cancel' | 'pause' | 'resume' | 'retry' | 'remove' | 'open-location'
+
+export interface TaskActionExtra {
+    deleteFile?: boolean
+}
+
+export type TaskActionEmitter = (
+    action: TaskAction,
+    taskId: string,
+    extra?: TaskActionExtra
+) => void
+
 export interface TaskActionContext {
-    emit: (action: string, taskId: string, extra?: Record<string, any>) => void
+    emit: TaskActionEmitter
     isAndroid?: boolean
 }
 
@@ -123,7 +135,7 @@ export function renderActions(
  * 创建带“删除文件”选项的取消确认弹窗（用于 waiting/paused 状态）
  */
 function createCancelWithDeletePopconfirm(
-    emit: TaskActionContext['emit'],
+    emit: TaskActionEmitter,
     taskId: string
 ) {
     const deleteFile = ref(false)
@@ -167,7 +179,7 @@ function createCancelWithDeletePopconfirm(
  * @param defaultChecked 复选框默认是否勾选
  */
 function createRemoveWithDeletePopconfirm(
-    emit: TaskActionContext['emit'],
+    emit: TaskActionEmitter,
     taskId: string,
     confirmText: string,
     checkboxLabel: string,

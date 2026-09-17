@@ -10,9 +10,11 @@ import {
     NProgress,
     NSpace,
     NEllipsis,
+    type TagProps,
 } from 'naive-ui'
 import type { TaskRecord } from '../../types'
 import { renderActions } from './TaskRowActions'
+import type { TaskAction, TaskActionExtra } from './TaskRowActions'
 
 export default defineComponent({
     name: 'MobileTaskList',
@@ -55,7 +57,7 @@ export default defineComponent({
         }
 
         // 状态映射
-        const statusMap: Record<string, { type: string; label: string }> = {
+        const statusMap: Record<string, { type: TagProps['type']; label: string }> = {
             waiting: { type: 'info', label: '等待中' },
             downloading: { type: 'info', label: '下载中' },
             paused: { type: 'warning', label: '暂停' },
@@ -67,7 +69,7 @@ export default defineComponent({
         // 操作按钮 VNode 数组
         function actionNodes(task: TaskRecord) {
             return renderActions(task, {
-                emit: (action: string, taskId: string, extra?: Record<string, any>) => {
+                emit: (action: TaskAction, taskId: string, extra?: TaskActionExtra) => {
                     emit('action', action, taskId, extra)
                 },
                 isAndroid: props.isAndroid,
@@ -107,7 +109,7 @@ export default defineComponent({
 
                 // 元信息：状态、音质、速度
                 h('div', { class: 'task-card-meta' }, [
-                    h(NTag, { type: status.type as any, size: 'small' }, () => status.label),
+                    h(NTag, { type: status.type, size: 'small' }, () => status.label),
                     h('span', { class: 'task-card-quality' }, task.quality),
                     // 速度仅在 downloading 状态且 speed > 0 时显示，避免暂停或错误状态残留速度
                     task.status === 'downloading' && task.speed && task.speed > 0

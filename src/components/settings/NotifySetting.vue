@@ -25,7 +25,7 @@ const settingsStore = useSettingsStore()
 // 移动端判断
 const isNarrow = useNarrowLayout()
 
-const notify = () => (window as any).$notify
+const notify = () => window.$notify
 
 // ===== 处理通知开关切换 =====
 // 用户开启通知时，必须先获得系统通知权限，否则开关保持关闭状态，

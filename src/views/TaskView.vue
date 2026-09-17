@@ -71,6 +71,7 @@ import { useDownloadActions } from '../composables/useDownloadActions'
 import TaskTabs from '../components/task/TaskTabs.vue'
 import TaskTable from '../components/task/TaskTable.vue'
 import TaskBatchActions from '../components/task/TaskBatchActions.vue'
+import type { TaskAction, TaskActionExtra } from '../components/task/TaskRowActions'
 
 const taskStore = useTaskStore()
 const { retryTask } = useDownloadActions()
@@ -153,7 +154,7 @@ watch(
     }
 )
 
-async function handleAction(action: string, taskId: string, extra?: any) {
+async function handleAction(action: TaskAction, taskId: string, extra?: TaskActionExtra) {
     switch (action) {
         case 'cancel':
             taskStore.cancelTask(taskId, extra?.deleteFile === true)

@@ -62,7 +62,7 @@ export function useUpdateChecker() {
 
     // 显示错误通知：使用全局 $notify（NavLayout 已挂载），避免依赖未提供的 message provider
     function showErrorNotification(message: string) {
-        const notify = () => (window as any).$notify
+        const notify = () => window.$notify
         if (typeof window !== 'undefined' && notify()) {
             notify()?.error({ title: '错误', description: message, duration: 3000 })
         } else {

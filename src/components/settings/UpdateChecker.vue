@@ -183,7 +183,7 @@ const {
 }
 
 .markdown-body :deep(a) {
-    color: #4098fc;
+    color: var(--color-primary);
 }
 
 /* 资产列表样式 */
@@ -200,7 +200,7 @@ const {
 
 .asset-link {
     overflow-wrap: anywhere;
-    color: #4098fc;
+    color: var(--color-primary);
     text-decoration: none;
     font-size: 14px;
     transition: opacity 0.2s;

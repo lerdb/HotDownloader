@@ -17,7 +17,7 @@ export const useTaskStore = defineStore('tasks', () => {
     const tasks = ref<TaskRecord[]>([])
 
     // 简易全局通知辅助函数
-    const notify = () => (window as any).$notify
+    const notify = () => window.$notify
 
     // ---- 持久化加载 ----
     async function loadTasks() {

@@ -57,8 +57,8 @@ watch(() => route.path, (newPath) => {
 useCloseGuard()
 
 // 挂载通知实例到全局，供 store 使用
-const notification = useNotification();
-(window as any).$notify = notification
+const notification = useNotification()
+window.$notify = notification
 
 // 移动端响应式布局状态；公共方法统一断点，并在组件销毁时清理监听。
 const isNarrow = useNarrowLayout()
