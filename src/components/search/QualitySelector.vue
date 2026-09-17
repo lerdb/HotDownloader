@@ -54,6 +54,7 @@ defineExpose({ selected })
 }
 
 .quality-btn {
+    flex-shrink: 0;
     height: auto;
     padding: 10px 14px;
     border-radius: 8px;
@@ -68,6 +69,8 @@ defineExpose({ selected })
 }
 
 .quality-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
     font-weight: 600;
     font-size: 15px;
     margin-bottom: 4px;
@@ -75,7 +78,7 @@ defineExpose({ selected })
 
 .quality-size {
     font-size: 12px;
-    color: var(--n-text-color-3);
+    color: var(--color-text-secondary);
     line-height: 1.4;
 }
 </style>

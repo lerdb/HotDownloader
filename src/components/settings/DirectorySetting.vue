@@ -99,9 +99,15 @@ async function selectSafFolder() {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-width: 0;
+    width: 100%;
+    align-items: flex-start;
 }
 
 .current-dir {
     font-size: 13px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
 }
 </style>

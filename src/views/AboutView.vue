@@ -76,12 +76,13 @@ function goBack() {
 
 <style scoped>
 .about-view {
-    max-width: 600px;
+    max-width: 800px;
+    min-width: 0;
     margin: 0 auto;
-    padding: 24px 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 16px;
 }
 
 /* 使用 flex 让按钮左对齐，并设置底部外边距与内容分隔 */
@@ -95,6 +96,7 @@ function goBack() {
 .about-card {
     /* 使用全局定义的侧边栏背景色，自动适配深色模式 */
     background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 24px;
     text-align: center;
@@ -121,6 +123,7 @@ function goBack() {
 
 .about-section {
     background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 16px 20px;
 }
@@ -149,7 +152,9 @@ function goBack() {
 .component-item {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 16px;
     padding: 8px 0;
     border-bottom: 1px solid var(--border-color);
 }
@@ -159,11 +164,13 @@ function goBack() {
 }
 
 .component-name {
+    overflow-wrap: anywhere;
     font-size: 14px;
     color: var(--color-text);
 }
 
 .component-license {
+    overflow-wrap: anywhere;
     font-size: 13px;
     color: var(--color-text-secondary);
 }
@@ -172,5 +179,16 @@ function goBack() {
     font-size: 14px;
     color: var(--color-text-secondary);
     line-height: 1.6;
+}
+
+@media (max-width: 767px) {
+    .about-card,
+    .about-section {
+        padding: 16px 12px;
+    }
+
+    .back-row :deep(.n-button) {
+        min-height: 44px;
+    }
 }
 </style>

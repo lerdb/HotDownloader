@@ -62,6 +62,19 @@ body {
   overflow: hidden;
 }
 
+/* 通用确认弹窗适应窄屏和较小视口，长内容滚动后仍可操作底部按钮。 */
+body .n-dialog {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
+  max-height: calc(100dvh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+body .n-dialog__action {
+  flex-wrap: wrap;
+}
+
 /* ---------- Android 安全区适配 ---------- */
 
 /* 主内容区顶部预留状态栏高度 */

@@ -15,7 +15,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { useNarrowLayout } from '../../composables/useNarrowLayout'
 import { NFormItem, NSwitch } from 'naive-ui'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { requestNotificationPermission, checkNotificationPermission } from '../../api/musicApi'
@@ -23,27 +23,7 @@ import { requestNotificationPermission, checkNotificationPermission } from '../.
 const settingsStore = useSettingsStore()
 
 // 移动端判断
-const isNarrow = ref(
-    typeof window !== 'undefined' &&
-    window.matchMedia('(max-width: 767px)').matches
-)
-let mediaQuery: MediaQueryList | null = null
-
-function updateNarrow(e: MediaQueryListEvent | MediaQueryList) {
-    isNarrow.value = e.matches
-}
-
-onMounted(() => {
-    mediaQuery = window.matchMedia('(max-width: 767px)')
-    updateNarrow(mediaQuery)
-    mediaQuery.addEventListener('change', updateNarrow)
-})
-
-onUnmounted(() => {
-    if (mediaQuery) {
-        mediaQuery.removeEventListener('change', updateNarrow)
-    }
-})
+const isNarrow = useNarrowLayout()
 
 const notify = () => (window as any).$notify
 

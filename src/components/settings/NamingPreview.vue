@@ -65,6 +65,8 @@ const exampleFilename = computed(() => {
 <style scoped>
 
 .preview-container {
+    min-width: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -75,18 +77,18 @@ const exampleFilename = computed(() => {
     /* 确保每行占满 */
     width: 100%;
     font-size: 12px;
-    color: var(--n-text-color-3);
+    color: var(--color-text-secondary);
     line-height: 1.8;
     word-break: break-all;
 }
 
 .preview-label {
-    color: var(--n-text-color-3);
+    color: var(--color-text-secondary);
     margin-right: 4px;
 }
 
 .preview-value {
-    color: var(--n-text-color);
+    color: var(--color-text);
     font-family: monospace;
     font-size: 12px;
     background: rgba(127, 127, 127, 0.15);

@@ -21,7 +21,7 @@ const settingsStore = useSettingsStore()
 <style scoped>
 .template-help {
     font-size: 12px;
-    color: var(--n-text-color-3);
+    color: var(--color-text-secondary);
     margin-top: 4px;
     line-height: 1.6;
 }

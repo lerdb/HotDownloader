@@ -16,7 +16,7 @@
                     </div>
                 </n-tab-pane>
                 <n-tab-pane name="manual" tab="手动登录">
-                    <n-form label-placement="left" label-width="110">
+                    <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 110">
                         <n-form-item label="UIN">
                             <n-input v-model:value="manualUin" placeholder="QQ音乐 UIN（必填）" />
                         </n-form-item>
@@ -58,11 +58,13 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { NTabs, NTabPane, NForm, NFormItem, NInput, NButton, useNotification } from 'naive-ui'
 import * as musicApi from '../../api/musicApi'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useNarrowLayout } from '../../composables/useNarrowLayout'
 
 const PLATFORM = "qqmusic"
 
 const notification = useNotification()
 const settingsStore = useSettingsStore()
+const isNarrow = useNarrowLayout()
 const isLoggedIn = ref(false)
 const loginUin = ref('')
 const activeTab = ref('qr')
@@ -219,6 +221,7 @@ onUnmounted(() => {
 <style scoped>
 .login-setting {
     width: 100%;
+    min-width: 0;
 }
 
 .qr-container {
@@ -242,11 +245,23 @@ onUnmounted(() => {
 .qr-tips {
     font-size: 13px;
     color: var(--color-text-secondary);
+    text-align: center;
 }
 
 .logged-in {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.logged-in > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.logged-in :deep(.n-button) {
+    flex-shrink: 0;
 }
 </style>

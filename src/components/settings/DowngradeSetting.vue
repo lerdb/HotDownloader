@@ -81,7 +81,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { useNarrowLayout } from '../../composables/useNarrowLayout'
+import { computed, ref } from 'vue'
 import { NButton, NFormItem, NModal, NSwitch, NTag } from 'naive-ui'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { QUALITY_DOWNGRADE_ORDER } from '../../types'
@@ -143,30 +144,21 @@ function saveOrder() {
 }
 
 // 移动端判断
-const isNarrow = ref(
-    typeof window !== 'undefined' &&
-    window.matchMedia('(max-width: 767px)').matches
-)
-let mediaQuery: MediaQueryList | null = null
-
-function updateNarrow(e: MediaQueryListEvent | MediaQueryList) {
-    isNarrow.value = e.matches
-}
-
-onMounted(() => {
-    mediaQuery = window.matchMedia('(max-width: 767px)')
-    updateNarrow(mediaQuery)
-    mediaQuery.addEventListener('change', updateNarrow)
-})
-
-onUnmounted(() => {
-    if (mediaQuery) {
-        mediaQuery.removeEventListener('change', updateNarrow)
-    }
-})
+const isNarrow = useNarrowLayout()
 </script>
 
 <style scoped>
+/* 弹窗由 Modal 渲染到 body，使用专属类名定位；内容滚动，页脚保持可见 */
+:global(.downgrade-modal) {
+    max-height: calc(100vh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
+    max-height: calc(100dvh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
+}
+
+:global(.downgrade-modal > .n-card-content) {
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .downgrade-setting {
     min-width: 0;
     width: 100%;
@@ -248,6 +240,7 @@ onUnmounted(() => {
 .modal-actions {
     justify-content: space-between;
     gap: 16px;
+    flex-wrap: wrap;
 }
 
 /* 移动端行内布局 */
@@ -276,6 +269,13 @@ onUnmounted(() => {
 }
 
 @media (max-width: 767px) {
+    :global(.downgrade-modal > .n-card-header),
+    :global(.downgrade-modal > .n-card-content),
+    :global(.downgrade-modal > .n-card__footer) {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
     .quality-order-item {
         min-height: 48px;
     }

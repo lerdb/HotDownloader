@@ -41,13 +41,15 @@
                     </a>
                 </div>
             </div>
-            <div class="modal-actions">
+        </div>
+        <template #footer>
+            <div v-if="updateInfo" class="modal-actions">
                 <n-button type="primary" @click="showUpdateModal = false">关闭</n-button>
                 <n-button v-if="updateInfo.html_url" tag="a" :href="updateInfo.html_url" target="_blank">
                     前往发布页
                 </n-button>
             </div>
-        </div>
+        </template>
     </n-modal>
 </template>
 
@@ -73,6 +75,7 @@ const {
     align-items: center;
     justify-content: center;
     gap: 12px;
+    flex-wrap: wrap;
     margin-top: 24px;
 }
 
@@ -82,7 +85,20 @@ const {
 }
 
 /* 更新信息弹窗内部样式 */
+/* Modal 渲染到 body，通过专属类名限制弹窗高度和内容滚动区域 */
+:global(.update-modal) {
+    max-height: calc(100vh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
+    max-height: calc(100dvh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
+}
+
+:global(.update-modal > .n-card-content) {
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .update-content {
+    min-width: 0;
+    overflow-wrap: anywhere;
     line-height: 1.6;
     /* 增加内容区上下空白，使弹窗不显得拥挤 */
     padding: 8px 0;
@@ -155,6 +171,17 @@ const {
     padding: 0;
 }
 
+.markdown-body :deep(img) {
+    max-width: 100%;
+    height: auto;
+}
+
+.markdown-body :deep(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
 .markdown-body :deep(a) {
     color: #4098fc;
 }
@@ -172,6 +199,7 @@ const {
 }
 
 .asset-link {
+    overflow-wrap: anywhere;
     color: #4098fc;
     text-decoration: none;
     font-size: 14px;
@@ -187,5 +215,19 @@ const {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 767px) {
+    :global(.update-modal > .n-card-header),
+    :global(.update-modal > .n-card-content),
+    :global(.update-modal > .n-card__footer) {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .modal-actions :deep(.n-button) {
+        min-height: 44px;
+    }
 }
 </style>

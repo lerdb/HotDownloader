@@ -25,33 +25,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { useNarrowLayout } from '../../composables/useNarrowLayout'
 import { NFormItem, NRadioGroup, NRadioButton } from 'naive-ui'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 const settingsStore = useSettingsStore()
 
-const isNarrow = ref(
-    typeof window !== 'undefined' &&
-    window.matchMedia('(max-width: 767px)').matches
-)
-let mediaQuery: MediaQueryList | null = null
-
-function updateNarrow(e: MediaQueryListEvent | MediaQueryList) {
-    isNarrow.value = e.matches
-}
-
-onMounted(() => {
-    mediaQuery = window.matchMedia('(max-width: 767px)')
-    updateNarrow(mediaQuery)
-    mediaQuery.addEventListener('change', updateNarrow)
-})
-
-onUnmounted(() => {
-    if (mediaQuery) {
-        mediaQuery.removeEventListener('change', updateNarrow)
-    }
-})
+const isNarrow = useNarrowLayout()
 </script>
 
 <style scoped>

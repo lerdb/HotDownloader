@@ -1,75 +1,39 @@
 <template>
     <div class="settings-view" :class="{ 'is-narrow': isNarrow }">
-        <!-- 移动端：分组纵向布局 -->
-        <template v-if="isNarrow">
-            <!-- 账号设置：独立分类，位于基本设置上方，增加底部间距避免与下方黏连 -->
-            <div class="settings-section account-section">
-                <h2 class="section-title">账号设置</h2>
-                <n-form label-placement="top">
-                    <LoginSetting />
-                </n-form>
-            </div>
-
-            <div class="settings-section">
-                <h2 class="section-title">基本设置</h2>
-                <n-form label-placement="top">
-                    <QualitySetting />
-                    <DowngradeSetting />
-                    <ClearHistoryButton />
-                </n-form>
-            </div>
-
-            <div class="settings-section">
-                <h2 class="section-title">下载设置</h2>
-                <n-form label-placement="top">
-                    <DirectorySetting />
-                    <NamingTemplate />
-                    <ArtistSeparator />
-                    <NamingPreview />
-                    <WriteMetadataSetting />
-                    <DownloadLrcSetting />
-                    <ConcurrencySetting />
-                    <JumpToTaskSetting />
-                    <DuplicateStrategySetting />
-                    <NotifySetting />
-                </n-form>
-            </div>
-        </template>
-
-        <!-- 桌面端：原有左右分栏表单 -->
-        <template v-else>
-            <!-- 账号设置：独立分类，位于基本设置上方，增加底部间距避免与下方黏连 -->
-            <div class="settings-section account-section">
-                <h2 class="section-title">账号设置</h2>
+        <!-- 移动端：分组纵向布局；桌面端：原有左右分栏表单。
+             共用组件实例，缩放窗口时保留登录输入和弹窗中的编辑草稿。 -->
+        <!-- 账号设置：独立分类，位于基本设置上方，增加底部间距避免与下方黏连 -->
+        <div class="settings-section account-section">
+            <h2 class="section-title">账号设置</h2>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'">
                 <LoginSetting />
-            </div>
+            </n-form>
+        </div>
 
-            <!-- 桌面端与移动端使用相同的分组，表单标签仍保持左右布局。 -->
-            <div class="settings-section">
-                <h2 class="section-title">基本设置</h2>
-                <n-form label-placement="left" label-width="180">
-                    <QualitySetting />
-                    <DowngradeSetting />
-                    <ClearHistoryButton />
-                </n-form>
-            </div>
+        <div class="settings-section">
+            <h2 class="section-title">基本设置</h2>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+                <QualitySetting />
+                <DowngradeSetting />
+                <ClearHistoryButton />
+            </n-form>
+        </div>
 
-            <div class="settings-section">
-                <h2 class="section-title">下载设置</h2>
-                <n-form label-placement="left" label-width="180">
-                    <DirectorySetting />
-                    <NamingTemplate />
-                    <ArtistSeparator />
-                    <NamingPreview />
-                    <WriteMetadataSetting />
-                    <DownloadLrcSetting />
-                    <ConcurrencySetting />
-                    <JumpToTaskSetting />
-                    <DuplicateStrategySetting />
-                    <NotifySetting />
-                </n-form>
-            </div>
-        </template>
+        <div class="settings-section">
+            <h2 class="section-title">下载设置</h2>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+                <DirectorySetting />
+                <NamingTemplate />
+                <ArtistSeparator />
+                <NamingPreview />
+                <WriteMetadataSetting />
+                <DownloadLrcSetting />
+                <ConcurrencySetting />
+                <JumpToTaskSetting />
+                <DuplicateStrategySetting />
+                <NotifySetting />
+            </n-form>
+        </div>
 
         <!-- 检查更新组件 -->
         <UpdateChecker />
@@ -82,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { useNarrowLayout } from '../composables/useNarrowLayout'
 import { useRouter } from 'vue-router'
 import { NForm, NButton } from 'naive-ui'
 import QualitySetting from '../components/settings/QualitySetting.vue'
@@ -104,28 +68,7 @@ import UpdateChecker from '../components/settings/UpdateChecker.vue'
 const router = useRouter()
 
 // 移动端响应式布局状态
-const isNarrow = ref(
-    typeof window !== 'undefined' &&
-    window.matchMedia('(max-width: 767px)').matches
-)
-
-let mediaQuery: MediaQueryList | null = null
-
-function updateNarrow(e: MediaQueryListEvent | MediaQueryList) {
-    isNarrow.value = e.matches
-}
-
-onMounted(() => {
-    mediaQuery = window.matchMedia('(max-width: 767px)')
-    updateNarrow(mediaQuery)
-    mediaQuery.addEventListener('change', updateNarrow)
-})
-
-onUnmounted(() => {
-    if (mediaQuery) {
-        mediaQuery.removeEventListener('change', updateNarrow)
-    }
-})
+const isNarrow = useNarrowLayout()
 
 function goAbout() {
     router.push('/settings/about')
@@ -134,8 +77,9 @@ function goAbout() {
 
 <style scoped>
 .settings-view {
-    max-width: 600px;
-    padding: 16px 0;
+    width: 100%;
+    max-width: 800px;
+    min-width: 0;
     /* 让设置页占满父容器高度，使用 flex 列布局 */
     display: flex;
     flex-direction: column;
@@ -148,16 +92,20 @@ function goAbout() {
 }
 
 .settings-section {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
+    padding: 20px;
+    min-width: 0;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
 }
 
 .account-section {
-    margin-bottom: 32px;
+    margin-bottom: 20px;
 }
 
 .settings-section+.settings-section {
-    border-top: 1px solid var(--border-color, #e0e0e0);
-    padding-top: 24px;
+    padding-top: 20px;
 }
 
 .section-title {
@@ -172,5 +120,42 @@ function goAbout() {
     margin-top: auto;
     padding-top: 24px;
     text-align: center;
+}
+
+/* 统一子组件的表单收缩和行间距，长标签与路径在自己的区域内换行 */
+.settings-view :deep(.n-form-item-blank),
+.settings-view :deep(.n-input-group) {
+    min-width: 0;
+}
+
+.settings-view :deep(.setting-row) {
+    gap: 12px;
+    min-height: 44px;
+    flex-wrap: wrap;
+}
+
+.settings-view :deep(.setting-label) {
+    color: var(--color-text);
+    flex: 1;
+    min-width: 140px;
+}
+
+.settings-view :deep(.setting-row .n-switch) {
+    flex-shrink: 0;
+}
+
+.settings-view :deep(.setting-row .n-input-number) {
+    width: 132px;
+}
+
+@media (max-width: 767px) {
+    .settings-section,
+    .settings-section + .settings-section {
+        padding: 16px 12px;
+    }
+
+    .settings-view :deep(.n-button) {
+        min-height: 44px;
+    }
 }
 </style>
