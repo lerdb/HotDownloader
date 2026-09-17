@@ -226,7 +226,8 @@ function handleClear() {
     box-shadow: var(--search-shadow-focus);
 }
 
-/* 窄屏将操作按钮单独放一行，为关键词和歌单链接保留输入空间 */
+/* 窄屏不再将操作按钮单独放一行 */
+/*
 @media (max-width: 767px) {
     .search-bar {
         display: grid;
@@ -237,4 +238,5 @@ function handleClear() {
         grid-column: 1 / -1;
     }
 }
+*/
 </style>
