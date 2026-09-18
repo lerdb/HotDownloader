@@ -1,9 +1,7 @@
 <template>
     <div class="about-view">
         <!-- 在关于页面左上角添加返回按钮，提供明确的返回导航入口 -->
-        <div class="back-row">
-            <n-button text @click="goBack">← 返回</n-button>
-        </div>
+        <n-button @click="goBack">返回</n-button>
         <div class="about-card">
             <h1 class="app-title">HotDownloader</h1>
             <!-- 直接使用注入的变量，不再硬编码 -->
@@ -55,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { NUl, NLi, NA } from 'naive-ui'
+import { NButton, NUl, NLi, NA } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { rustComponents, frontendComponents } from '../data/licenses'
 
@@ -85,12 +83,8 @@ function goBack() {
     gap: 16px;
 }
 
-/* 使用 flex 让按钮左对齐，并设置底部外边距与内容分隔 */
-.back-row {
-    display: flex;
-    justify-content: flex-start;
-    /* 轻微调整与下方卡片的间距，保持整体 gap 视觉统一 */
-    margin-bottom: -8px;
+.about-view > .n-button {
+    align-self: flex-start;
 }
 
 .about-card {
@@ -185,10 +179,6 @@ function goBack() {
     .about-card,
     .about-section {
         padding: 16px 12px;
-    }
-
-    .back-row :deep(.n-button) {
-        min-height: 44px;
     }
 }
 </style>
