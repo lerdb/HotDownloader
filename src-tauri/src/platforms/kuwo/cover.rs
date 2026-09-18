@@ -3,6 +3,8 @@
 //! 酷我的封面需要通过独立的 `artistpicserver.kuwo.cn/pic.web` 接口获取，
 //! 接口响应体是直接的图片 URL。
 
+use url::Url;
+
 use crate::utils::http::CLIENT;
 
 /// 获取歌曲封面 URL。
@@ -19,13 +21,20 @@ use crate::utils::http::CLIENT;
 /// - `Ok(String)`：封面图片完整 URL。
 /// - `Err(String)`：错误信息。
 pub(crate) async fn fetch_cover(rid: u64) -> Result<String, String> {
-    let url = format!(
-        "http://artistpicserver.kuwo.cn/pic.web?corp=kuwo&type=rid_pic&pictype=500&size=500&rid={}",
-        rid
-    );
+    let url = Url::parse_with_params(
+        "http://artistpicserver.kuwo.cn/pic.web",
+        &[
+            ("corp", "kuwo"),
+            ("type", "rid_pic"),
+            ("pictype", "500"),
+            ("size", "500"),
+            ("rid", rid.to_string().as_str()),
+        ],
+    )
+    .map_err(|e| format!("URL 构建失败: {}", e))?;
 
     let resp = CLIENT
-        .get(&url)
+        .get(url)
         .header("Referer", "http://www.kuwo.cn/")
         .send()
         .await

@@ -95,14 +95,26 @@ pub(crate) async fn fetch_playlist_songs(
 
     loop {
         // 构建请求 URL
-        let url = format!(
-            "http://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid={}&pn={}&rn={}&encode=utf8&keyset=pl2012&identity=kuwo&pcmp4=1&vipver=MUSIC_9.0.5.0_W1&newver=1",
-            pid, pn, rn
-        );
+        let url = Url::parse_with_params(
+            "http://nplserver.kuwo.cn/pl.svc",
+            &[
+                ("op", "getlistinfo"),
+                ("pid", pid.as_str()),
+                ("pn", pn.to_string().as_str()),
+                ("rn", rn.to_string().as_str()),
+                ("encode", "utf8"),
+                ("keyset", "pl2012"),
+                ("identity", "kuwo"),
+                ("pcmp4", "1"),
+                ("vipver", "MUSIC_9.0.5.0_W1"),
+                ("newver", "1"),
+            ],
+        )
+        .map_err(|e| format!("URL 构建失败: {}", e))?;
 
         // 发送 GET 请求
         let resp = CLIENT
-            .get(&url)
+            .get(url)
             .header("Referer", "http://www.kuwo.cn/")
             .header("User-Agent", "Mozilla/5.0")
             .send()
@@ -229,15 +241,31 @@ pub(crate) async fn search_playlists(
     // 酷我 pn 从 0 开始，page 从 1 开始
     let pn = page.saturating_sub(1);
 
-    let url = format!(
-        "http://search.kuwo.cn/r.s?all={}&pn={}&rn={}&rformat=json&encoding=utf8&ver=mbox&vipver=MUSIC_8.7.7.0_BCS37&plat=pc&devid=28156413&ft=playlist&pay=1&needliveshow=1&client=kt&newver=1&vermerge=1&mobi=1",
-        urlencoding::encode(&keyword),
-        pn,
-        limit
-    );
+    let url = Url::parse_with_params(
+        "http://search.kuwo.cn/r.s",
+        &[
+            ("all", keyword.as_str()),
+            ("pn", pn.to_string().as_str()),
+            ("rn", limit.to_string().as_str()),
+            ("rformat", "json"),
+            ("encoding", "utf8"),
+            ("ver", "mbox"),
+            ("vipver", "MUSIC_8.7.7.0_BCS37"),
+            ("plat", "pc"),
+            ("devid", "28156413"),
+            ("ft", "playlist"),
+            ("pay", "1"),
+            ("needliveshow", "1"),
+            ("client", "kt"),
+            ("newver", "1"),
+            ("vermerge", "1"),
+            ("mobi", "1"),
+        ],
+    )
+    .map_err(|e| format!("URL 构建失败: {}", e))?;
 
     let resp = CLIENT
-        .get(&url)
+        .get(url)
         .header("User-Agent", "Mozilla/5.0")
         .send()
         .await

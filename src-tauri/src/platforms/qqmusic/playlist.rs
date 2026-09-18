@@ -200,16 +200,23 @@ pub(crate) async fn search_playlists(
     let page_no = page.saturating_sub(1);
 
     // 构建请求 URL
-    let url = format!(
-        "http://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist?page_no={}&num_per_page={}&format=json&query={}&remoteplace=txt.yqq.playlist&inCharset=utf8&outCharset=utf-8",
-        page_no,
-        limit,
-        keyword
-    );
+    let url = Url::parse_with_params(
+        "http://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist",
+        &[
+            ("page_no", page_no.to_string().as_str()),
+            ("num_per_page", limit.to_string().as_str()),
+            ("format", "json"),
+            ("query", keyword.as_str()),
+            ("remoteplace", "txt.yqq.playlist"),
+            ("inCharset", "utf8"),
+            ("outCharset", "utf-8"),
+        ],
+    )
+    .map_err(|e| format!("URL 构建失败: {}", e))?;
 
     // 发送 GET 请求，必须携带 Referer 和 User-Agent
     let resp = CLIENT
-        .get(&url)
+        .get(url)
         .header("Referer", "http://y.qq.com/portal/search.html")
         .header(
             "User-Agent",

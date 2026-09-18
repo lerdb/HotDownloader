@@ -15,6 +15,7 @@
 use std::path::Path;
 
 use serde_json::Value;
+use url::Url;
 
 use crate::utils::http::CLIENT;
 use crate::utils::kwdes;
@@ -73,14 +74,24 @@ pub(crate) async fn get_download_link(
 
     // 构造请求 URL
     let br = format!("{}k{}", bitrate, format);
-    let url = format!(
-        "http://mobi.kuwo.cn/mobi.s?f=web&user={}&android_id={}&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk\
-         &type=convert_url_with_sign&from=PC&rid={}&br={}&format={}",
-         user_str, android_id, rid, br, format
-    );
+    let url = Url::parse_with_params(
+        "http://mobi.kuwo.cn/mobi.s",
+        &[
+            ("f", "web"),
+            ("user", user_str.as_str()),
+            ("android_id", android_id.as_str()),
+            ("source", "kwplayer_ar_5.1.0.0_B_jiakong_vh.apk"),
+            ("type", "convert_url_with_sign"),
+            ("from", "PC"),
+            ("rid", rid.to_string().as_str()),
+            ("br", br.as_str()),
+            ("format", format.as_str()),
+        ],
+    )
+    .map_err(|e| format!("URL 构建失败: {}", e))?;
 
     let resp = CLIENT
-        .get(&url)
+        .get(url)
         .header("User-Agent", "okhttp/4.10.0")
         .header("Referer", "http://www.kuwo.cn/")
         .send()

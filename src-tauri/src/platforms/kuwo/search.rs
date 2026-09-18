@@ -12,7 +12,7 @@
 
 use serde_json::{json, Value};
 use tauri::AppHandle;
-use urlencoding::encode;
+use url::Url;
 
 use super::parser::parse_song;
 use crate::utils::filename::get_artist_separator;
@@ -41,18 +41,32 @@ pub(crate) async fn search_songs(
     // 酷我 pn 从 0 开始，page 从 1 开始
     let pn = page.saturating_sub(1);
 
-    let url = format!(
-        "http://search.kuwo.cn/r.s?client=kt&all={}&pn={}&rn={}\
-         &uid=794762570&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1\
-         &newver=1&ft=music&cluster=0&strategy=2012&encoding=utf8\
-         &rformat=json&vermerge=1&mobi=1&issubtitle=1",
-        encode(&keyword),
-        pn,
-        limit
-    );
+    let url = Url::parse_with_params(
+        "http://search.kuwo.cn/r.s",
+        &[
+            ("client", "kt"),
+            ("all", keyword.as_str()),
+            ("pn", pn.to_string().as_str()),
+            ("rn", limit.to_string().as_str()),
+            ("uid", "794762570"),
+            ("ver", "kwplayer_ar_9.2.2.1"),
+            ("vipver", "1"),
+            ("show_copyright_off", "1"),
+            ("newver", "1"),
+            ("ft", "music"),
+            ("cluster", "0"),
+            ("strategy", "2012"),
+            ("encoding", "utf8"),
+            ("rformat", "json"),
+            ("vermerge", "1"),
+            ("mobi", "1"),
+            ("issubtitle", "1"),
+        ],
+    )
+    .map_err(|e| format!("URL 构建失败: {}", e))?;
 
     let resp = CLIENT
-        .get(&url)
+        .get(url)
         .header("User-Agent", "kwplayer_ar_9.2.2.1")
         .send()
         .await
