@@ -12,6 +12,16 @@ const routes: RouteRecordRaw[] = [
         meta: { keepAlive: true },
     },
     {
+        path: '/artist',
+        name: 'artist',
+        component: () => import('../views/ArtistView.vue'),
+    },
+    {
+        path: '/album',
+        name: 'album',
+        component: () => import('../views/AlbumView.vue'),
+    },
+    {
         path: '/playlist',
         name: 'playlist',
         component: () => import('../views/PlaylistView.vue'),

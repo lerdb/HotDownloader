@@ -3,13 +3,17 @@
         <!-- 平台绑定 + 搜索类型切换 -->
         <div class="search-header">
             <SearchBar v-model:keyword="keyword" v-model:platform="currentPlatform" :platform-options="PLATFORMS"
-                :placeholder="searchType === 'song' ? '搜索歌曲、歌手、专辑' : '输入关键词搜索歌单'"
-                :button-text="searchType === 'song' ? '搜索' : '搜索歌单'" @search="handleSearch" />
+                :placeholder="searchPlaceholder"
+                button-text="搜索" @search="handleSearch" />
 
             <!-- 搜索类型切换按钮 -->
             <div class="type-switch">
                 <n-button quaternary :type="searchType === 'song' ? 'primary' : 'default'"
                     @click="switchSearchType('song')">歌曲</n-button>
+                <n-button quaternary :type="searchType === 'artist' ? 'primary' : 'default'"
+                    @click="switchSearchType('artist')">歌手</n-button>
+                <n-button quaternary :type="searchType === 'album' ? 'primary' : 'default'"
+                    @click="switchSearchType('album')">专辑</n-button>
                 <n-button quaternary :type="searchType === 'playlist' ? 'primary' : 'default'"
                     @click="switchSearchType('playlist')">歌单</n-button>
             </div>
@@ -27,7 +31,7 @@
         </template>
 
         <!-- 加载中 -->
-        <div v-if="(searchType === 'song' ? songLoading : playlistLoading)" class="loading-wrapper">
+        <div v-if="searchLoading" class="loading-wrapper">
             <n-spin size="medium" />
         </div>
 
@@ -35,6 +39,25 @@
         <SearchResultList v-if="searchType === 'song' && songHasSearched && !songLoading" :songs="songSearchResults"
             v-model:selectedIds="songSelectedIds" :has-more="songHasMore" :loading-more="songLoadingMore"
             @download="onSingleDownload" @retry="handleSearch" @load-more="loadMoreSongs" />
+
+        <template v-if="searchType === 'artist'">
+            <n-alert v-if="artistError" type="error" title="歌手搜索失败">
+                {{ artistError }}
+                <n-button @click="artistSearchResults.length ? loadMoreArtists() : handleSearch()">重试</n-button>
+            </n-alert>
+            <ArtistSearchResult v-if="artistHasSearched && !artistLoading && (!artistError || artistSearchResults.length)"
+                :artists="artistSearchResults" :has-more="artistHasMore" :loading-more="artistLoadingMore"
+                @click-artist="goToArtist" @load-more="loadMoreArtists" />
+        </template>
+        <template v-if="searchType === 'album'">
+            <n-alert v-if="albumError" type="error" title="专辑搜索失败" class="album-error">
+                {{ albumError }}
+                <n-button @click="albumSearchResults.length ? loadMoreAlbums() : handleSearch()">重试</n-button>
+            </n-alert>
+            <AlbumSearchResult v-if="albumHasSearched && !albumLoading && (!albumError || albumSearchResults.length)"
+                :albums="albumSearchResults" :has-more="albumHasMore" :loading-more="albumLoadingMore"
+                @click-album="goToAlbum" @load-more="loadMoreAlbums" />
+        </template>
 
         <!-- 歌单搜索结果列表 -->
         <PlaylistSearchResult v-if="searchType === 'playlist' && playlistHasSearched && !playlistLoading"
@@ -49,13 +72,17 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue'
-import { NSpin, NButton } from 'naive-ui'
+import { NSpin, NButton, NAlert } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import SearchBar from '../components/search/SearchBar.vue'
 import SearchHistory from '../components/search/SearchHistory.vue'
 import HotKeywords from '../components/search/HotKeywords.vue'
 import SearchSuggestions from '../components/search/SearchSuggestions.vue'
 import SearchResultList from '../components/search/SearchResultList.vue'
+import ArtistSearchResult from '../components/search/ArtistSearchResult.vue'
+import { useArtistSearch } from '../composables/useArtistSearch'
+import AlbumSearchResult from '../components/search/AlbumSearchResult.vue'
+import { useAlbumSearch } from '../composables/useAlbumSearch'
 import PlaylistSearchResult from '../components/search/PlaylistSearchResult.vue'
 import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
 import { useHistoryStore } from '../stores/historyStore'
@@ -63,7 +90,7 @@ import { useDownloadActions } from '../composables/useDownloadActions'
 import { useSongSearch } from '../composables/useSongSearch'
 import { usePlaylistSearch } from '../composables/usePlaylistSearch'
 import * as musicApi from '../api/musicApi'
-import type { SearchSuggestionData, PlaylistSearchItem, SongInfo } from '../types'
+import type { SearchSuggestionData, PlaylistSearchItem, AlbumInfo, ArtistInfo, SongInfo } from '../types'
 import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
 
 const router = useRouter()
@@ -71,7 +98,7 @@ const keyword = ref('')
 const currentPlatform = ref(DEFAULT_PLATFORM)
 
 // 搜索类型
-type SearchType = 'song' | 'playlist'
+type SearchType = 'song' | 'artist' | 'album' | 'playlist'
 const searchType = ref<SearchType>('song')
 
 // 使用歌曲搜索 composable，解构出状态和方法
@@ -99,13 +126,51 @@ const {
     reset: resetPlaylistSearch,
 } = usePlaylistSearch()
 
+const {
+    albums: albumSearchResults,
+    loading: albumLoading,
+    loadingMore: albumLoadingMore,
+    hasSearched: albumHasSearched,
+    hasMore: albumHasMore,
+    error: albumError,
+    search: searchAlbumFunc,
+    reset: resetAlbumSearch,
+    loadMore: loadMoreAlbums,
+} = useAlbumSearch()
+const {
+    artists: artistSearchResults,
+    loading: artistLoading,
+    loadingMore: artistLoadingMore,
+    hasSearched: artistHasSearched,
+    hasMore: artistHasMore,
+    error: artistError,
+    search: searchArtistFunc,
+    reset: resetArtistSearch,
+    loadMore: loadMoreArtists,
+} = useArtistSearch()
+const searchPlaceholder = computed(() => ({
+    song: '搜索歌曲、歌手、专辑',
+    artist: '输入关键词搜索歌手',
+    album: '输入关键词搜索专辑',
+    playlist: '输入关键词搜索歌单'
+})[searchType.value])
+const searchLoading = computed(() => ({
+    song: songLoading.value,
+    artist: artistLoading.value,
+    album: albumLoading.value,
+    playlist: playlistLoading.value
+})[searchType.value])
+
 // 历史与热搜
 const historyStore = useHistoryStore()
 const hotKeywords = ref<string[]>([])
 const hotLoading = ref(false)
 
 // 下载操作
-const { downloadSingle, batchDownload } = useDownloadActions()
+const {
+    downloadSingle,
+    batchDownload
+} = useDownloadActions()
 
 // 搜索建议相关
 const suggestions = ref<SearchSuggestionData>({
@@ -133,8 +198,13 @@ watch(keyword, (newVal) => {
     }
 
     const term = newVal.trim()
-    if (!term) {
-        suggestions.value = { song: [], singer: [], album: [], mv: [] }
+    if (!term || searchType.value !== 'song') {
+        suggestions.value = {
+            song: [],
+            singer: [],
+            album: [],
+            mv: []
+        }
         return
     }
 
@@ -148,7 +218,12 @@ watch(keyword, (newVal) => {
             }
         } catch {
             if (!controller.signal.aborted) {
-                suggestions.value = { song: [], singer: [], album: [], mv: [] }
+                suggestions.value = {
+                    song: [],
+                    singer: [],
+                    album: [],
+                    mv: []
+                }
             }
         } finally {
             if (abortController === controller) {
@@ -169,7 +244,14 @@ watch(keyword, (newVal) => {
     if (!newVal) {
         resetSongSearch()
         resetPlaylistSearch()
-        suggestions.value = { song: [], singer: [], album: [], mv: [] }
+        resetAlbumSearch()
+        resetArtistSearch()
+        suggestions.value = {
+            song: [],
+            singer: [],
+            album: [],
+            mv: []
+        }
     }
 })
 
@@ -192,23 +274,25 @@ onMounted(() => {
 // 平台切换
 watch(currentPlatform, () => {
     fetchHotKeywords()
-    suggestions.value = { song: [], singer: [], album: [], mv: [] }
+    suggestions.value = {
+        song: [],
+        singer: [],
+        album: [],
+        mv: []
+    }
     if (abortController) abortController.abort()
     resetSongSearch()
     resetPlaylistSearch()
+    resetAlbumSearch()
+    resetArtistSearch()
 })
 
 // 切换搜索类型
 function switchSearchType(type: SearchType) {
     searchType.value = type
-    const term = keyword.value.trim()
-    if (term) {
-        if (type === 'song') {
-            searchSongFunc(currentPlatform.value, term, historyStore.addHistory)
-        } else {
-            searchPlaylistFunc(currentPlatform.value, term)
-        }
-    }
+    if (debounceTimer) clearTimeout(debounceTimer)
+    if (abortController) abortController.abort()
+    handleSearch()
 }
 
 // 热搜点击
@@ -234,7 +318,11 @@ async function handleSearch() {
 
     if (searchType.value === 'song') {
         await searchSongFunc(currentPlatform.value, term, historyStore.addHistory)
-    } else {
+    } else if (searchType.value === 'artist') {
+        await searchArtistFunc(currentPlatform.value, term)
+    } else if (searchType.value === 'album') {
+        await searchAlbumFunc(currentPlatform.value, term)
+    } else if (searchType.value === 'playlist') {
         await searchPlaylistFunc(currentPlatform.value, term)
     }
 }
@@ -249,9 +337,44 @@ function loadMorePlaylists() {
     loadMorePlaylistFunc(currentPlatform.value, keyword.value)
 }
 
+function goToArtist(artist: ArtistInfo) {
+    router.push({
+        path: '/artist',
+        query: {
+            platform: currentPlatform.value,
+            id: artist.id,
+            name: artist.name,
+            cover: artist.coverUrl,
+            alias: artist.alias,
+            region: artist.region,
+            songs: artist.songCount,
+            albums: artist.albumCount
+        }
+    })
+}
+
+function goToAlbum(album: AlbumInfo) {
+    router.push({
+        path: '/album',
+        query: {
+            platform: currentPlatform.value,
+            id: album.id,
+            name: album.name,
+            artist: album.artist,
+            date: album.publishDate
+        }
+    })
+}
+
 // 跳转歌单详情
 function goToPlaylist(pl: PlaylistSearchItem) {
-    router.push({ path: '/playlist', query: { platform: currentPlatform.value, id: pl.id } })
+    router.push({
+        path: '/playlist',
+        query: {
+            platform: currentPlatform.value,
+            id: pl.id
+        }
+    })
 }
 
 // 单曲下载

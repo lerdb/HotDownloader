@@ -92,6 +92,7 @@ function onBatchDownload() {
 
 // 从路由参数加载歌单
 async function loadPlaylistFromQuery() {
+    if (route.path !== '/playlist') return
     const qPlatform = route.query.platform as string | undefined
     const qId = route.query.id as string | undefined
     if (qPlatform && qId) {

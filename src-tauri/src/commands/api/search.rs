@@ -34,3 +34,99 @@ pub async fn fetch_cover(platform: String, song_id: u64) -> Result<String, Strin
         Platform::Kuwo => crate::platforms::kuwo::cover::fetch_cover(song_id).await,
     }
 }
+
+#[command]
+pub async fn search_albums(
+    app: AppHandle,
+    platform: String,
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    if page == 0 || limit == 0 || limit > 100 {
+        return Err("无效的分页参数".into());
+    }
+    match Platform::from_str(&platform)? {
+        Platform::QqMusic => {
+            crate::platforms::qqmusic::search::search_albums(&app, keyword, page, limit).await
+        }
+        Platform::Kuwo => {
+            crate::platforms::kuwo::search::search_albums(&app, keyword, page, limit).await
+        }
+    }
+}
+
+#[command]
+pub async fn fetch_album_songs(
+    app: AppHandle,
+    platform: String,
+    id: String,
+) -> Result<String, String> {
+    match Platform::from_str(&platform)? {
+        Platform::QqMusic => crate::platforms::qqmusic::album::fetch_album_songs(&app, id).await,
+        Platform::Kuwo => crate::platforms::kuwo::album::fetch_album_songs(&app, id).await,
+    }
+}
+
+#[command]
+pub async fn search_artists(
+    platform: String,
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    validate_artist_page(page, limit)?;
+    match Platform::from_str(&platform)? {
+        Platform::QqMusic => {
+            crate::platforms::qqmusic::search::search_artists(keyword, page, limit).await
+        }
+        Platform::Kuwo => {
+            crate::platforms::kuwo::search::search_artists(keyword, page, limit).await
+        }
+    }
+}
+
+#[command]
+pub async fn fetch_artist_songs(
+    app: AppHandle,
+    platform: String,
+    id: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    validate_artist_page(page, limit)?;
+    match Platform::from_str(&platform)? {
+        Platform::QqMusic => {
+            crate::platforms::qqmusic::artist::fetch_artist_songs(&app, id, page, limit).await
+        }
+        Platform::Kuwo => {
+            crate::platforms::kuwo::artist::fetch_artist_songs(&app, id, page, limit).await
+        }
+    }
+}
+
+#[command]
+pub async fn fetch_artist_albums(
+    app: AppHandle,
+    platform: String,
+    id: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    validate_artist_page(page, limit)?;
+    match Platform::from_str(&platform)? {
+        Platform::QqMusic => {
+            crate::platforms::qqmusic::artist::fetch_artist_albums(&app, id, page, limit).await
+        }
+        Platform::Kuwo => {
+            crate::platforms::kuwo::artist::fetch_artist_albums(&app, id, page, limit).await
+        }
+    }
+}
+
+fn validate_artist_page(page: u32, limit: u32) -> Result<(), String> {
+    if page == 0 || limit == 0 || limit > 100 {
+        return Err("无效的分页参数".into());
+    }
+    Ok(())
+}

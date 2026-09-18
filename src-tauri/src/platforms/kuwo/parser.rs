@@ -253,3 +253,56 @@ fn parse_size(size_str: &str) -> u64 {
     };
     (num * multiplier) as u64
 }
+
+/// 歌手、专辑详情接口使用小写字段，适配后交给统一歌曲解析器。
+pub(crate) fn parse_detail_song(item: &Value, separator: &str) -> Option<Value> {
+    let mut song = item.clone();
+    for (target, source) in [
+        ("SONGNAME", "name"),
+        ("ARTIST", "artist"),
+        ("ALBUM", "album"),
+        ("DURATION", "duration"),
+        ("MUSICRID", "musicrid"),
+    ] {
+        if let Some(value) = item.get(source) {
+            song[target] = value.clone();
+        }
+    }
+    if let Some(path) = item["web_albumpic_short"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+    {
+        song["albumpic"] = json!(format!("https://img3.kuwo.cn/star/albumcover/{}", path));
+    }
+    parse_song(&song, separator)
+}
+
+#[cfg(test)]
+mod artist_tests {
+    use super::*;
+    #[test]
+    fn parses_artist_song_without_id() {
+        let song = parse_detail_song(
+            &json!({
+                "musicrid": "228908",
+                "name": "晴天",
+                "artist": "周杰伦",
+                "album": "叶惠美",
+                "duration": "269",
+                "web_albumpic_short": "120/test.jpg",
+                "MINFO": "level:p,bitrate:320,format:mp3,size:10.29Mb"
+            }),
+            " / ",
+        )
+        .unwrap();
+        assert_eq!(song["id"], 228908);
+        assert_eq!(song["title"], "晴天");
+        assert_eq!(song["album"], "叶惠美");
+        assert_eq!(song["duration"], 269);
+        assert_eq!(
+            song["coverUrl"],
+            "https://img3.kuwo.cn/star/albumcover/120/test.jpg"
+        );
+        assert!(!song["qualities"].as_array().unwrap().is_empty());
+    }
+}

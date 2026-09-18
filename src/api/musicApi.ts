@@ -1,5 +1,18 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { SongInfo, SearchResponse, SearchSuggestionData, PlaylistSongsResponse, PlaylistSearchResponse, UpdateInfo, LyricResponse } from '../types'
+import type {
+    SongInfo,
+    SearchResponse,
+    SearchSuggestionData,
+    PlaylistSongsResponse,
+    PlaylistSearchResponse,
+    AlbumSearchResponse,
+    AlbumSongsResponse,
+    ArtistSearchResponse,
+    ArtistSongsResponse,
+    ArtistAlbumsResponse,
+    UpdateInfo,
+    LyricResponse
+} from '../types'
 import { cachedInvoke } from '../composables/useCachedInvoke'
 
 export async function searchSongs(
@@ -8,13 +21,27 @@ export async function searchSongs(
     page: number = 1,
     limit: number = 20
 ): Promise<SearchResponse> {
-    const json = await invoke<string>('search_songs', { platform, keyword, page, limit })
+    const json = await invoke<string>('search_songs', {
+        platform,
+        keyword,
+        page,
+        limit
+    })
     const parsed = JSON.parse(json) as SearchResponse
     if (Array.isArray(parsed)) {
-        return { songs: (parsed as unknown as SongInfo[]).map(s => ({ ...s, platform })), has_more: false }
+        return {
+            songs: (parsed as unknown as SongInfo[]).map(s => ({
+                ...s,
+                platform
+            })),
+            has_more: false
+        }
     }
     // 为返回的歌曲补充平台信息
-    parsed.songs = parsed.songs.map(s => ({ ...s, platform }))
+    parsed.songs = parsed.songs.map(s => ({
+        ...s,
+        platform
+    }))
     return parsed
 }
 
@@ -23,7 +50,11 @@ export async function fetchDownloadLink(
     songMid: string,
     filename: string
 ): Promise<{ url: string; key: string }> {
-    const json = await invoke<string>('fetch_download_link', { platform, songMid, filename })
+    const json = await invoke<string>('fetch_download_link', {
+        platform,
+        songMid,
+        filename
+    })
     return JSON.parse(json) as { url: string; key: string }
 }
 
@@ -35,16 +66,25 @@ export async function getHotKeywords(platform: string): Promise<string[]> {
 
 // 获取搜索建议
 export async function fetchSuggestions(platform: string, keyword: string): Promise<SearchSuggestionData> {
-    const json = await invoke<string>('fetch_suggestions', { platform, keyword })
+    const json = await invoke<string>('fetch_suggestions', {
+        platform,
+        keyword
+    })
     return JSON.parse(json) as SearchSuggestionData
 }
 
 // 获取歌单
 export async function fetchPlaylistSongs(platform: string, input: string): Promise<PlaylistSongsResponse> {
-    const json = await invoke<string>('fetch_playlist_songs', { platform, input })
+    const json = await invoke<string>('fetch_playlist_songs', {
+        platform,
+        input
+    })
     const parsed = JSON.parse(json) as PlaylistSongsResponse
     // 为返回的歌曲补充平台信息
-    parsed.songs = parsed.songs.map(s => ({ ...s, platform }))
+    parsed.songs = parsed.songs.map(s => ({
+        ...s,
+        platform
+    }))
     return parsed
 }
 
@@ -55,10 +95,18 @@ export async function searchPlaylists(
     page: number = 1,
     limit: number = 20
 ): Promise<PlaylistSearchResponse> {
-    const json = await invoke<string>('search_playlists', { platform, keyword, page, limit })
+    const json = await invoke<string>('search_playlists', {
+        platform,
+        keyword,
+        page,
+        limit
+    })
     const parsed = JSON.parse(json) as PlaylistSearchResponse
     // 为返回的歌单补充平台信息
-    parsed.playlists = parsed.playlists.map(p => ({ ...p, platform }))
+    parsed.playlists = parsed.playlists.map(p => ({
+        ...p,
+        platform
+    }))
     return parsed
 }
 
@@ -74,7 +122,10 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
  * @param songId 歌曲数字 ID
  */
 export async function getLyricBySongId(platform: string, songId: number): Promise<LyricResponse> {
-    return invoke<LyricResponse>('get_lyric_by_id', { platform, songId });
+    return invoke<LyricResponse>('get_lyric_by_id', {
+        platform,
+        songId
+    });
 }
 
 // 检查下载路径是否存在，返回原始路径、是否存在及建议的重命名路径
@@ -122,7 +173,10 @@ export async function checkNotificationPermission(): Promise<boolean> {
  * @returns 封面图片 URL
  */
 export function fetchCover(platform: string, songId: number): Promise<string> {
-    return cachedInvoke<string>('fetch_cover', { platform, songId })
+    return cachedInvoke<string>('fetch_cover', {
+        platform,
+        songId
+    })
 }
 
 // ==================== 登录相关 API ====================
@@ -158,7 +212,10 @@ export async function createQrLogin(platform: string): Promise<QrLoginResult> {
 
 // 轮询二维码登录状态
 export async function checkQrLogin(platform: string, qrcodeId: string): Promise<LoginCheckResult> {
-    const json = await invoke<string>('check_qr_login', { platform, qrcodeId })
+    const json = await invoke<string>('check_qr_login', {
+        platform,
+        qrcodeId
+    })
     return JSON.parse(json) as LoginCheckResult
 }
 
@@ -193,4 +250,57 @@ export async function logout(platform: string): Promise<void> {
 export async function getLoginStatus(platform: string): Promise<{ logged_in: boolean; uin: string }> {
     const json = await invoke<string>('get_login_status', { platform })
     return JSON.parse(json) as { logged_in: boolean; uin: string }
+}
+
+export async function searchAlbums(platform: string, keyword: string, page = 1, limit = 20): Promise<AlbumSearchResponse> {
+    return JSON.parse(await invoke<string>('search_albums', {
+        platform,
+        keyword,
+        page,
+        limit
+    }))
+}
+
+export async function fetchAlbumSongs(platform: string, id: string): Promise<AlbumSongsResponse> {
+    const result = JSON.parse(await invoke<string>('fetch_album_songs', {
+        platform,
+        id
+    })) as AlbumSongsResponse
+    result.songs = result.songs.map(song => ({
+        ...song,
+        platform
+    }))
+    return result
+}
+
+export async function searchArtists(platform: string, keyword: string, page = 1, limit = 20): Promise<ArtistSearchResponse> {
+    return JSON.parse(await invoke<string>('search_artists', {
+        platform,
+        keyword,
+        page,
+        limit
+    }))
+}
+
+export async function fetchArtistSongs(platform: string, id: string, page = 1, limit = 20): Promise<ArtistSongsResponse> {
+    const result = JSON.parse(await invoke<string>('fetch_artist_songs', {
+        platform,
+        id,
+        page,
+        limit
+    })) as ArtistSongsResponse
+    result.songs = result.songs.map(song => ({
+        ...song,
+        platform
+    }))
+    return result
+}
+
+export async function fetchArtistAlbums(platform: string, id: string, page = 1, limit = 20): Promise<ArtistAlbumsResponse> {
+    return JSON.parse(await invoke<string>('fetch_artist_albums', {
+        platform,
+        id,
+        page,
+        limit
+    }))
 }

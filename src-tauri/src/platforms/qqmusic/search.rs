@@ -33,88 +33,8 @@ pub(crate) async fn search_songs(
     page: u32,
     limit: u32,
 ) -> Result<String, String> {
-    // 生成搜索 ID（当前毫秒时间戳）
-    let searchid = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-        .to_string();
-
-    // 构造请求体
-    let request_body = json!({
-        "comm": {
-            "ct": "11",
-            "cv": "14090508",
-            "v": "14090508",
-            "tmeAppID": "qqmusic",
-            "guid": get_guid(),
-            "phonetype": "EBG-AN10",
-            "deviceScore": "553.47",
-            "devicelevel": "50",
-            "newdevicelevel": "20",
-            "rom": "HuaWei/EMOTION/EmotionUI_14.2.0",
-            "os_ver": "12",
-            "OpenUDID": "0",
-            "OpenUDID2": "0",
-            "QIMEI36": "0",
-            "udid": "0",
-            "chid": "0",
-            "aid": "0",
-            "oaid": "0",
-            "taid": "0",
-            "tid": "0",
-            "wid": "0",
-            "uid": "0",
-            "sid": "0",
-            "modeSwitch": "6",
-            "teenMode": "0",
-            "ui_mode": "2",
-            "nettype": "1020",
-            "v4ip": ""
-        },
-        "req": {
-            "module": "music.search.SearchCgiService",
-            "method": "DoSearchForQQMusicMobile",
-            "param": {
-                "search_type": 0,
-                "searchid": searchid,
-                "query": keyword,
-                "page_num": page,
-                "num_per_page": limit,   // 使用参数控制每页数量
-                "highlight": 0,
-                "nqc_flag": 0,
-                "multi_zhida": 0,
-                "cat": 2,
-                "grp": 1,
-                "sin": 0,
-                "sem": 0
-            }
-        }
-    });
-
-    // 发送 POST 请求
-    let resp = CLIENT
-        .post("https://u.y.qq.com/cgi-bin/musicu.fcg")
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| format!("网络错误: {}", e))?;
-
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("读取响应失败: {}", e))?;
-    let data: Value = serde_json::from_str(&text).map_err(|e| format!("解析响应失败: {}", e))?;
-
-    // 检查整体状态
-    if data["code"] != 0 {
-        return Err(format!("接口错误: code={}", data["code"]));
-    }
+    let data = search_request(keyword, page, limit, 0).await?;
     let req = &data["req"];
-    if req["code"] != 0 {
-        return Err(format!("搜索错误: req.code={}", req["code"]));
-    }
 
     // 提取歌曲列表
     let item_song = req["data"]["body"]["item_song"]
@@ -144,4 +64,165 @@ pub(crate) async fn search_songs(
     });
 
     serde_json::to_string(&result).map_err(|e| format!("序列化结果失败: {}", e))
+}
+
+/// 共用平台搜索请求，搜索类型决定响应列表字段。
+async fn search_request(
+    keyword: String,
+    page: u32,
+    limit: u32,
+    search_type: u32,
+) -> Result<Value, String> {
+    // 生成搜索 ID（当前毫秒时间戳）
+    let searchid = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        .to_string();
+
+    // 构造请求体
+    let request_body = json!({
+        "comm": mobile_comm(),
+        "req": {
+            "module": "music.search.SearchCgiService",
+            "method": "DoSearchForQQMusicMobile",
+            "param": {
+                "search_type": search_type,
+                // 0是搜索歌曲，1是搜索歌手，2是搜索专辑，不同type具体返回的响应不一样
+                "searchid": searchid,
+                "query": keyword,
+                "page_num": page,
+                "num_per_page": limit,
+                // 使用参数控制每页数量
+                "highlight": 0,
+                "nqc_flag": 0,
+                "multi_zhida": 0,
+                "cat": 2,
+                "grp": 1,
+                "sin": 0,
+                "sem": 0
+            }
+        }
+    });
+
+    // 发送 POST 请求
+    let resp = CLIENT
+        .post("https://u.y.qq.com/cgi-bin/musicu.fcg")
+        .header("Content-Type", "application/json")
+        .header("Referer", "https://y.qq.com")
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {}", e))?;
+    let data: Value = serde_json::from_str(&text).map_err(|e| format!("解析响应失败: {}", e))?;
+
+    // 检查整体状态
+    if data["code"] != 0 {
+        return Err(format!("接口错误: code={}", data["code"]));
+    }
+    let req = &data["req"];
+    if req["code"] != 0 {
+        return Err(format!("搜索错误: req.code={}", req["code"]));
+    }
+
+    Ok(data)
+}
+
+pub(super) fn mobile_comm() -> Value {
+    json!({
+        "ct": "11",
+        "cv": "14090508",
+        "v": "14090508",
+        "tmeAppID": "qqmusic",
+        "guid": get_guid(),
+        "phonetype": "EBG-AN10",
+        "deviceScore": "553.47",
+        "devicelevel": "50",
+        "newdevicelevel": "20",
+        "rom": "HuaWei/EMOTION/EmotionUI_14.2.0",
+        "os_ver": "12",
+        "OpenUDID": "0",
+        "OpenUDID2": "0",
+        "QIMEI36": "0",
+        "udid": "0",
+        "chid": "0",
+        "aid": "0",
+        "oaid": "0",
+        "taid": "0",
+        "tid": "0",
+        "wid": "0",
+        "uid": "0",
+        "sid": "0",
+        "modeSwitch": "6",
+        "teenMode": "0",
+        "ui_mode": "2",
+        "nettype": "1020",
+        "v4ip": ""
+    })
+}
+
+/// 搜索歌手，共用移动端搜索请求。
+pub(crate) async fn search_artists(
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    let data = search_request(keyword, page, limit, 1).await?;
+    let data = &data["req"]["data"];
+    let items = data["body"]["singer"].as_array().ok_or("未找到歌手列表")?;
+    let artists: Vec<Value> = items
+        .iter()
+        .filter_map(super::artist::parse_artist)
+        .collect();
+    Ok(json!({
+        "artists": artists,
+        "has_more": !items.is_empty() && data["meta"]["nextpage"].as_i64().unwrap_or(-1) != -1
+    })
+    .to_string())
+}
+
+/// 搜索专辑，共用移动端搜索请求。
+pub(crate) async fn search_albums(
+    app: &AppHandle,
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    let data = search_request(keyword, page, limit, 2).await?;
+    let data = &data["req"]["data"];
+    let items = data["body"]["item_album"]
+        .as_array()
+        .ok_or("未找到专辑列表")?;
+    let separator = get_artist_separator(app);
+    let albums: Vec<Value> = items
+        .iter()
+        .filter_map(|item| {
+            let mid = item["albummid"].as_str().filter(|s| !s.is_empty())?;
+            let artists: Vec<&str> = item["singer_list"]
+                .as_array()
+                .map(|list| list.iter().filter_map(|s| s["name"].as_str()).collect())
+                .unwrap_or_default();
+            Some(json!({
+                "id": mid,
+                "name": item["name"].as_str().unwrap_or(""),
+                "artist": artists.join(&separator),
+                "coverUrl": item["pic"].as_str().unwrap_or("").replace("http://", "https://"),
+                "publishDate": item["description"].as_str().unwrap_or(""),
+                "songCount": item["song_num"]
+                    .as_u64()
+                    .or_else(|| item["song_num"].as_str().and_then(|s| s.parse().ok()))
+                    .unwrap_or(0)
+            }))
+        })
+        .collect();
+    Ok(json!({
+        "albums": albums,
+        "has_more": data["meta"]["nextpage"].as_i64().unwrap_or(-1) != -1
+    })
+    .to_string())
 }

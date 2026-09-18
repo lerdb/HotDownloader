@@ -38,45 +38,7 @@ pub(crate) async fn search_songs(
     page: u32,
     limit: u32,
 ) -> Result<String, String> {
-    // 酷我 pn 从 0 开始，page 从 1 开始
-    let pn = page.saturating_sub(1);
-
-    let url = Url::parse_with_params(
-        "http://search.kuwo.cn/r.s",
-        &[
-            ("client", "kt"),
-            ("all", keyword.as_str()),
-            ("pn", pn.to_string().as_str()),
-            ("rn", limit.to_string().as_str()),
-            ("uid", "794762570"),
-            ("ver", "kwplayer_ar_9.2.2.1"),
-            ("vipver", "1"),
-            ("show_copyright_off", "1"),
-            ("newver", "1"),
-            ("ft", "music"),
-            ("cluster", "0"),
-            ("strategy", "2012"),
-            ("encoding", "utf8"),
-            ("rformat", "json"),
-            ("vermerge", "1"),
-            ("mobi", "1"),
-            ("issubtitle", "1"),
-        ],
-    )
-    .map_err(|e| format!("URL 构建失败: {}", e))?;
-
-    let resp = CLIENT
-        .get(url)
-        .header("User-Agent", "kwplayer_ar_9.2.2.1")
-        .send()
-        .await
-        .map_err(|e| format!("网络错误: {}", e))?;
-
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("读取响应失败: {}", e))?;
-    let data: Value = serde_json::from_str(&text).map_err(|e| format!("解析响应失败: {}", e))?;
+    let data = search_request(keyword, page, limit, "music").await?;
 
     // 提取 abslist 数组
     let abslist = data["abslist"]
@@ -100,7 +62,7 @@ pub(crate) async fn search_songs(
         .and_then(|s| s.parse().ok())
         .or_else(|| data["TOTAL"].as_u64())
         .unwrap_or(0);
-    let offset = (pn as u64) * (limit as u64);
+    let offset = u64::from(page.saturating_sub(1)) * u64::from(limit);
     let returned = songs.len() as u64;
     let has_more = offset + returned < total;
 
@@ -110,4 +72,125 @@ pub(crate) async fn search_songs(
     });
 
     serde_json::to_string(&result).map_err(|e| format!("序列化结果失败: {}", e))
+}
+
+/// 共用平台搜索请求，搜索类型决定响应列表字段。
+async fn search_request(
+    keyword: String,
+    page: u32,
+    limit: u32,
+    search_type: &str,
+) -> Result<Value, String> {
+    let url = search_url(&keyword, page, limit, search_type)?;
+
+    let resp = CLIENT
+        .get(url)
+        .header("User-Agent", "kwplayer_ar_9.2.2.1")
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {}", e))?;
+
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {}", e))?;
+    let data: Value = serde_json::from_str(&text).map_err(|e| format!("解析响应失败: {}", e))?;
+
+    Ok(data)
+}
+
+/// 通用搜索函数。
+fn search_url(keyword: &str, page: u32, limit: u32, search_type: &str) -> Result<Url, String> {
+    let mut url =
+        Url::parse("http://search.kuwo.cn/r.s").map_err(|e| format!("URL 构建失败: {}", e))?;
+    {
+        let mut params = url.query_pairs_mut();
+        params.extend_pairs([
+            ("client", "kt"),
+            ("all", keyword),
+            ("ft", search_type), // music搜索歌曲，artist搜索歌手，album搜索专辑，响应结构不一样
+            ("encoding", "utf8"),
+            ("rformat", "json"),
+            ("pcjson", "1"),
+            ("itemset", "web_2013"),
+            // ("uid", "794762570"),
+            // ("ver", "kwplayer_ar_9.2.2.1"),
+            // ("vipver", "1"),
+            // ("show_copyright_off", "1"),
+            // ("newver", "1"),
+            // ("cluster", "0"),
+            // ("strategy", "2012"),
+            // ("vermerge", "1"),
+            // ("mobi", "1"),
+            // ("issubtitle", "1"),
+        ]);
+        params.append_pair("pn", &page.saturating_sub(1).to_string());
+        params.append_pair("rn", &limit.to_string());
+    }
+    Ok(url)
+}
+
+/// 搜索歌手，共用搜索请求和 Web 参数。
+pub(crate) async fn search_artists(
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    let data = search_request(keyword, page, limit, "artist").await?;
+    let items = data["abslist"].as_array().ok_or("未找到歌手列表")?;
+    let artists: Vec<Value> = items
+        .iter()
+        .filter_map(super::artist::parse_artist)
+        .collect();
+    let total = super::album::number(&data["TOTAL"]);
+    let has_more = !items.is_empty()
+        && u64::from(page.saturating_sub(1)) * u64::from(limit) + (items.len() as u64) < total;
+    Ok(json!({
+        "artists": artists,
+        "has_more": has_more,
+        "total": total
+    })
+    .to_string())
+}
+
+/// 搜索专辑，共用搜索请求和 Web 参数。
+pub(crate) async fn search_albums(
+    app: &AppHandle,
+    keyword: String,
+    page: u32,
+    limit: u32,
+) -> Result<String, String> {
+    let data = search_request(keyword, page, limit, "album").await?;
+    let items = data["albumlist"].as_array().ok_or("未找到专辑列表")?;
+    let separator = get_artist_separator(app);
+    let albums: Vec<Value> = items
+        .iter()
+        .map(|item| super::album::parse_album(item, &separator))
+        .collect();
+    let total = super::album::number(&data["total"]);
+    let has_more = !items.is_empty()
+        && u64::from(page.saturating_sub(1)) * u64::from(limit) + (items.len() as u64) < total;
+    Ok(json!({
+        "albums": albums,
+        "has_more": has_more
+    })
+    .to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn album_search_uses_web_parameters() {
+        let url = search_url("周杰伦 & Jay", 2, 20, "album").unwrap();
+        let params: std::collections::HashMap<_, _> = url.query_pairs().collect();
+        assert_eq!(params["all"], "周杰伦 & Jay");
+        assert_eq!(params["pn"], "1");
+        assert_eq!(params["ft"], "album");
+        assert!(!params.contains_key("mobi"));
+        let music = search_url("Jay", 1, 20, "music").unwrap();
+        assert!(music
+            .query_pairs()
+            .any(|(key, value)| key == "mobi" && value == "1"));
+    }
 }

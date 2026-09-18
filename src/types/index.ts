@@ -290,3 +290,43 @@ export interface DownloadMetadataErrorPayload {
     task_id: string
     error_msg: string
 }
+
+// 专辑搜索与详情共用的信息
+export interface AlbumInfo {
+    id: string
+    name: string
+    artist: string
+    coverUrl: string
+    publishDate: string
+    songCount: number
+}
+export interface AlbumSearchResponse {
+    albums: AlbumInfo[]
+    has_more: boolean
+}
+export interface AlbumSongsResponse {
+    album: AlbumInfo
+    songs: SongInfo[]
+}
+
+export interface ArtistInfo {
+    id: string
+    name: string
+    coverUrl: string
+    alias: string
+    region: string
+    songCount: number
+    albumCount: number
+}
+export interface ArtistSearchResponse {
+    artists: ArtistInfo[]
+    has_more: boolean
+}
+export interface ArtistSongsResponse extends SearchResponse {
+    total: number
+    name?: string
+}
+export interface ArtistAlbumsResponse extends AlbumSearchResponse {
+    total: number
+    name?: string
+}

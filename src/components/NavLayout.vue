@@ -84,6 +84,7 @@ onUnmounted(() => {
 
 // 关于页属于设置入口，返回时继续保持设置菜单高亮。
 const currentRoute = computed(() => {
+    if (route.path === '/album' || route.path === '/artist') return '/search'
     return route.path.startsWith('/settings/') ? '/settings' : route.path
 })
 
