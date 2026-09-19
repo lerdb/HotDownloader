@@ -2,9 +2,9 @@
     <div class="search-view">
         <!-- 平台绑定 + 搜索类型切换 -->
         <div class="search-header">
-            <SearchBar v-model:keyword="keyword" v-model:platform="currentPlatform" :platform-options="PLATFORMS"
-                :placeholder="searchPlaceholder"
-                button-text="搜索" @search="handleSearch" />
+            <SearchBar :keyword="keyword" @update:keyword="onKeywordInput" v-model:platform="currentPlatform"
+                :platform-options="PLATFORMS" :placeholder="searchPlaceholder" button-text="搜索"
+                @search="handleSearch" />
 
             <!-- 搜索类型切换按钮 -->
             <div class="type-switch">
@@ -19,59 +19,68 @@
             </div>
         </div>
 
-        <!-- 歌曲搜索模式下的建议/历史/热搜 -->
-        <template v-if="searchType === 'song'">
-            <SearchSuggestions v-if="showSuggestions" :data="suggestions" @select="onSuggestionSelect" />
+        <!-- 空闲：历史与热搜 -->
+        <template v-if="pageMode === 'idle'">
+            <SearchHistory :history="historyStore.history" @select="onHistorySelect" @remove="onHistoryRemove"
+                @clear="historyStore.clearHistory" />
+            <HotKeywords :keywords="hotKeywords" :loading="hotLoading" @select="onHotClick" />
+        </template>
 
-            <div v-if="!keyword && !songHasSearched">
-                <SearchHistory :history="historyStore.history" @select="onHistorySelect" @remove="onHistoryRemove"
-                    @clear="historyStore.clearHistory" />
-                <HotKeywords :keywords="hotKeywords" :loading="hotLoading" @select="onHotClick" />
+        <!-- 输入中：搜索建议 -->
+        <template v-else-if="pageMode === 'suggestions'">
+            <SearchSuggestions :data="suggestions" @select="onSuggestionSelect" />
+        </template>
+
+        <!-- 已搜索：搜索结果 -->
+        <template v-else-if="pageMode === 'results'">
+            <!-- 加载中 -->
+            <div v-if="searchLoading" class="loading-wrapper">
+                <n-spin size="medium" />
             </div>
+
+            <!-- 歌曲搜索结果列表 -->
+            <SearchResultList v-if="searchType === 'song' && songHasSearched && !songLoading" :songs="songSearchResults"
+                v-model:selectedIds="songSelectedIds" :has-more="songHasMore" :loading-more="songLoadingMore"
+                @download="onSingleDownload" @retry="handleSearch" @load-more="loadMoreSongs" />
+
+            <!-- 歌手搜索结果列表 -->
+            <template v-else-if="searchType === 'artist'">
+                <n-alert v-if="artistError" type="error" title="歌手搜索失败">
+                    {{ artistError }}
+                    <n-button @click="artistSearchResults.length ? loadMoreArtists() : handleSearch()">重试</n-button>
+                </n-alert>
+                <ArtistSearchResult
+                    v-if="artistHasSearched && !artistLoading && (!artistError || artistSearchResults.length)"
+                    :artists="artistSearchResults" :has-more="artistHasMore" :loading-more="artistLoadingMore"
+                    @click-artist="goToArtist" @load-more="loadMoreArtists" />
+            </template>
+
+            <!-- 专辑搜索结果列表 -->
+            <template v-else-if="searchType === 'album'">
+                <n-alert v-if="albumError" type="error" title="专辑搜索失败" class="album-error">
+                    {{ albumError }}
+                    <n-button @click="albumSearchResults.length ? loadMoreAlbums() : handleSearch()">重试</n-button>
+                </n-alert>
+                <AlbumSearchResult
+                    v-if="albumHasSearched && !albumLoading && (!albumError || albumSearchResults.length)"
+                    :albums="albumSearchResults" :has-more="albumHasMore" :loading-more="albumLoadingMore"
+                    @click-album="goToAlbum" @load-more="loadMoreAlbums" />
+            </template>
+
+            <!-- 歌单搜索结果列表 -->
+            <PlaylistSearchResult v-else-if="searchType === 'playlist' && playlistHasSearched && !playlistLoading"
+                :playlists="playlistSearchResults" :has-more="playlistHasMore" :loading-more="playlistLoadingMore"
+                @click-playlist="goToPlaylist" @load-more="loadMorePlaylists" />
+
+            <!-- 批量下载栏（仅在歌曲搜索模式且有选中时显示） -->
+            <BatchDownloadBar v-if="searchType === 'song' && songSelectedIds.length > 0"
+                :selectedCount="songSelectedIds.length" @batch-download="onBatchDownload" />
         </template>
-
-        <!-- 加载中 -->
-        <div v-if="searchLoading" class="loading-wrapper">
-            <n-spin size="medium" />
-        </div>
-
-        <!-- 歌曲搜索结果列表 -->
-        <SearchResultList v-if="searchType === 'song' && songHasSearched && !songLoading" :songs="songSearchResults"
-            v-model:selectedIds="songSelectedIds" :has-more="songHasMore" :loading-more="songLoadingMore"
-            @download="onSingleDownload" @retry="handleSearch" @load-more="loadMoreSongs" />
-
-        <template v-if="searchType === 'artist'">
-            <n-alert v-if="artistError" type="error" title="歌手搜索失败">
-                {{ artistError }}
-                <n-button @click="artistSearchResults.length ? loadMoreArtists() : handleSearch()">重试</n-button>
-            </n-alert>
-            <ArtistSearchResult v-if="artistHasSearched && !artistLoading && (!artistError || artistSearchResults.length)"
-                :artists="artistSearchResults" :has-more="artistHasMore" :loading-more="artistLoadingMore"
-                @click-artist="goToArtist" @load-more="loadMoreArtists" />
-        </template>
-        <template v-if="searchType === 'album'">
-            <n-alert v-if="albumError" type="error" title="专辑搜索失败" class="album-error">
-                {{ albumError }}
-                <n-button @click="albumSearchResults.length ? loadMoreAlbums() : handleSearch()">重试</n-button>
-            </n-alert>
-            <AlbumSearchResult v-if="albumHasSearched && !albumLoading && (!albumError || albumSearchResults.length)"
-                :albums="albumSearchResults" :has-more="albumHasMore" :loading-more="albumLoadingMore"
-                @click-album="goToAlbum" @load-more="loadMoreAlbums" />
-        </template>
-
-        <!-- 歌单搜索结果列表 -->
-        <PlaylistSearchResult v-if="searchType === 'playlist' && playlistHasSearched && !playlistLoading"
-            :playlists="playlistSearchResults" :has-more="playlistHasMore" :loading-more="playlistLoadingMore"
-            @click-playlist="goToPlaylist" @load-more="loadMorePlaylists" />
-
-        <!-- 批量下载栏（仅在歌曲搜索模式且有选中时显示） -->
-        <BatchDownloadBar v-if="searchType === 'song' && songSelectedIds.length > 0"
-            :selectedCount="songSelectedIds.length" @batch-download="onBatchDownload" />
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { NSpin, NButton, NAlert } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import SearchBar from '../components/search/SearchBar.vue'
@@ -100,6 +109,7 @@ const currentPlatform = ref(DEFAULT_PLATFORM)
 // 搜索类型
 type SearchType = 'song' | 'artist' | 'album' | 'playlist'
 const searchType = ref<SearchType>('song')
+const pageMode = ref<'idle' | 'suggestions' | 'results'>('idle')
 
 // 使用歌曲搜索 composable，解构出状态和方法
 const {
@@ -183,77 +193,69 @@ const suggestions = ref<SearchSuggestionData>({
 let abortController: AbortController | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-// 是否显示建议：关键词非空且未进入搜索结果页
-const showSuggestions = computed(() => {
-    return keyword.value.trim() !== '' && !songHasSearched.value
-})
-
-// 防抖获取建议
-watch(keyword, (newVal) => {
+function cancelSuggestions() {
     if (debounceTimer) {
         clearTimeout(debounceTimer)
+        debounceTimer = null
     }
     if (abortController) {
-        abortController.abort() // 取消上次请求
+        // IPC 无法取消传输；标记失效，阻止旧响应写入页面。
+        abortController.abort()
+        abortController = null
     }
+}
 
+// 仅用户编辑输入框时进入建议页。
+function onKeywordInput(newVal: string) {
+    if (newVal === keyword.value) return
+    keyword.value = newVal
+    cancelSuggestions()
+    resetSearches()
     const term = newVal.trim()
-    if (!term || searchType.value !== 'song') {
-        suggestions.value = {
-            song: [],
-            singer: [],
-            album: [],
-            mv: []
-        }
-        return
+    pageMode.value = term ? 'suggestions' : 'idle'
+    suggestions.value = {
+        song: [],
+        singer: [],
+        album: [],
+        mv: []
     }
+    if (!term) return
 
+    const platform = currentPlatform.value
     debounceTimer = setTimeout(async () => {
+        debounceTimer = null
         const controller = new AbortController()
         abortController = controller
         try {
-            const res = await musicApi.fetchSuggestions(currentPlatform.value, term)
+            const res = await musicApi.fetchSuggestions(platform, term)
             if (!controller.signal.aborted) {
                 suggestions.value = res
             }
         } catch {
-            if (!controller.signal.aborted) {
-                suggestions.value = {
-                    song: [],
-                    singer: [],
-                    album: [],
-                    mv: []
-                }
-            }
+            // 输入时已清空建议，请求失败时保持为空。
         } finally {
             if (abortController === controller) {
                 abortController = null
             }
         }
     }, 300)
-})
+}
 
 // 点击建议项
-function onSuggestionSelect(word: string) {
+function onSuggestionSelect(word: string, type: keyof SearchSuggestionData) {
+    searchType.value = type === 'album' ? 'album' : type === 'singer' ? 'artist' : 'song'
     keyword.value = word
     handleSearch()
 }
 
-// 关键词清空时重置
-watch(keyword, (newVal) => {
-    if (!newVal) {
-        resetSongSearch()
-        resetPlaylistSearch()
-        resetAlbumSearch()
-        resetArtistSearch()
-        suggestions.value = {
-            song: [],
-            singer: [],
-            album: [],
-            mv: []
-        }
-    }
-})
+onBeforeUnmount(cancelSuggestions)
+
+function resetSearches() {
+    resetSongSearch()
+    resetPlaylistSearch()
+    resetAlbumSearch()
+    resetArtistSearch()
+}
 
 // 获取热搜
 async function fetchHotKeywords() {
@@ -273,6 +275,7 @@ onMounted(() => {
 
 // 平台切换
 watch(currentPlatform, () => {
+    cancelSuggestions()
     fetchHotKeywords()
     suggestions.value = {
         song: [],
@@ -280,19 +283,17 @@ watch(currentPlatform, () => {
         album: [],
         mv: []
     }
-    if (abortController) abortController.abort()
-    resetSongSearch()
-    resetPlaylistSearch()
-    resetAlbumSearch()
-    resetArtistSearch()
-})
+    resetSearches()
+    if (pageMode.value === 'results') void handleSearch()
+}, { flush: 'sync' })
 
 // 切换搜索类型
 function switchSearchType(type: SearchType) {
+    if (type === searchType.value) return
+    cancelSuggestions()
+    resetSearches()
     searchType.value = type
-    if (debounceTimer) clearTimeout(debounceTimer)
-    if (abortController) abortController.abort()
-    handleSearch()
+    if (pageMode.value === 'results') void handleSearch()
 }
 
 // 热搜点击
@@ -313,11 +314,19 @@ function onHistoryRemove(term: string) {
 
 // 统一搜索入口
 async function handleSearch() {
+    cancelSuggestions()
     const term = keyword.value.trim()
-    if (!term) return
+    if (!term) {
+        pageMode.value = 'idle'
+        resetSearches()
+        return
+    }
 
+    pageMode.value = 'results'
+    suggestions.value = { song: [], singer: [], album: [], mv: [] }
+    historyStore.addHistory(term)
     if (searchType.value === 'song') {
-        await searchSongFunc(currentPlatform.value, term, historyStore.addHistory)
+        await searchSongFunc(currentPlatform.value, term)
     } else if (searchType.value === 'artist') {
         await searchArtistFunc(currentPlatform.value, term)
     } else if (searchType.value === 'album') {

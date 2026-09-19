@@ -4,7 +4,7 @@
         <div v-if="data.song.length > 0" class="suggest-group">
             <div class="group-title">单曲</div>
             <div v-for="(item, index) in data.song" :key="item.mid ?? item.id ?? `song-${index}`" class="suggest-item"
-                @click="handleSelect(item)">
+                @click="handleSelect(item, 'song')">
                 <span class="item-name">{{ item.name }}</span>
                 <span v-if="item.singer" class="item-singer">- {{ item.singer }}</span>
             </div>
@@ -14,7 +14,7 @@
         <div v-if="data.singer.length > 0" class="suggest-group">
             <div class="group-title">歌手</div>
             <div v-for="(item, index) in data.singer" :key="item.mid ?? item.id ?? `singer-${index}`"
-                class="suggest-item" @click="handleSelect(item)">
+                class="suggest-item" @click="handleSelect(item, 'singer')">
                 <span class="item-name">{{ item.name }}</span>
             </div>
         </div>
@@ -23,7 +23,7 @@
         <div v-if="data.album.length > 0" class="suggest-group">
             <div class="group-title">专辑</div>
             <div v-for="(item, index) in data.album" :key="item.mid ?? item.id ?? `album-${index}`" class="suggest-item"
-                @click="handleSelect(item)">
+                @click="handleSelect(item, 'album')">
                 <span class="item-name">{{ item.name }}</span>
                 <span v-if="item.singer" class="item-singer">- {{ item.singer }}</span>
             </div>
@@ -33,7 +33,7 @@
         <div v-if="data.mv.length > 0" class="suggest-group">
             <div class="group-title">MV</div>
             <div v-for="(item, index) in data.mv" :key="item.vid ?? item.mid ?? item.id ?? `mv-${index}`"
-                class="suggest-item" @click="handleSelect(item)">
+                class="suggest-item" @click="handleSelect(item, 'mv')">
                 <span class="item-name">{{ item.name }}</span>
                 <span v-if="item.singer" class="item-singer">- {{ item.singer }}</span>
             </div>
@@ -50,13 +50,13 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-    (e: 'select', keyword: string): void
+    (e: 'select', keyword: string, type: keyof SearchSuggestionData): void
 }>()
 
-function handleSelect(item: SearchSuggestionItem) {
+function handleSelect(item: SearchSuggestionItem, type: keyof SearchSuggestionData) {
     // 只有 name 存在时才触发选择
     if (item.name) {
-        emit('select', item.name)
+        emit('select', item.name, type)
     }
 }
 
