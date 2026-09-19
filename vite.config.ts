@@ -1,11 +1,27 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import legacy from '@vitejs/plugin-legacy'
 import path from 'path'
 import tauriConf from './src-tauri/tauri.conf.json' with { type: 'json' }
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    // 为旧版 WebView（Android 9 / WebView 66）生成降级兼容代码
+    legacy({
+      // 覆盖 Android 9 的 WebView 66
+      targets: ['chrome >= 64', 'android >= 9'],
+      // 生成旧版兼容 chunk
+      renderLegacyChunks: true,
+      // 为现代浏览器也补 polyfill，避免个别新 API 缺失
+      modernPolyfills: true,
+      // 强制注入运行时 polyfill，支持 async/await
+      additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
+    }),
+  ],
+  // Tauri 使用 file:// 协议加载资源，必须使用相对路径
+  base: './',
   resolve: {
     // 设置路径别名，让 import 更简洁（比如 import '@/utils'）
     alias: {
@@ -38,6 +54,8 @@ export default defineConfig({
     minify: !process.env.TAURI_ENV_DEBUG ? 'oxc' : false,
     // 在 debug 构建中生成 sourcemap
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    // CSS 也降级到旧版 WebView 可解析的程度
+    cssTarget: 'chrome61',
   },
   define: {
     // 把版本号注入环境变量
