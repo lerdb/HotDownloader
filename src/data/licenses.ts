@@ -115,6 +115,10 @@ export const rustComponents: ComponentInfo[] = [
     "license": "Apache-2.0 OR MIT"
   },
   {
+    "name": "tauri-plugin-safe-area-insets-css",
+    "license": "MIT"
+  },
+  {
     "name": "tauri-plugin-store",
     "license": "Apache-2.0 OR MIT"
   },
@@ -141,6 +145,10 @@ export const rustComponents: ComponentInfo[] = [
 ];
 
 export const frontendComponents: ComponentInfo[] = [
+  {
+    "name": "@saurl/tauri-plugin-safe-area-insets-css-api",
+    "license": "Unknown"
+  },
   {
     "name": "@tauri-apps/api",
     "license": "Apache-2.0 OR MIT"

@@ -36,6 +36,7 @@ Rust:
   tauri-plugin-notification (Apache-2.0 OR MIT)
   tauri-plugin-opener       (Apache-2.0 OR MIT)
   tauri-plugin-os           (Apache-2.0 OR MIT)
+  tauri-plugin-safe-area-insets-css (MIT)
   tauri-plugin-store        (Apache-2.0 OR MIT)
   tokio                     (MIT)
   tokio-util                (MIT)
@@ -44,6 +45,7 @@ Rust:
   urlencoding               (MIT)
 
 Frontend:
+  @saurl/tauri-plugin-safe-area-insets-css-api (Unknown)
   @tauri-apps/api           (Apache-2.0 OR MIT)
   @tauri-apps/plugin-dialog (MIT OR Apache-2.0)
   @tauri-apps/plugin-os     (MIT OR Apache-2.0)

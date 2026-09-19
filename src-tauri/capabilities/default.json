@@ -13,6 +13,7 @@
     "store:default",
     "log:default",
     "android-fs:default",
-    "opener:default"
+    "opener:default",
+    "safe-area-insets-css:default"
   ]
 }
