@@ -151,8 +151,12 @@ function handleMenuClick(key: string) {
     min-width: 0;
     min-height: 0;
     overflow-y: auto;
-    padding: var(--page-padding);
     background-color: var(--bg-content);
+
+    /* 用四个方向分别声明，让左右两侧都避开安全区 */
+    padding: var(--page-padding);
+    padding-left: calc(var(--page-padding) + var(--safe-area-left));
+    padding-right: calc(var(--page-padding) + var(--safe-area-right));
 
     /* 将回弹限制在当前滚动容器内部，保留视觉回弹但阻断滚动链向上传播，恢复主内容区滚动到顶端/底端时的回弹效果，同时避免回弹传播导致底部导航移动 */
     overscroll-behavior: contain;
