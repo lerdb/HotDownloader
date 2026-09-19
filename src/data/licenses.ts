@@ -166,6 +166,10 @@ export const frontendComponents: ComponentInfo[] = [
     "license": "MIT OR Apache-2.0"
   },
   {
+    "name": "core-js",
+    "license": "MIT"
+  },
+  {
     "name": "dompurify",
     "license": "(MPL-2.0 OR Apache-2.0)"
   },
@@ -179,6 +183,10 @@ export const frontendComponents: ComponentInfo[] = [
   },
   {
     "name": "pinia",
+    "license": "MIT"
+  },
+  {
+    "name": "regenerator-runtime",
     "license": "MIT"
   },
   {
