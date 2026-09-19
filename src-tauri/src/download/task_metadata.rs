@@ -6,6 +6,7 @@ use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::{Picture, PictureType};
 use lofty::tag::{ItemKey, Tag, TagType};
 use tauri::AppHandle;
+use tauri::Manager;
 use tauri_plugin_android_fs::{AndroidFsExt, FileAccessMode, FsUri};
 
 use super::progress;
@@ -93,7 +94,18 @@ pub(crate) async fn write_metadata(
             .extension()
             .and_then(|s| s.to_str())
             .unwrap_or("tmp");
-        let temp = std::env::temp_dir().join(format!(
+
+        // 使用应用专属的缓存目录，而不是系统临时目录
+        let temp_dir = app_handle
+            .path()
+            .app_cache_dir()
+            .expect("Failed to get app cache dir");
+
+        // 确保目录存在
+        std::fs::create_dir_all(&temp_dir).ok();
+
+        // 临时文件路径
+        let temp = temp_dir.join(format!(
             "{}.{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -101,6 +113,8 @@ pub(crate) async fn write_metadata(
                 .as_millis(),
             ext
         ));
+
+        // 写入临时文件
         if let Err(e) = std::fs::write(&temp, &buf) {
             log::warn!("写入临时文件失败: {}", e);
             progress::emit_metadata_error(app_handle, task_id, &format!("写入临时文件失败: {}", e));
