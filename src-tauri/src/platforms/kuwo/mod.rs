@@ -1,5 +1,5 @@
-pub(crate) mod artist;
 pub(crate) mod album;
+pub(crate) mod artist;
 pub(crate) mod cover;
 pub(crate) mod download;
 pub(crate) mod lyrics;
