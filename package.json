@@ -13,7 +13,7 @@
     "generate:licenses": "node scripts/generate-licenses.mjs"
   },
   "dependencies": {
-    "@saurl/tauri-plugin-safe-area-insets-css-api": "^0.1.0",
+    "@sahil-vartak/tauri-plugin-safe-area-insets-css-api": "^0.2.1",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-os": "^2.3.2",

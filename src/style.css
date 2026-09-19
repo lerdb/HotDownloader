@@ -33,10 +33,10 @@ body {
   --color-text-secondary: #6b7b73;  /* 次要文字颜色 */
   --color-primary: #178366;
   /* 优先使用插件注入的变量；如果插件未生效，回退到 env()；再回退到 0px 保证兼容。 */
-  --safe-area-top:    var(--safe-area-inset-top,    env(safe-area-inset-top,    0px));
-  --safe-area-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
-  --safe-area-left:   var(--safe-area-inset-left,   env(safe-area-inset-left,   0px));
-  --safe-area-right:  var(--safe-area-inset-right,  env(safe-area-inset-right,  0px));
+  --safe-area-top:    var(--edge-top,    env(safe-area-inset-top,    0px));
+  --safe-area-bottom: var(--edge-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-area-left:   var(--edge-left,   env(safe-area-inset-left,   0px));
+  --safe-area-right:  var(--edge-right,  env(safe-area-inset-right,  0px));
 
   /* 让浏览器根据系统主题自动切换滚动条配色 */
   color-scheme: light dark;

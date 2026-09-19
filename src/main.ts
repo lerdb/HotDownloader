@@ -1,4 +1,4 @@
-import '@saurl/tauri-plugin-safe-area-insets-css-api'
+import '@sahil-vartak/tauri-plugin-safe-area-insets-css-api'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import naive from 'naive-ui'
