@@ -35,6 +35,8 @@
     "@vitejs/plugin-legacy": "^8.2.3",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/tsconfig": "^0.9.1",
+    "license-checker-rseidelsohn": "^5.0.1",
+    "spdx-license-list": "^6.12.0",
     "terser": "^5.51.2",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
