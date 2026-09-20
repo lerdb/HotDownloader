@@ -38,7 +38,8 @@
     "longDescription": "基于 Tauri 2 + Vue 3 的跨平台音乐下载工具，支持桌面端（Windows/macOS/Linux）与 Android 端，提供搜索、歌单导入、多任务下载、自动降级、音频解密等功能。",
     "resources": [
       "../LICENSE",
-      "../NOTICE"
+      "../NOTICE",
+      "../THIRD_PARTY_LICENSES.txt"
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"

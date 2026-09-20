@@ -2,6 +2,7 @@
     <div class="about-view">
         <!-- 在关于页面左上角添加返回按钮，提供明确的返回导航入口 -->
         <n-button @click="goBack">返回</n-button>
+
         <div class="about-card">
             <h1 class="app-title">HotDownloader</h1>
             <!-- 直接使用注入的变量，不再硬编码 -->
@@ -33,33 +34,53 @@
 
         <div class="about-section">
             <h2 class="section-title">第三方组件</h2>
-            <h3 class="sub-title">Rust</h3>
+
+            <h3 class="sub-title">Rust ({{ rustComponents.length }})</h3>
             <n-ul class="component-list">
-                <n-li v-for="item in rustComponents" :key="item.name" class="component-item">
+                <n-li v-for="item in rustComponents" :key="item.name" class="component-item component-item--clickable"
+                    @click="openLicense(item)">
                     <span class="component-name">{{ item.name }}</span>
                     <span class="component-license">{{ item.license }}</span>
                 </n-li>
             </n-ul>
 
-            <h3 class="sub-title">Frontend</h3>
+            <h3 class="sub-title">Frontend ({{ frontendComponents.length }})</h3>
             <n-ul class="component-list">
-                <n-li v-for="item in frontendComponents" :key="item.name" class="component-item">
+                <n-li v-for="item in frontendComponents" :key="item.name"
+                    class="component-item component-item--clickable" @click="openLicense(item)">
                     <span class="component-name">{{ item.name }}</span>
                     <span class="component-license">{{ item.license }}</span>
                 </n-li>
             </n-ul>
         </div>
+
+        <n-modal v-model:show="showModal" preset="card" :title="modalTitle"
+            style="width: min(720px, 92vw); max-height: 80vh;" :bordered="false">
+            <n-scrollbar style="max-height: 60vh;">
+                <pre class="license-fulltext">{{ modalText }}</pre>
+            </n-scrollbar>
+        </n-modal>
     </div>
 </template>
 
 <script setup lang="ts">
-import { NButton, NUl, NLi, NA } from 'naive-ui'
+import { ref } from 'vue'
+import { NButton, NUl, NLi, NA, NModal, NScrollbar } from 'naive-ui'
 import { useRouter } from 'vue-router'
-import { rustComponents, frontendComponents } from '../data/licenses'
+import {
+    rustComponents,
+    frontendComponents,
+    licenseTexts,
+    type ComponentInfo,
+} from '../data/licenses'
 
 const version = import.meta.env.VITE_APP_VERSION
 
 const router = useRouter()
+
+const showModal = ref(false)
+const modalTitle = ref('')
+const modalText = ref('')
 
 // 处理返回按钮点击逻辑，确保用户能正确回到上一页
 function goBack() {
@@ -69,6 +90,31 @@ function goBack() {
     } else {
         router.push('/settings')
     }
+}
+
+// 点击组件行时，弹出该组件涉及的许可证全文
+function openLicense(item: ComponentInfo) {
+    const ids = new Set<string>()
+    const tokens = item.license
+        .replace(/[()]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+    for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i]
+        if (t === 'OR' || t === 'AND') continue
+        if (t === 'WITH') { i++; continue }
+        ids.add(t)
+    }
+
+    const parts: string[] = []
+    for (const id of ids) {
+        const found = licenseTexts.find((l) => l.id === id)
+        if (found) parts.push(`── ${found.name} (${found.id}) ──\n\n${found.text}`)
+    }
+
+    modalTitle.value = `${item.name} @ ${item.version}`
+    modalText.value = parts.length > 0 ? parts.join('\n\n') : '未找到许可证全文。'
+    showModal.value = true
 }
 </script>
 
@@ -157,6 +203,16 @@ function goBack() {
     border-bottom: none;
 }
 
+.component-item--clickable {
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.component-item--clickable:hover {
+    background-color: var(--border-color);
+}
+
 .component-name {
     overflow-wrap: anywhere;
     font-size: 14px;
@@ -173,6 +229,16 @@ function goBack() {
     font-size: 14px;
     color: var(--color-text-secondary);
     line-height: 1.6;
+}
+
+.license-fulltext {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--color-text-secondary);
+    margin: 0;
 }
 
 @media (max-width: 767px) {
