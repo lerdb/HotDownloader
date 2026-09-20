@@ -160,8 +160,8 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.gradle/caches
-          key: gradle-${{ matrix.os }}-${{ hashFiles('src-tauri/gen/android/**/*.gradle*', 'src-tauri/gen/android/**/*.properties') }}
-          restore-keys: gradle-${{ matrix.os }}-
+          key: gradle-${{ runner.os }}-${{ hashFiles('src-tauri/gen/android/**/*.gradle*', 'src-tauri/gen/android/**/*.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       - name: Install frontend dependencies
         run: npm ci
