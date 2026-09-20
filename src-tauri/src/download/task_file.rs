@@ -219,7 +219,7 @@ fn open_normal_file(
             Ok(f) => Some(BufWriter::with_capacity(FILE_BUFFER_CAPACITY, f)),
             Err(e) => {
                 log::error!("文件创建失败: {}", e);
-                progress::emit_error(app_handle, task_id, "文件创建失败，请检查磁盘空间");
+                progress::emit_error(app_handle, task_id, "无法创建下载文件，请检查磁盘空间或下载目录的创建/写入权限");
                 None
             }
         }
