@@ -97,7 +97,18 @@ npx tauri android build
 
 ## 📄 许可证
 
-[Apache License 2.0](LICENSE)
+本项目基于 [Apache License 2.0](LICENSE) 开源。
+
+### 第三方组件许可
+
+本软件打包了完整的第三方许可证声明，随安装包分发：
+
+- `NOTICE`：所有第三方组件的名称、版本、许可证标识
+- `THIRD_PARTY_LICENSES.txt`：上述组件的许可证全文
+
+安装后可在应用安装目录中找到以上文件。
+
+> 注：v1.3.2 之前的版本在 `NOTICE` 中仅列出直接依赖。自 v1.3.2 起，包含全部传递依赖及完整许可证文本。
 
 ---
 
