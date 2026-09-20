@@ -11,6 +11,8 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+-dontwarn com.fasterxml.jackson.databind.ext.DOMSerializer
+-dontwarn org.w3c.dom.bootstrap.DOMImplementationRegistry
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
