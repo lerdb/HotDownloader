@@ -23,3 +23,9 @@ dist-windows
 *.njsproj
 *.sln
 *.sw?
+
+# Test files
+tests/
+
+# Docs
+docs/
