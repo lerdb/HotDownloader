@@ -85,7 +85,7 @@ async fn search_request(
         "comm": mobile_comm(),
         "req": {
             "module": "music.search.SearchCgiService",
-            "method": "DoSearchForQQMusicMobile",
+            "method": "DoSearchForQQMusicLite",
             "param": {
                 "search_type": search_type,
                 // 0是搜索歌曲，1是搜索歌手，2是搜索专辑，不同type具体返回的响应不一样
