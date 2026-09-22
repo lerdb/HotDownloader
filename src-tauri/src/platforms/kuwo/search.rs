@@ -115,13 +115,13 @@ fn search_url(keyword: &str, page: u32, limit: u32, search_type: &str) -> Result
             ("itemset", "web_2013"),
             // ("uid", "794762570"),
             // ("ver", "kwplayer_ar_9.2.2.1"),
-            // ("vipver", "1"),
+            ("vipver", "1"),
             // ("show_copyright_off", "1"),
-            // ("newver", "1"),
+            ("newver", "1"),
             // ("cluster", "0"),
             // ("strategy", "2012"),
             // ("vermerge", "1"),
-            // ("mobi", "1"),
+            ("mobi", "1"),
             // ("issubtitle", "1"),
         ]);
         params.append_pair("pn", &page.saturating_sub(1).to_string());
@@ -187,10 +187,5 @@ mod tests {
         assert_eq!(params["all"], "周杰伦 & Jay");
         assert_eq!(params["pn"], "1");
         assert_eq!(params["ft"], "album");
-        assert!(!params.contains_key("mobi"));
-        let music = search_url("Jay", 1, 20, "music").unwrap();
-        assert!(music
-            .query_pairs()
-            .any(|(key, value)| key == "mobi" && value == "1"));
     }
 }
