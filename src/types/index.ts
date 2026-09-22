@@ -107,6 +107,8 @@ export interface ArtistReference {
     /** QQ 音乐 MID。 */
     mid?: string
     name: string
+    /** 歌手头像的完整 URL。 */
+    coverUrl?: string
 }
 
 // 歌曲基本信息

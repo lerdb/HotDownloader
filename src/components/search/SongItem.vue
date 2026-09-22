@@ -69,7 +69,7 @@ const sortedQualities = computed(() => {
     })
 })
 
-// 封面 URL 懒加载：QQ 音乐自带 coverUrl；酷我需要通过后端接口按需获取
+// 优先展示歌曲自带的封面，缺少地址时按需请求。
 const coverUrl = ref<string>('')
 const coverLoading = ref(false)
 

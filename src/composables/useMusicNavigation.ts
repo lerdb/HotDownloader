@@ -53,7 +53,9 @@ export function useMusicNavigation() {
     function openArtist(platform: string, artist: Pick<ArtistInfo, 'id' | 'name'> & Partial<ArtistInfo>) {
         return open('/artist', platform, artist.id, {
             name: artist.name,
-            cover: artist.coverUrl,
+            cover: artist.coverUrl || (platform === 'qqmusic'
+                ? `https://y.gtimg.cn/music/photo_new/T001R300x300M000${artist.id}.jpg`
+                : undefined),
             alias: artist.alias,
             region: artist.region,
             songs: artist.songCount,
@@ -66,6 +68,7 @@ export function useMusicNavigation() {
         return openArtist(platform, {
             id: getMusicEntityId(platform, artist.id, artist.mid),
             name: artist.name,
+            coverUrl: artist.coverUrl,
         })
     }
 
