@@ -14,6 +14,56 @@
 use regex::Regex;
 use serde_json::{json, Value};
 
+/// 将数字或数字字符串转为正整数 ID 字符串；无效值返回空字符串。
+fn entity_id(value: &Value) -> String {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+        .filter(|id| *id > 0)
+        .map(|id| id.to_string())
+        .unwrap_or_default()
+}
+
+/// 按原始位置配对歌手名称和 ID。
+///
+/// # 参数
+/// - `name`: 以 `&` 分隔的歌手名称。
+/// - `item`: 包含 `allartistid` 或 `ALLARTISTID` 的原始条目。
+///   单歌手条目缺少有效关联 ID 时，使用 `ARTISTID` 或 `artistid`。
+///
+/// # 返回
+/// 按输入顺序排列的 `{ id, mid, name }` 列表，配对后过滤空白名称。
+/// `id` 为数字 ID 字符串，缺失或无效时为空；`mid` 为空字符串。
+pub(super) fn parse_artists(name: &str, item: &Value) -> Vec<Value> {
+    let names: Vec<_> = name.split('&').collect();
+    let all_ids = item["allartistid"]
+        .as_str()
+        .or_else(|| item["ALLARTISTID"].as_str())
+        .unwrap_or("");
+    let ids: Vec<_> = all_ids.split('&').collect();
+    let single_id = entity_id(item.get("ARTISTID").unwrap_or(&item["artistid"]));
+    names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            let name = name.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let mut id = ids
+                .get(index)
+                .and_then(|id| id.trim().parse::<u64>().ok())
+                .filter(|id| *id > 0)
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            if id.is_empty() && names.len() == 1 {
+                id = single_id.clone();
+            }
+            Some(json!({ "id": id, "mid": "", "name": name }))
+        })
+        .collect()
+}
+
 /// 通用歌曲解析函数。
 ///
 /// 将酷我搜索接口返回的原始歌曲 JSON 对象转换为前端需要的统一格式。
@@ -30,7 +80,10 @@ use serde_json::{json, Value};
 ///   - `mid`: 歌曲唯一标识（酷我用数字 ID 字符串代替）
 ///   - `title`: 歌曲标题
 ///   - `artist`: 歌手名（多个歌手以 `artist_separator` 连接）
+///   - `artists`: 歌手关联信息列表，每项包含 `id`、`mid` 和 `name`
 ///   - `album`: 专辑名
+///   - `albumId`: 专辑数字 ID 的字符串形式
+///   - `albumMid`: 空字符串
 ///   - `coverUrl`: 封面图片 URL（搜索阶段为空，由外部独立接口填充）
 ///   - `mediaMid`: 媒体文件标识（酷我用歌曲数字 ID）
 ///   - `qualities`: 可用品质列表，每项含 `quality`、`format`、`bitrate`、`size`、`filename`
@@ -97,23 +150,17 @@ pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> 
         })
         .unwrap_or_default();
 
-    // 拆分时忽略空白与空字符串；找不到分隔符时退化为单元素数组。
-    let artists: Vec<String> = if raw_artist.contains('&') {
-        raw_artist
-            .split('&')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect()
-    } else if raw_artist.is_empty() {
-        Vec::new()
-    } else {
-        vec![raw_artist]
-    };
-    let artist = artists.join(artist_separator);
+    let artists = parse_artists(&raw_artist, song);
+    let artist = artists
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect::<Vec<_>>()
+        .join(artist_separator);
 
     // 专辑
+    // 专辑ID是song["ALBUMID"]，以字符串格式存储的专辑数字ID
     let album = song["ALBUM"].as_str().unwrap_or("").to_string();
+    let ablum_id = entity_id(song.get("ALBUMID").unwrap_or(&song["albumid"]));
 
     // 时长（秒），用于前端展示。兼容字符串和数字两种类型：
     // 歌单接口返回字符串，搜索接口返回数字。
@@ -141,7 +188,10 @@ pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> 
         "mid": mid,
         "title": title,
         "artist": artist,
+        "artists": artists,
         "album": album,
+        "albumId": ablum_id,
+        "albumMid": "",
         "duration": duration,
         "coverUrl": cover_url,
         "mediaMid": mid,    // 酷我用数字 ID 作为 mediaMid
@@ -280,6 +330,41 @@ pub(crate) fn parse_detail_song(item: &Value, separator: &str) -> Option<Value> 
 #[cfg(test)]
 mod artist_tests {
     use super::*;
+
+    #[test]
+    fn keeps_artist_id_positions_when_names_or_ids_are_empty() {
+        let artists = parse_artists("甲&&乙&丙", &json!({"allartistid": "123&999&&456"}));
+        assert_eq!(
+            artists,
+            vec![
+                json!({"id": "123", "mid": "", "name": "甲"}),
+                json!({"id": "", "mid": "", "name": "乙"}),
+                json!({"id": "456", "mid": "", "name": "丙"})
+            ]
+        );
+        let missing = parse_artists("甲&乙", &json!({"artistid": "123"}));
+        assert!(missing.iter().all(|artist| artist["id"] == ""));
+        assert_eq!(
+            parse_artists("甲", &json!({"artistid": 123}))[0]["id"],
+            "123"
+        );
+    }
+
+    #[test]
+    fn search_song_preserves_related_ids_and_custom_separator() {
+        let song = parse_song(
+            &json!({
+                "MUSICRID": "MUSIC_228908", "ARTIST": "甲&乙",
+                "allartistid": "336&123", "ALBUMID": "1293", "ALBUM": "叶惠美"
+            }),
+            "、",
+        )
+        .unwrap();
+        assert_eq!(song["artist"], "甲、乙");
+        assert_eq!(song["artists"][1]["id"], "123");
+        assert_eq!(song["albumId"], "1293");
+        assert_eq!(song["albumMid"], "");
+    }
     #[test]
     fn parses_artist_song_without_id() {
         let song = parse_detail_song(
@@ -288,6 +373,8 @@ mod artist_tests {
                 "name": "晴天",
                 "artist": "周杰伦",
                 "album": "叶惠美",
+                "albumid": 1293,
+                "artistid": "336",
                 "duration": "269",
                 "web_albumpic_short": "120/test.jpg",
                 "MINFO": "level:p,bitrate:320,format:mp3,size:10.29Mb"
@@ -298,6 +385,8 @@ mod artist_tests {
         assert_eq!(song["id"], 228908);
         assert_eq!(song["title"], "晴天");
         assert_eq!(song["album"], "叶惠美");
+        assert_eq!(song["albumId"], "1293");
+        assert_eq!(song["artists"][0]["id"], "336");
         assert_eq!(song["duration"], 269);
         assert_eq!(
             song["coverUrl"],

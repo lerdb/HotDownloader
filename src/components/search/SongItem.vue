@@ -8,7 +8,16 @@
         </div>
         <div class="info">
             <div class="title">{{ song.title }}</div>
-            <div class="subtitle">{{ song.artist }} · {{ song.album }}</div>
+            <div class="subtitle">
+                <ArtistNames :platform="song.platform" :artists="song.artists" :fallback="song.artist"
+                    @click-artist="(platform, artist) => $emit('click-artist', platform, artist)" />
+            </div>
+            <div v-if="song.album" class="subtitle">
+                <n-button v-if="albumId" text size="small" class="album-link" @click.stop="$emit('click-album', song)">
+                    {{ song.album }}
+                </n-button>
+                <span v-else>{{ song.album }}</span>
+            </div>
             <div class="quality-tags">
                 <n-tag v-for="q in sortedQualities.slice(0, 4)" :key="q.quality" size="tiny" :bordered="false"
                     type="info">
@@ -28,9 +37,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { NCheckbox, NButton, NTag } from 'naive-ui'
-import type { SongInfo } from '../../types'
+import type { ArtistReference, SongInfo } from '../../types'
 import { ALL_QUALITY_ORDER } from '../../types'
 import { fetchCover } from '../../api/musicApi'
+import ArtistNames from './ArtistNames.vue'
+import { getMusicEntityId } from '../../utils/music'
 
 const props = defineProps<{
     song: SongInfo
@@ -40,7 +51,11 @@ const props = defineProps<{
 defineEmits<{
     (e: 'toggleSelect', selected: boolean): void
     (e: 'download', song: SongInfo): void
+    (e: 'click-artist', platform: string, artist: ArtistReference): void
+    (e: 'click-album', song: SongInfo): void
 }>()
+
+const albumId = computed(() => getMusicEntityId(props.song.platform, props.song.albumId, props.song.albumMid))
 
 // 按品质从高到低排序
 const sortedQualities = computed(() => {
@@ -152,6 +167,11 @@ watch(() => props.song.id, () => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.album-link {
+    font: inherit;
+    vertical-align: baseline;
 }
 
 .quality-tags {

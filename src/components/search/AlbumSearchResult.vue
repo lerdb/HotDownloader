@@ -2,14 +2,21 @@
     <div class="album-search-result">
         <template v-if="albums.length > 0">
             <div class="album-card-list">
-                <button type="button" v-for="pl in albums" :key="pl.id" class="album-card" @click="$emit('click-album', pl)">
-                    <img v-if="pl.coverUrl" :src="pl.coverUrl" class="album-card-cover" alt="专辑封面" />
+                <div v-for="album in albums" :key="album.id" class="album-card" @click="$emit('click-album', album)">
+                    <img v-if="album.coverUrl" :src="album.coverUrl" class="album-card-cover" alt="专辑封面" />
                     <div class="album-card-info">
-                        <div class="album-card-name">{{ pl.name }}</div>
-                        <div class="album-card-creator">{{ pl.artist }}</div>
-                        <div class="album-card-meta">{{ pl.songCount }} 首<span v-if="pl.publishDate"> · {{ pl.publishDate }}</span></div>
+                        <div class="album-card-name">
+                            <n-button text @click.stop="$emit('click-album', album)">{{ album.name }}</n-button>
+                        </div>
+                        <div class="album-card-creator">
+                            <ArtistNames :platform="platform" :artists="album.artists" :fallback="album.artist"
+                                @click-artist="(platform, artist) => $emit('click-artist', platform, artist)" />
+                        </div>
+                        <div class="album-card-meta">
+                            {{ album.songCount }} 首<span v-if="album.publishDate"> · {{ album.publishDate }}</span>
+                        </div>
                     </div>
-                </button>
+                </div>
             </div>
             <LoadMoreButton v-if="hasMore" :loading="loadingMore" :disabled="loadingMore" @click="$emit('load-more')" />
         </template>
@@ -20,12 +27,13 @@
 </template>
 
 <script setup lang="ts">
-import { NEmpty } from 'naive-ui'
-import type { AlbumInfo } from '../../types'
+import { NButton, NEmpty } from 'naive-ui'
+import type { AlbumInfo, ArtistReference } from '../../types'
 import LoadMoreButton from './LoadMoreButton.vue'
-
+import ArtistNames from './ArtistNames.vue'
 
 defineProps<{
+    platform: string
     albums: AlbumInfo[]
     hasMore: boolean
     loadingMore: boolean
@@ -33,6 +41,7 @@ defineProps<{
 
 defineEmits<{
     (e: 'click-album', album: AlbumInfo): void
+    (e: 'click-artist', platform: string, artist: ArtistReference): void
     (e: 'load-more'): void
 }>()
 </script>
@@ -91,6 +100,10 @@ defineEmits<{
     color: var(--color-text-secondary);
     font-size: 13px;
     margin-top: 2px;
+}
+
+.album-card-name .n-button {
+    font: inherit;
 }
 
 .album-card-meta {

@@ -6,6 +6,49 @@
 
 use serde_json::{json, Value};
 
+/// 将数字或数字字符串转为正整数 ID 字符串；无效值返回空字符串。
+fn entity_id(value: &Value) -> String {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|s| s.parse::<u64>().ok()))
+        .filter(|id| *id > 0)
+        .map(|id| id.to_string())
+        .unwrap_or_default()
+}
+
+/// 解析歌手关联信息，保留数字 ID、MID 和名称。
+///
+/// # 参数
+/// - `value`: 歌手数组，字段使用 `id` / `mid` / `name` 或对应的 `singer_` 前缀形式。
+///
+/// # 返回
+/// 按输入顺序排列的 `{ id, mid, name }` 列表，过滤名称缺失或空白的条目。
+/// 输入不是数组时返回空列表。
+pub(super) fn parse_artists(value: &Value) -> Vec<Value> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let name = item["name"]
+                        .as_str()
+                        .or_else(|| item["singer_name"].as_str())?;
+                    if name.trim().is_empty() {
+                        return None;
+                    }
+                    let id = entity_id(item.get("id").unwrap_or(&item["singer_id"]));
+                    let mid = item["mid"]
+                        .as_str()
+                        .or_else(|| item["singer_mid"].as_str())
+                        .unwrap_or("");
+                    Some(json!({ "id": id, "mid": mid, "name": name }))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// 通用歌曲解析函数。
 ///
 /// 将搜索或歌单接口返回的原始歌曲 JSON 对象转换为前端需要的统一格式。
@@ -21,7 +64,10 @@ use serde_json::{json, Value};
 ///   - `mid`: 歌曲唯一标识（字符串 mid）
 ///   - `title`: 歌曲标题（优先取 `name` 字段，若为空则取 `title` 字段）
 ///   - `artist`: 歌手名（多个歌手用 `artist_separator` 连接）
+///   - `artists`: 歌手关联信息列表，每项包含 `id`、`mid` 和 `name`
 ///   - `album`: 专辑名
+///   - `albumId`: 专辑数字 ID 的字符串形式
+///   - `albumMid`: 专辑 MID
 ///   - `coverUrl`: 封面图片 URL（优先专辑封面，其次歌手头像，均无则为空字符串）
 ///   - `mediaMid`: 媒体文件 mid（用于下载链接生成）
 ///   - `qualities`: 可用品质列表（由 [`build_qualities`] 生成）
@@ -59,16 +105,13 @@ pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> 
         })
         .unwrap_or_default();
 
-    // 歌手列表，提取所有歌手的 name 并使用设置中的分隔符连接
-    let singers: Vec<String> = song["singer"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|s| s["name"].as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    let artist = singers.join(artist_separator);
+    // 歌手关联信息与显示名称共用解析结果。
+    let artists = parse_artists(&song["singer"]);
+    let artist = artists
+        .iter()
+        .filter_map(|artist| artist["name"].as_str())
+        .collect::<Vec<_>>()
+        .join(artist_separator);
 
     // 专辑名
     let album_name = song["album"]["name"].as_str().unwrap_or("").to_string();
@@ -104,7 +147,10 @@ pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> 
         "mid": mid,
         "title": title,
         "artist": artist,
+        "artists": artists,
         "album": album_name,
+        "albumId": entity_id(&song["album"]["id"]),
+        "albumMid": album_mid,
         "coverUrl": cover_url,
         "mediaMid": media_mid,
         "qualities": qualities
@@ -197,4 +243,46 @@ pub(crate) fn build_qualities(file: &Value, vs: &Value) -> Vec<Value> {
     }
 
     list
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    #[test]
+    fn preserves_numeric_ids_and_mids_for_each_artist_and_album() {
+        let song = parse_song(
+            &json!({
+                "mid": "songMid", "file": {"media_mid": "mediaMid"},
+                "singer": [
+                    {"id": 4558, "mid": "artistA", "name": "甲"},
+                    {"id": "4944", "mid": "artistB", "name": "乙"}
+                ],
+                "album": {"id": 8217, "mid": "albumMid", "name": "专辑"}
+            }),
+            " / ",
+        )
+        .unwrap();
+        assert_eq!(song["artist"], "甲 / 乙");
+        assert_eq!(
+            song["artists"][0],
+            json!({"id": "4558", "mid": "artistA", "name": "甲"})
+        );
+        assert_eq!(song["artists"][1]["mid"], "artistB");
+        assert_eq!(song["albumId"], "8217");
+        assert_eq!(song["albumMid"], "albumMid");
+    }
+
+    #[test]
+    fn missing_mid_is_not_replaced_with_numeric_id() {
+        let artists = parse_artists(&json!([
+            {"id": 4558, "mid": "", "name": "周杰伦"},
+            {"singer_id": "4944", "singer_mid": "artistB", "singer_name": "乙"},
+            {"id": 0, "name": "未知"}
+        ]));
+        assert_eq!(artists[0]["id"], "4558");
+        assert_eq!(artists[0]["mid"], "");
+        assert_eq!(artists[1]["mid"], "artistB");
+        assert_eq!(artists[2]["id"], "");
+    }
 }

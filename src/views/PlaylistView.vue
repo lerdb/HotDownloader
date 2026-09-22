@@ -31,7 +31,8 @@
 
             <div class="song-items">
                 <SongItem v-for="song in songs" :key="song.mid" :song="song" :selected="selectedIds.includes(song.mid)"
-                    @toggle-select="(val) => toggleSelect(song.mid, val)" @download="(song) => downloadSingle(song)" />
+                    @toggle-select="(val) => toggleSelect(song.mid, val)" @download="(song) => downloadSingle(song)"
+                    @click-artist="openRelatedArtist" @click-album="openSongAlbum" />
             </div>
 
             <BatchDownloadBar v-if="selectedIds.length > 0" :selectedCount="selectedIds.length"
@@ -53,6 +54,7 @@ import SongItem from '../components/search/SongItem.vue'
 import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
 import { usePlaylistImport } from '../composables/usePlaylistImport'
 import { useDownloadActions } from '../composables/useDownloadActions'
+import { useMusicNavigation } from '../composables/useMusicNavigation'
 import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
 import { formatPlayCount } from '../utils/format'
 
@@ -76,6 +78,7 @@ const {
 } = usePlaylistImport()
 
 const { downloadSingle, batchDownload } = useDownloadActions()
+const { openRelatedArtist, openSongAlbum } = useMusicNavigation()
 
 async function handleImport() {
     const term = input.value.trim()
@@ -96,6 +99,8 @@ async function loadPlaylistFromQuery() {
     const qPlatform = route.query.platform as string | undefined
     const qId = route.query.id as string | undefined
     if (qPlatform && qId) {
+        // 从歌曲详情返回时复用已加载的歌单，保留勾选并避免重复请求。
+        if (currentPlatform.value === qPlatform && input.value === qId && (loading.value || playlist.value)) return
         currentPlatform.value = qPlatform
         input.value = qId
         await handleImport()

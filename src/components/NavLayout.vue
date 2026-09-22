@@ -8,8 +8,9 @@
         <!-- 内容区域 -->
         <main ref="mainContentRef" class="main-content" :class="{ 'has-bottom-nav': isNarrow }">
             <router-view v-slot="{ Component }">
+                <!-- 每个详情独立缓存，返回时恢复其分页、标签与勾选。 -->
                 <keep-alive>
-                    <component :is="Component" />
+                    <component :is="Component" :key="viewKey" />
                 </keep-alive>
             </router-view>
         </main>
@@ -33,6 +34,9 @@ import { useNarrowLayout } from '../composables/useNarrowLayout'
 
 const router = useRouter()
 const route = useRoute()
+const viewKey = computed(() => {
+    return ['/artist', '/album'].includes(route.path) ? route.fullPath : route.path
+})
 
 // 保存各路由页面的滚动位置，实现独立滚动记录
 const mainContentRef = ref<HTMLElement | null>(null)
@@ -49,7 +53,7 @@ async function restoreScrollPosition(path: string) {
 }
 
 // 监听路由变化，恢复新路由的滚动位置
-watch(() => route.path, (newPath) => {
+watch(() => route.fullPath, (newPath) => {
     restoreScrollPosition(newPath)
 })
 
@@ -67,11 +71,11 @@ onMounted(() => {
     // 注册全局前置守卫，在离开当前路由前保存滚动位置
     removeRouteGuard = router.beforeEach((_to, from) => {
         if (mainContentRef.value) {
-            scrollPositions[from.path] = mainContentRef.value.scrollTop
+            scrollPositions[from.fullPath] = mainContentRef.value.scrollTop
         }
     })
     // 初始恢复当前路由的滚动位置（如果有保存过）
-    restoreScrollPosition(route.path)
+    restoreScrollPosition(route.fullPath)
 })
 
 onUnmounted(() => {

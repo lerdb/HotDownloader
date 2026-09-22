@@ -1,23 +1,27 @@
 <template>
     <div class="album-view">
-        <n-button @click="router.push(backTarget)">{{ backTarget === '/search' ? '返回搜索' : '返回歌手' }}</n-button>
+        <n-button @click="goBack">{{ backLabel }}</n-button>
         <div v-if="loading" class="loading">
             <n-spin size="medium" description="正在获取专辑全部歌曲…" />
         </div>
         <n-alert v-else-if="error" type="error" title="获取专辑失败">
-           {{ error }}
-                    <n-button @click="loadAlbum">重试</n-button>
+            {{ error }}
+            <n-button @click="loadAlbum">重试</n-button>
         </n-alert>
         <template v-else-if="album">
             <div class="album-header">
                 <img v-if="album.coverUrl" :src="album.coverUrl" alt="专辑封面" />
                 <div class="album-info">
                     <h2>{{ album.name || '专辑' }}</h2>
-                    <p>{{ album.artist }}</p>
+                    <p>
+                        <ArtistNames :platform="platform" :artists="album.artists" :fallback="album.artist"
+                            @click-artist="openRelatedArtist" />
+                    </p>
                     <p>{{ album.songCount }} 首<span v-if="album.publishDate"> · {{ album.publishDate }}</span></p>
                 </div>
             </div>
-            <SearchResultList v-if="songs.length" :songs="songs" v-model:selectedIds="selectedIds" @download="downloadSingle" />
+            <SearchResultList v-if="songs.length" :songs="songs" v-model:selectedIds="selectedIds" @download="downloadSingle"
+                @click-artist="openRelatedArtist" @click-album="openSongAlbum" />
             <n-empty v-else description="该专辑暂无可用歌曲" />
             <BatchDownloadBar v-if="selectedIds.length" :selected-count="selectedIds.length" @batch-download="downloadSelected" />
         </template>
@@ -25,21 +29,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { NButton, NSpin, NAlert, NEmpty } from 'naive-ui'
 import type { AlbumInfo, SongInfo } from '../types'
 import { fetchAlbumSongs } from '../api/musicApi'
 import { useDownloadActions } from '../composables/useDownloadActions'
 import SearchResultList from '../components/search/SearchResultList.vue'
 import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
+import ArtistNames from '../components/search/ArtistNames.vue'
+import { useMusicNavigation } from '../composables/useMusicNavigation'
 
 const route = useRoute()
-const router = useRouter()
-const backTarget = computed(() => {
-    const target = route.query.returnTo
-    return typeof target === 'string' && target.startsWith('/artist?') ? target : '/search'
-})
+const { openRelatedArtist, openSongAlbum, goBack, backLabel } = useMusicNavigation()
+const query = { ...route.query }
+const platform = typeof query.platform === 'string' ? query.platform : ''
 const album = ref<AlbumInfo | null>(null)
 const songs = ref<SongInfo[]>([])
 const selectedIds = ref<string[]>([])
@@ -49,12 +53,8 @@ const {
     downloadSingle,
     batchDownload
 } = useDownloadActions()
-let generation = 0
-
 async function loadAlbum() {
-    if (route.path !== '/album') return
-    const request = ++generation
-    const query = { ...route.query }
+    if (loading.value) return
     album.value = null
     songs.value = []
     selectedIds.value = []
@@ -63,25 +63,21 @@ async function loadAlbum() {
     try {
         if (typeof query.platform !== 'string' || typeof query.id !== 'string') throw new Error('缺少专辑信息，请返回搜索重新选择')
         const result = await fetchAlbumSongs(query.platform, query.id)
-        if (request !== generation) return
         album.value = {
             ...result.album,
-            name: typeof query.name === 'string' ? query.name : result.album.name,
-            artist: typeof query.artist === 'string' ? query.artist : result.album.artist,
+            name: result.album.name || (typeof query.name === 'string' ? query.name : ''),
+            artist: result.album.artist || (typeof query.artist === 'string' ? query.artist : ''),
             publishDate: result.album.publishDate || (typeof query.date === 'string' ? query.date : ''),
         }
         songs.value = result.songs
     } catch (e) {
-        if (request === generation) error.value = String(e)
+        error.value = String(e)
     } finally {
-        if (request === generation) loading.value = false
+        loading.value = false
     }
 }
 
-watch(() => [route.path, route.query.platform, route.query.id], () => {
-    ++generation
-    if (route.path === '/album') void loadAlbum()
-}, { immediate: true })
+onMounted(loadAlbum)
 
 function downloadSelected() {
     batchDownload(songs.value.filter(song => selectedIds.value.includes(song.mid)))

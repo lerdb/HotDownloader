@@ -203,14 +203,17 @@ pub(crate) async fn search_albums(
         .iter()
         .filter_map(|item| {
             let mid = item["albummid"].as_str().filter(|s| !s.is_empty())?;
-            let artists: Vec<&str> = item["singer_list"]
-                .as_array()
-                .map(|list| list.iter().filter_map(|s| s["name"].as_str()).collect())
-                .unwrap_or_default();
+            let artists = super::parser::parse_artists(&item["singer_list"]);
+            let artist = artists
+                .iter()
+                .filter_map(|artist| artist["name"].as_str())
+                .collect::<Vec<_>>()
+                .join(&separator);
             Some(json!({
                 "id": mid,
                 "name": item["name"].as_str().unwrap_or(""),
-                "artist": artists.join(&separator),
+                "artist": artist,
+                "artists": artists,
                 "coverUrl": item["pic"].as_str().unwrap_or("").replace("http://", "https://"),
                 "publishDate": item["description"].as_str().unwrap_or(""),
                 "songCount": item["song_num"]

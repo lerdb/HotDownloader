@@ -11,7 +11,9 @@
             <div class="song-items">
                 <SongItem v-for="song in songs" :key="song.mid" :song="song" :selected="selectedIds.includes(song.mid)"
                     @toggle-select="(val) => toggleSelect(song.mid, val)"
-                    @download="(song) => $emit('download', song)" />
+                    @download="(song) => $emit('download', song)"
+                    @click-artist="(platform, artist) => $emit('click-artist', platform, artist)"
+                    @click-album="(song) => $emit('click-album', song)" />
             </div>
 
             <!-- 使用 LoadMoreButton 组件替代原有按钮 -->
@@ -30,7 +32,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { NCheckbox, NEmpty, NButton } from 'naive-ui'
-import type { SongInfo } from '../../types'
+import type { ArtistReference, SongInfo } from '../../types'
 import SongItem from './SongItem.vue'
 import LoadMoreButton from './LoadMoreButton.vue'
 
@@ -48,6 +50,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: 'update:selectedIds', ids: string[]): void
     (e: 'download', song: SongInfo): void
+    (e: 'click-artist', platform: string, artist: ArtistReference): void
+    (e: 'click-album', song: SongInfo): void
     (e: 'retry'): void          // 新增重试事件
     (e: 'load-more'): void      // 新增分页加载更多事件
 }>()

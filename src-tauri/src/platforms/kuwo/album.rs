@@ -44,19 +44,19 @@ pub(super) fn parse_album(item: &Value, separator: &str) -> Value {
                 .unwrap_or_default()
         });
 
+    let artists = super::parser::parse_artists(item["artist"].as_str().unwrap_or(""), item);
+    let artist = artists
+        .iter()
+        .filter_map(|artist| artist["name"].as_str())
+        .collect::<Vec<_>>()
+        .join(separator);
+
     json!({
         // ID 可能是字符串或数字，统一转成字符串
         "id": id.as_str().map(str::to_owned).unwrap_or_else(|| number(id).to_string()),
         "name": item["name"].as_str().unwrap_or(""),
-        // 歌手名以 & 分隔，拆分后按分隔符重新拼接
-        "artist": item["artist"]
-            .as_str()
-            .unwrap_or("")
-            .split('&')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(separator),
+        "artist": artist,
+        "artists": artists,
         "coverUrl": cover.replace("http://", "https://"),
         "publishDate": item["pub"].as_str().unwrap_or(""),
         // 歌曲数优先取 songnum，回退到 musiccnt

@@ -109,6 +109,7 @@ pub(crate) async fn fetch_album_songs(app: &AppHandle, id: String) -> Result<Str
                     "id": id,
                     "name": first["album"].as_str().unwrap_or(""),
                     "artist": first["artist"].as_str().unwrap_or(""),
+                    "artists": first["artists"].as_array().cloned().unwrap_or_default(),
                     "coverUrl": format!("https://y.gtimg.cn/music/photo_new/T002R300x300M000{}.jpg", id),
                     "publishDate": "",
                     "songCount": total

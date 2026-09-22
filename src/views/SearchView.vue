@@ -41,7 +41,8 @@
             <!-- 歌曲搜索结果列表 -->
             <SearchResultList v-if="searchType === 'song' && songHasSearched && !songLoading" :songs="songSearchResults"
                 v-model:selectedIds="songSelectedIds" :has-more="songHasMore" :loading-more="songLoadingMore"
-                @download="onSingleDownload" @retry="handleSearch" @load-more="loadMoreSongs" />
+                @download="onSingleDownload" @retry="handleSearch" @load-more="loadMoreSongs"
+                @click-artist="openRelatedArtist" @click-album="openSongAlbum" />
 
             <!-- 歌手搜索结果列表 -->
             <template v-else-if="searchType === 'artist'">
@@ -52,7 +53,7 @@
                 <ArtistSearchResult
                     v-if="artistHasSearched && !artistLoading && (!artistError || artistSearchResults.length)"
                     :artists="artistSearchResults" :has-more="artistHasMore" :loading-more="artistLoadingMore"
-                    @click-artist="goToArtist" @load-more="loadMoreArtists" />
+                    @click-artist="artist => openArtist(currentPlatform, artist)" @load-more="loadMoreArtists" />
             </template>
 
             <!-- 专辑搜索结果列表 -->
@@ -63,8 +64,9 @@
                 </n-alert>
                 <AlbumSearchResult
                     v-if="albumHasSearched && !albumLoading && (!albumError || albumSearchResults.length)"
-                    :albums="albumSearchResults" :has-more="albumHasMore" :loading-more="albumLoadingMore"
-                    @click-album="goToAlbum" @load-more="loadMoreAlbums" />
+                    :albums="albumSearchResults" :platform="currentPlatform" :has-more="albumHasMore" :loading-more="albumLoadingMore"
+                    @click-album="album => openAlbum(currentPlatform, album)" @load-more="loadMoreAlbums"
+                    @click-artist="openRelatedArtist" />
             </template>
 
             <!-- 歌单搜索结果列表 -->
@@ -99,10 +101,12 @@ import { useDownloadActions } from '../composables/useDownloadActions'
 import { useSongSearch } from '../composables/useSongSearch'
 import { usePlaylistSearch } from '../composables/usePlaylistSearch'
 import * as musicApi from '../api/musicApi'
-import type { SearchSuggestionData, PlaylistSearchItem, AlbumInfo, ArtistInfo, SongInfo } from '../types'
+import type { SearchSuggestionData, PlaylistSearchItem, SongInfo } from '../types'
 import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
+import { useMusicNavigation } from '../composables/useMusicNavigation'
 
 const router = useRouter()
+const { openArtist, openAlbum, openRelatedArtist, openSongAlbum } = useMusicNavigation()
 const keyword = ref('')
 const currentPlatform = ref(DEFAULT_PLATFORM)
 
@@ -344,35 +348,6 @@ function loadMoreSongs() {
 // 加载更多歌单
 function loadMorePlaylists() {
     loadMorePlaylistFunc(currentPlatform.value, keyword.value)
-}
-
-function goToArtist(artist: ArtistInfo) {
-    router.push({
-        path: '/artist',
-        query: {
-            platform: currentPlatform.value,
-            id: artist.id,
-            name: artist.name,
-            cover: artist.coverUrl,
-            alias: artist.alias,
-            region: artist.region,
-            songs: artist.songCount,
-            albums: artist.albumCount
-        }
-    })
-}
-
-function goToAlbum(album: AlbumInfo) {
-    router.push({
-        path: '/album',
-        query: {
-            platform: currentPlatform.value,
-            id: album.id,
-            name: album.name,
-            artist: album.artist,
-            date: album.publishDate
-        }
-    })
 }
 
 // 跳转歌单详情

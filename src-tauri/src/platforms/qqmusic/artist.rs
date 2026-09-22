@@ -47,15 +47,11 @@ pub(super) fn parse_artist(item: &Value) -> Option<Value> {
 fn parse_album(item: &Value, separator: &str) -> Option<Value> {
     let id = item["album_mid"].as_str().filter(|s| !s.is_empty())?;
 
-    // 优先从 singers 数组取歌手名
-    let names: Vec<&str> = item["singers"]
-        .as_array()
-        .map(|list| {
-            list.iter()
-                .filter_map(|s| s["singer_name"].as_str())
-                .collect()
-        })
-        .unwrap_or_default();
+    let artists = super::parser::parse_artists(&item["singers"]);
+    let names: Vec<&str> = artists
+        .iter()
+        .filter_map(|artist| artist["name"].as_str())
+        .collect();
 
     // 数组为空时回退到顶层 singer_name
     let artist = if names.is_empty() {
@@ -68,6 +64,7 @@ fn parse_album(item: &Value, separator: &str) -> Option<Value> {
         "id": id,
         "name": item["album_name"].as_str().unwrap_or(""),
         "artist": artist,
+        "artists": artists,
         "coverUrl": format!("https://y.gtimg.cn/music/photo_new/T002R300x300M000{}.jpg", id),
         "publishDate": item["pub_time"].as_str().unwrap_or(""),
         "songCount": number(&item["latest_song"]["song_count"]).unwrap_or(0)
