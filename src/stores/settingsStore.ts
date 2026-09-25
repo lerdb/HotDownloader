@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as settingsApi from '../api/settingsApi'
 import type { Settings } from '../types'
 import { DEFAULT_SETTINGS, normalizeQualityDowngradeOrder } from '../types'
 
@@ -22,9 +22,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
     async function loadSettings() {
         try {
-            const json = await invoke<string>('load_settings')
-            if (json) {
-                const parsed = JSON.parse(json) as Partial<Settings>
+            const parsed = await settingsApi.loadSettings()
+            if (parsed) {
                 settings.value = {
                     ...createDefaultSettings(),
                     ...parsed,
@@ -41,8 +40,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
     async function getDefaultDownloadDir() {
         try {
-            const dir = await invoke<string>('get_default_download_dir')
-            settings.value.downloadDir = dir
+            settings.value.downloadDir = await settingsApi.getDefaultDownloadDir()
         } catch {
             // 保持现有值
         }
@@ -56,7 +54,7 @@ export const useSettingsStore = defineStore('settings', () => {
             clearTimeout(debounceTimer)
             debounceTimer = null
         }
-        await invoke('save_settings', { settingsJson: JSON.stringify(settings.value) })
+        await settingsApi.saveSettings(settings.value)
     }
     watch(
         settings,
@@ -73,7 +71,7 @@ export const useSettingsStore = defineStore('settings', () => {
     watch(
         () => settings.value.maxConcurrent,
         (val) => {
-            invoke('set_max_concurrent', { max: val }).catch(console.error)
+            settingsApi.setMaxConcurrent(val).catch(console.error)
         }
     )
 

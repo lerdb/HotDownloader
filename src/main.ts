@@ -1,4 +1,3 @@
-import '@sahil-vartak/tauri-plugin-safe-area-insets-css-api'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import naive from 'naive-ui'
@@ -7,6 +6,7 @@ import router from './router'
 import { useSettingsStore } from './stores/settingsStore'
 import { useHistoryStore } from './stores/historyStore'
 import { useTaskStore } from './stores/taskStore'
+import { initializeNativeSafeArea } from './api/runtimeApi'
 import './style.css'
 
 const app = createApp(App)
@@ -20,6 +20,12 @@ app.use(router)
 app.use(naive)
 
 async function init() {
+    // 原生安全区域只在 Tauri 环境加载，普通浏览器页面无需等待原生插件。
+    try {
+        await initializeNativeSafeArea()
+    } catch (error) {
+        console.warn('初始化安全区域失败:', error)
+    }
     const settingsStore = useSettingsStore()
     const historyStore = useHistoryStore()
     const taskStore = useTaskStore()

@@ -27,21 +27,19 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { NFormItem, NInput, NInputGroup, NButton, NText } from 'naive-ui'
-import { open } from '@tauri-apps/plugin-dialog'
-import { invoke } from '@tauri-apps/api/core'
-// 导入 OS 插件，用于检测 Android 平台
-import { platform } from '@tauri-apps/plugin-os'
+import { chooseDownloadDirectory, pickSafFolder } from '../../api/fileApi'
+import { getRuntimePlatform } from '../../api/runtimeApi'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 const settingsStore = useSettingsStore()
 
-// 不再使用 UA 判断，改用 platform() 异步获取，初始值为 false
+// 原生平台信息由 API 层提供，初始值为 false
 const isAndroid = ref(false)
 
 // Android 端初始化：异步获取平台信息，若为 Android 且未选择 SAF，则确保使用默认下载目录
 onMounted(async () => {
     try {
-        const currentPlatform = await platform()
+        const currentPlatform = await getRuntimePlatform()
         isAndroid.value = currentPlatform === 'android'
     } catch (error) {
         console.warn('获取平台信息失败，默认按非 Android 处理', error)
@@ -57,12 +55,8 @@ onMounted(async () => {
 async function selectDirectory() {
     // 仅桌面端调用
     try {
-        const selected = await open({
-            directory: true,
-            multiple: false,
-            title: '选择下载目录',
-        })
-        if (selected && typeof selected === 'string') {
+        const selected = await chooseDownloadDirectory()
+        if (selected) {
             settingsStore.settings.downloadDir = selected
         }
     } catch (error) {
@@ -72,7 +66,7 @@ async function selectDirectory() {
 
 async function selectSafFolder() {
     try {
-        const json = await invoke<string>('pick_saf_folder')
+        const json = await pickSafFolder()
         if (!json) {
             console.log('用户取消选择 SAF 文件夹')
             return

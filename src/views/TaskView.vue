@@ -64,7 +64,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { openFileLocation } from '../api/fileApi'
 import { NPagination, NButton, NPopconfirm, NCheckbox, NSpace, useNotification } from 'naive-ui'
 import { useTaskStore } from '../stores/taskStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -183,7 +183,7 @@ async function handleAction(action: TaskAction, taskId: string, extra?: TaskActi
                 const task = taskStore.tasks.find((t) => t.id === taskId)
                 if (task?.filePath) {
                     try {
-                        await invoke('open_file_location', { path: task.filePath })
+                        await openFileLocation(task.filePath)
                     } catch (e) {
                         console.error('打开文件位置失败:', e)
                     }

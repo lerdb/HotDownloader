@@ -1,19 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as historyApi from '../api/historyApi'
 
 export const useHistoryStore = defineStore('history', () => {
     const history = ref<string[]>([])
 
     async function loadHistory() {
         try {
-            const json = await invoke<string>('load_history')
-            if (json) {
-                const parsed = JSON.parse(json)
-                if (Array.isArray(parsed)) {
-                    history.value = parsed.slice(0, 50)
-                }
-            }
+            history.value = (await historyApi.loadHistory()).slice(0, 50)
         } catch {
             history.value = []
         }
@@ -21,9 +15,7 @@ export const useHistoryStore = defineStore('history', () => {
 
     async function saveHistory() {
         try {
-            await invoke('save_history', {
-                historyJson: JSON.stringify(history.value),
-            })
+            await historyApi.saveHistory(history.value)
         } catch (e) {
             console.error('保存搜索历史失败:', e)
         }

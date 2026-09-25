@@ -13,7 +13,7 @@ import type {
     UpdateInfo,
     LyricResponse
 } from '../types'
-import { cachedInvoke } from '../composables/useCachedInvoke'
+import { cachedInvoke } from './cachedInvoke'
 
 export async function searchSongs(
     platform: string,

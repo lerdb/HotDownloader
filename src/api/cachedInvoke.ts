@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 
 /**
- * 通用 Tauri 命令调用封装，提供：
+ * API 层的幂等命令调用缓存，提供：
  * 1. 内存缓存（同一 key 在 TTL 内的请求直接返回缓存）
  * 2. 请求去重（同一 key 的并发请求共享同一个 Promise）
  *

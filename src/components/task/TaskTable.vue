@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import { h, ref, onMounted } from 'vue'
+import { h, ref, onMounted, computed } from 'vue'
 import { NDataTable, NTag, NProgress, NSpace, NEllipsis } from 'naive-ui'
 import type { DataTableColumn, DataTableRowKey, TagProps } from 'naive-ui'
 import type { TaskRecord } from '../../types'
@@ -17,11 +17,10 @@ import { renderActions } from './TaskRowActions'
 import type { TaskAction, TaskActionExtra } from './TaskRowActions'
 import MobileTaskList from './MobileTaskList.vue'
 import { useNarrowLayout } from '../../composables/useNarrowLayout'
-// 导入 OS 插件，用于获取平台信息
-import { platform } from '@tauri-apps/plugin-os'
+import { getRuntimePlatform } from '../../api/runtimeApi'
 
 // 使用 ref 存储 Android 状态，替代原先的同步 UA 判断
-// 使用 Tauri OS 插件准确识别平台，在 onMounted 中异步获取平台并更新
+// 原生平台信息由 API 层提供，在 onMounted 中异步获取并更新。
 const isAndroid = ref(false)
 
 // 响应式检测移动端：与导航共用断点，监听由 composable 随组件释放
@@ -30,7 +29,7 @@ const isMobile = useNarrowLayout()
 onMounted(async () => {
     // 异步获取当前平台，设置 isAndroid
     try {
-        const currentPlatform = await platform()
+        const currentPlatform = await getRuntimePlatform()
         isAndroid.value = currentPlatform === 'android'
     } catch (error) {
         console.warn('获取平台信息失败，默认按非 Android 处理', error)
@@ -94,7 +93,8 @@ function renderProgress(row: TaskRecord) {
     return h('div', null, children)
 }
 
-const columns: DataTableColumn<TaskRecord>[] = [
+// Android 文件路径列依赖异步平台检测，列定义必须是计算属性才能随检测结果更新。
+const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
     {
         type: 'selection',
         disabled: (row: TaskRecord) => row.status === 'downloading',
@@ -145,7 +145,7 @@ const columns: DataTableColumn<TaskRecord>[] = [
         },
     },
     // 仅 Android 显示文件路径列
-    ...(isAndroid ? [{
+    ...(isAndroid.value ? [{
         title: '文件路径',
         key: 'filePath',
         minWidth: 200,
@@ -178,7 +178,7 @@ const columns: DataTableColumn<TaskRecord>[] = [
             )
         },
     },
-]
+])
 </script>
 
 <style scoped>

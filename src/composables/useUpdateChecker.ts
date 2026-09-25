@@ -4,8 +4,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 // 语义化版本比较库 semver
 import semver from 'semver'
-// Tauri OS 插件，用于获取当前平台信息
-import { platform } from '@tauri-apps/plugin-os'
+import { getRuntimePlatform } from '../api/runtimeApi'
 import { checkForUpdate } from '../api/musicApi'
 import { formatFileSize } from '../utils/format'
 import type { UpdateInfo } from '../types'
@@ -121,7 +120,7 @@ export function useUpdateChecker() {
 
         // 使用 async/await 获取当前平台信息，避免类型不匹配和代码繁琐
         try {
-            currentPlatform.value = await platform()
+            currentPlatform.value = await getRuntimePlatform()
         } catch (err) {
             console.warn('获取平台信息失败，将显示所有安装包', err)
             currentPlatform.value = ''
