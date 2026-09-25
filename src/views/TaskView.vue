@@ -67,6 +67,7 @@ import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { NPagination, NButton, NPopconfirm, NCheckbox, NSpace, useNotification } from 'naive-ui'
 import { useTaskStore } from '../stores/taskStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useDownloadActions } from '../composables/useDownloadActions'
 import TaskTabs from '../components/task/TaskTabs.vue'
 import TaskTable from '../components/task/TaskTable.vue'
@@ -74,6 +75,7 @@ import TaskBatchActions from '../components/task/TaskBatchActions.vue'
 import type { TaskAction, TaskActionExtra } from '../components/task/TaskRowActions'
 
 const taskStore = useTaskStore()
+const settingsStore = useSettingsStore()
 const { retryTask } = useDownloadActions()
 const notification = useNotification()
 
@@ -155,45 +157,75 @@ watch(
 )
 
 async function handleAction(action: TaskAction, taskId: string, extra?: TaskActionExtra) {
-    switch (action) {
-        case 'cancel':
-            taskStore.cancelTask(taskId, extra?.deleteFile === true)
-            break
-        case 'pause':
-            taskStore.pauseTask(taskId)
-            break
-        case 'resume':
-            taskStore.resumeTask(taskId)
-            break
-        case 'retry':
-            await retryTask(taskId)
-            break
-        case 'remove':
-            await taskStore.removeTask(taskId, extra?.deleteFile === true)
-            break
-        case 'open-location': {
-            const task = taskStore.tasks.find((t) => t.id === taskId)
-            if (task?.filePath) {
-                try {
-                    await invoke('open_file_location', { path: task.filePath })
-                } catch (e) {
-                    console.error('打开文件位置失败:', e)
+    try {
+        // 操作统一交给 Rust 命令；列表变化由 task-updated/task-removed 事件回填。
+        switch (action) {
+            case 'cancel':
+                await taskStore.cancelTask(taskId, extra?.deleteFile === true)
+                break
+            case 'pause':
+                await taskStore.pauseTask(taskId)
+                break
+            case 'resume':
+                await taskStore.resumeTask(taskId)
+                break
+            case 'retry':
+                await retryTask(taskId)
+                break
+            case 'remove': {
+                const result = await taskStore.removeTask(taskId, extra?.deleteFile === true)
+                if (result.failed) {
+                    throw new Error(result.errors.join('；'))
                 }
+                break
             }
-            break
+            case 'open-location': {
+                const task = taskStore.tasks.find((t) => t.id === taskId)
+                if (task?.filePath) {
+                    try {
+                        await invoke('open_file_location', { path: task.filePath })
+                    } catch (e) {
+                        console.error('打开文件位置失败:', e)
+                    }
+                }
+                break
+            }
         }
+        // 命令成功后才清除选中状态；失败时保留以便用户重试。
+        selectedRowKeys.value = selectedRowKeys.value.filter((id) => id !== taskId)
+    } catch (e: any) {
+        notification.error({
+            title: '操作失败',
+            description: e?.message || String(e),
+            duration: 4000,
+        })
     }
-    // 清除相关选中状态
-    selectedRowKeys.value = selectedRowKeys.value.filter((id) => id !== taskId)
 }
 
 async function handleBatchClear(deleteFile: boolean) {
     const ids = selectedRowKeys.value.slice()
-    if (ids.length === 0) return
-    // 一次性提交给后端批量删除，前端只落盘一次（旧实现是逐个任务 invoke + 逐个整表写盘）
-    await taskStore.removeTasks(ids, deleteFile)
-    // 在批量删除流程完成后再清空选中键，避免删除过程中选中状态提前丢失。
-    selectedRowKeys.value = []
+    if (ids.length === 0) {
+        return
+    }
+    try {
+        // 批量命令由后端逐个删除并返回准确计数，前端不直接修改持久化记录。
+        const result = await taskStore.removeTasks(ids, deleteFile)
+        if (result.failed > 0) {
+            notification.warning({
+                title: '部分任务未清除',
+                description: result.errors.join('；').slice(0, 200),
+                duration: 4000,
+            })
+        }
+        // 在批量删除流程完成后再清空选中键，避免删除过程中选中状态提前丢失。
+        selectedRowKeys.value = []
+    } catch (e: any) {
+        notification.error({
+            title: '清除任务失败',
+            description: e?.message || String(e),
+            duration: 4000,
+        })
+    }
 }
 
 /** 一键重试当前所有“错误”状态的任务 */
@@ -206,6 +238,8 @@ async function handleRetryAll() {
 
     retryingAll.value = true
     try {
+        // 批量重试读取同一份当前设置，先完成防抖写盘。
+        await settingsStore.flushSettings()
         const { succeeded, failed } = await taskStore.retryTasks(ids)
         notification.success({
             title: '批量重试',
@@ -234,9 +268,11 @@ async function handleClearCompleted() {
     try {
         // 成功通知使用后端真实成功数
         const result = await taskStore.removeTasks(ids, deleteFile)
+        const fileMessage = deleteFile ? '，并删除对应文件' : ''
+        const failedMessage = result.failed > 0 ? `，${result.failed} 个失败` : ''
         notification.success({
             title: '已清除',
-            description: `已清除 ${result.succeeded} 个已下载的任务记录${deleteFile ? '，并删除对应文件' : ''}${result.failed > 0 ? `，${result.failed} 个失败` : ''}`,
+            description: `已清除 ${result.succeeded} 个已下载的任务记录${fileMessage}${failedMessage}`,
             duration: 4000,
         })
     } finally {
@@ -258,9 +294,11 @@ async function handleClearAll() {
     try {
         // 成功通知使用后端真实成功数
         const result = await taskStore.removeTasks(ids, deleteFile)
+        const fileMessage = deleteFile ? '，并删除对应文件' : ''
+        const failedMessage = result.failed > 0 ? `，${result.failed} 个失败` : ''
         notification.success({
             title: '已清除',
-            description: `已清除全部 ${result.succeeded} 个任务记录${deleteFile ? '，并删除对应文件' : ''}${result.failed > 0 ? `，${result.failed} 个失败` : ''}`,
+            description: `已清除全部 ${result.succeeded} 个任务记录${fileMessage}${failedMessage}`,
             duration: 4000,
         })
     } finally {

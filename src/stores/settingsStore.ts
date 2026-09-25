@@ -50,14 +50,20 @@ export const useSettingsStore = defineStore('settings', () => {
 
     // 防抖持久化
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    // 创建和重试任务前需要立即落盘，确保 Rust 读取到当前设置而非防抖前的旧值。
+    async function flushSettings() {
+        if (debounceTimer) {
+            clearTimeout(debounceTimer)
+            debounceTimer = null
+        }
+        await invoke('save_settings', { settingsJson: JSON.stringify(settings.value) })
+    }
     watch(
         settings,
         () => {
             if (debounceTimer) clearTimeout(debounceTimer)
             debounceTimer = setTimeout(() => {
-                invoke('save_settings', {
-                    settingsJson: JSON.stringify(settings.value),
-                }).catch(console.error)
+                flushSettings().catch(console.error)
             }, 500)
         },
         { deep: true }
@@ -75,5 +81,6 @@ export const useSettingsStore = defineStore('settings', () => {
         settings,
         loadSettings,
         getDefaultDownloadDir,
+        flushSettings,
     }
 })

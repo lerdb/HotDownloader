@@ -219,19 +219,30 @@ export interface TaskRecord {
     /**
      * 创建任务时歌曲实际提供的全部音质快照。
      *
-     * 重试降级不仅要改变品质标签，还必须同步切换后端接口所需的 filename
-     * 和预估文件大小；旧任务没有该字段，因此保留为可选以兼容历史数据。
+     * Rust 重试降级时需要品质、filename 与预估大小一起切换。
+     * 旧任务没有该字段，因此保留为可选以兼容历史数据。
      */
     availableQualities?: QualityItem[]
     speed?: number  // 实时下载速度 (bytes/s)，仅 downloading/paused 状态有意义
     /**
-     * 用户在“文件已存在”弹窗中选定的保存路径。
-     * - 未设置或为空：使用默认路径（覆盖策略）
-     * - 有值：用户选择了“保留两份”，使用建议的重命名路径
-     * 持久化后，应用重启重试时复用之，避免落到错误路径。
+     * Rust 创建任务时锁定的保存路径（普通文件系统为绝对路径，SAF 为文件名）。
+     * 旧任务可能没有该字段；重试时由 Rust 解析路径。
      */
     savePath?: string
 }
+
+export type DuplicateAction = 'overwrite' | 'rename' | 'cancel'
+
+export interface CreateTaskRequest {
+    song: SongInfo
+    desiredQuality: Quality
+    duplicateAction?: DuplicateAction
+}
+
+export type CreateTaskResult =
+    | { outcome: 'created'; task: TaskRecord }
+    | { outcome: 'needs_confirmation'; song_title: string }
+    | { outcome: 'cancelled' }
 
 export interface DownloadProgressPayload {
     task_id: string

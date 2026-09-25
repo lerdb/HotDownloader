@@ -97,8 +97,14 @@ pub async fn download_task(
     ) = get_download_settings(&app_handle).await;
 
     // 1. 构建最终保存路径（只需一次）
+    // 创建任务时已经确定目标路径；Android SAF 任务需保留 URI 上下文，
+    // 否则重试时会把相对文件名当成本地文件系统路径。
     let (is_saf, download_dir, saf_folder_uri) = if !ctx.save_path.is_empty() {
-        (false, ctx.save_path.clone(), None)
+        if dir_setting == "saf://" && cfg!(target_os = "android") && saf_uri_setting.is_some() {
+            (true, ctx.save_path.clone(), saf_uri_setting.clone())
+        } else {
+            (false, ctx.save_path.clone(), None)
+        }
     } else {
         resolve_download_path(
             &dir_setting,
@@ -284,6 +290,39 @@ pub async fn download_task(
         let total = if total > 0 { total } else { ctx.file_size };
 
         let status = response.status();
+        if downloaded > 0 && status == StatusCode::OK {
+            // 部分 CDN 忽略 Range 并返回完整文件。不能将完整响应追加到已有片段，
+            // 因此重新打开目标文件并从 0 开始写入。
+            log::warn!("任务 {} 的服务器忽略续传范围，改为从头下载", ctx.task_id);
+            file.take();
+            downloaded = 0;
+            file = open_download_file(
+                &app_handle,
+                &ctx.task_id,
+                &download_dir,
+                is_saf,
+                saf_folder_uri.as_deref(),
+                &mut downloaded,
+                &mut saf_file_uri,
+            )
+            .await;
+            if file.is_none() {
+                break 'download;
+            }
+        } else if downloaded > 0 && status == StatusCode::PARTIAL_CONTENT {
+            // 206 的起始偏移必须等于本地文件长度，否则拼接后文件内容会错位。
+            let range_start = response
+                .headers()
+                .get("content-range")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("bytes "))
+                .and_then(|value| value.split('-').next())
+                .and_then(|value| value.parse::<u64>().ok());
+            if range_start != Some(downloaded) {
+                progress::emit_error(&app_handle, &ctx.task_id, "续传响应范围不匹配，请重试");
+                break 'download;
+            }
+        }
         if status == StatusCode::RANGE_NOT_SATISFIABLE {
             // 刷新缓冲区
             if let Some(ref mut f) = file {
@@ -468,7 +507,7 @@ pub async fn download_task(
 
     // 下载成功后，根据设置决定是否写入 metadata（歌词/封面）
     if completed_ok {
-        // 文件下载完成，发送事件，前端进入 processing 状态
+        // 文件传输结束，先通知 Rust 任务状态进入 processing，再执行收尾处理。
         progress::emit_file_complete(&app_handle, &ctx.task_id);
 
         // 获取歌词（仅当需要写入 metadata 或单独下载 lrc 时才请求）

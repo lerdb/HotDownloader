@@ -6,6 +6,7 @@ mod storage;
 mod utils;
 
 use download::engine::DownloadEngine;
+use download::task_state::TaskState;
 use storage::store_wrapper;
 use tauri::Manager;
 
@@ -31,6 +32,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init()) // 注册通知插件，支持下载完成系统通知
         .plugin(tauri_plugin_safe_area_insets_css_edge::init()) // 注册安全区域插件
         .setup(|app| {
+            // 下载器启动前先恢复持久化任务；后续下载事件才能更新权威任务状态。
+            let task_state =
+                TaskState::load(app.handle().clone()).map_err(std::io::Error::other)?;
+            app.manage(task_state);
             let engine = DownloadEngine::new(app.handle().clone());
             let max_concurrent = match store_wrapper::load_string(app.handle(), "settings") {
                 Ok(json) => serde_json::from_str::<serde_json::Value>(&json)
@@ -112,15 +117,13 @@ pub fn run() {
             commands::history::load_history,
             commands::history::save_history,
             commands::tasks::load_tasks,
-            commands::tasks::save_tasks,
-            commands::tasks::add_download_task,
-            commands::tasks::check_download_path,
-            commands::tasks::enqueue_task,
+            commands::tasks::create_download_task,
             commands::tasks::pause_task,
             commands::tasks::resume_task,
             commands::tasks::cancel_task,
             commands::tasks::remove_task,
             commands::tasks::remove_tasks,
+            commands::tasks::retry_task,
             commands::tasks::set_max_concurrent,
             commands::file_ops::get_default_download_dir,
             commands::file_ops::create_directory,
@@ -134,7 +137,6 @@ pub fn run() {
             commands::api::search::fetch_artist_albums,
             commands::api::search::fetch_album_songs,
             commands::api::search::fetch_cover,
-            commands::api::download::fetch_download_link,
             commands::api::suggest::fetch_hot_keywords,
             commands::api::suggest::fetch_suggestions,
             commands::api::playlist::fetch_playlist_songs,

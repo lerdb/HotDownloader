@@ -16,7 +16,7 @@ use super::task::{download_task, TaskContext};
 use crate::platforms::Platform;
 
 /// 引擎中没有对应任务上下文时的错误码。
-/// 前端据此判断需要“重新注册任务”，而不是把失败当成普通错误。
+/// Rust 重试命令据此从持久化任务记录重建下载器上下文。
 pub const ERR_TASK_CONTEXT_MISSING: &str = "TASK_CONTEXT_MISSING";
 
 /// 并发槽位守卫：任务无论以何种方式结束（正常/取消/panic）都会归还槽位并唤醒调度器。
@@ -80,6 +80,30 @@ pub struct DownloadEngine {
 }
 
 impl DownloadEngine {
+    /// 记录最终路径。已完成任务的控制器可能已释放，删除文件仍需此路径。
+    pub async fn remember_final_path(&self, task_id: &str, path: &str) {
+        self.final_paths
+            .lock()
+            .await
+            .insert(task_id.to_string(), path.to_string());
+    }
+
+    /// 品质降级后清除旧文件和歌词路径，避免沿用上一次尝试的目标。
+    pub async fn forget_final_path(&self, task_id: &str) {
+        self.final_paths.lock().await.remove(task_id);
+        self.lrc_paths.lock().await.remove(task_id);
+    }
+
+    /// 等待上一轮 worker 完全退出，再以相同任务 ID 开始重试。
+    pub async fn wait_for_task_exit(&self, task_id: &str) {
+        let controller = self.active_controllers.lock().await.get(task_id).cloned();
+        if let Some(controller) = controller {
+            if controller.started.load(Ordering::SeqCst) {
+                controller.done.notified().await;
+            }
+        }
+    }
+
     pub fn new(app_handle: AppHandle) -> Self {
         DownloadEngine {
             app_handle,
@@ -112,6 +136,7 @@ impl DownloadEngine {
         artist: String,
         album: String,
         cover_url: String,
+        downloaded_offset: u64,
     ) {
         let controller = TaskController {
             cancel_token: CancellationToken::new(),
@@ -136,7 +161,7 @@ impl DownloadEngine {
             quality_filename: filename,
             key,
             file_size,
-            downloaded_offset: 0,
+            downloaded_offset,
             app_handle: self.app_handle.clone(),
             song_info: super::task::SongInfo {
                 title: song_title,
@@ -170,7 +195,7 @@ impl DownloadEngine {
     ///
     /// 若引擎中不存在该任务的上下文（典型场景：应用重启后从磁盘恢复的任务，
     /// 引擎是全新的、没有任何上下文），返回 [`ERR_TASK_CONTEXT_MISSING`] 而不是
-    /// 静默返回 —— 否则前端会以为入队成功，任务将永远停留在“等待中”。
+    /// 静默返回 —— 否则 Rust 命令会以为入队成功，任务将永远停留在“等待中”。
     /// 调用方收到该错误后可以用任务记录重新注册任务。
     pub async fn enqueue_task(&self, task_id: &str, offset: u64) -> Result<(), String> {
         // 获取任务上下文（克隆后修改）
@@ -233,28 +258,6 @@ impl DownloadEngine {
             ctrl.pause_flag.store(false, Ordering::SeqCst);
             ctrl.resume_notify.notify_one();
         }
-    }
-
-    /// 取消任务（下载线程自行处理文件删除）
-    pub async fn cancel(&self, task_id: &str, delete_file: bool) {
-        log::info!("取消任务 {} (delete_file={})", task_id, delete_file);
-        if let Some(ctrl) = self.active_controllers.lock().await.get(task_id) {
-            ctrl.cancel_token.cancel();
-            // 将删除意图传递给下载线程
-            ctrl.delete_file_on_cancel
-                .store(delete_file, Ordering::SeqCst);
-            // 如果任务处于暂停等待状态，需要唤醒它以便退出循环
-            ctrl.resume_notify.notify_one();
-            ctrl.url_ready.notify_one();
-        }
-
-        // 清理队列
-        self.ready_tasks
-            .lock()
-            .await
-            .retain(|t| t.task_id != task_id);
-
-        // 注意：不再在此处删除文件，改为 download_task 完成后自行处理
     }
 
     /// 设置并发数（同步，无需 Tokio 上下文）
@@ -392,11 +395,10 @@ impl DownloadEngine {
                             engine.lrc_paths.lock().await.insert(task_id.clone(), lp);
                         }
 
-                        // 通知任务完成（供 remove 等待）
-                        ctrl_clone.done.notify_one();
-
                         // 下载结束（完成/错误），仅移除控制器，保留任务上下文供删除文件使用
                         engine.active_controllers.lock().await.remove(&task_id);
+                        // 控制器移除后再通知等待方，避免快速重试覆盖新控制器。
+                        ctrl_clone.done.notify_one();
 
                         if completed_ok {
                             // 下载完成后发送系统通知

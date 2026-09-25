@@ -24,23 +24,27 @@ async function init() {
     const historyStore = useHistoryStore()
     const taskStore = useTaskStore()
 
-    // 并行加载持久化数据，即使失败也继续挂载
+    // 先建立任务订阅，再读取快照；读取期间的事件由 store 排队回放。
     try {
         await Promise.all([
             settingsStore.loadSettings(),
             historyStore.loadHistory(),
-            taskStore.loadTasks(),
         ])
     } catch (e) {
         console.error('加载持久化数据失败，使用默认值:', e)
     }
 
-    // 设置下载事件监听（内部已处理错误）
+    // 注册任务事件监听；若注册失败，仍继续加载快照并挂载页面。
     try {
         // 保存清理函数，并在页面卸载时调用，避免内存泄漏
-        cleanupTaskListeners = taskStore.setupListeners()
+        cleanupTaskListeners = await taskStore.setupListeners()
     } catch (e) {
         console.error('注册下载事件监听失败:', e)
+    }
+    try {
+        await taskStore.loadTasks()
+    } catch (e) {
+        console.error('加载任务失败:', e)
     }
 }
 

@@ -45,19 +45,6 @@ export async function searchSongs(
     return parsed
 }
 
-export async function fetchDownloadLink(
-    platform: string,
-    songMid: string,
-    filename: string
-): Promise<{ url: string; key: string }> {
-    const json = await invoke<string>('fetch_download_link', {
-        platform,
-        songMid,
-        filename
-    })
-    return JSON.parse(json) as { url: string; key: string }
-}
-
 // 获取热搜关键词
 export async function getHotKeywords(platform: string): Promise<string[]> {
     const json = await invoke<string>('fetch_hot_keywords', { platform })
@@ -126,30 +113,6 @@ export async function getLyricBySongId(platform: string, songId: number): Promis
         platform,
         songId
     });
-}
-
-// 检查下载路径是否存在，返回原始路径、是否存在及建议的重命名路径
-export async function checkDownloadPath(params: {
-    songId: number
-    songMid: string
-    songTitle: string
-    artist: string
-    album: string
-    coverUrl: string
-    qualityFilename: string
-    quality: string
-}): Promise<{ original_path: string; exists: boolean; suggested_path: string; is_saf: boolean }> {
-    const json = await invoke<string>('check_download_path', {
-        songId: params.songId,
-        songMid: params.songMid,
-        songTitle: params.songTitle,
-        artist: params.artist,
-        album: params.album,
-        coverUrl: params.coverUrl,
-        qualityFilename: params.qualityFilename,
-        quality: params.quality,
-    })
-    return JSON.parse(json)
 }
 
 // 请求系统通知权限
