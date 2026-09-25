@@ -3,6 +3,7 @@ pub mod engine;
 pub mod progress;
 pub mod task;
 pub mod task_rules;
+pub mod task_service;
 pub mod task_state;
 
 // 新增子模块
