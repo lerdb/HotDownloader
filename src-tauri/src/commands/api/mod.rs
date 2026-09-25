@@ -1,4 +1,3 @@
-pub mod download;
 pub mod login;
 pub mod lyrics;
 pub mod playlist;

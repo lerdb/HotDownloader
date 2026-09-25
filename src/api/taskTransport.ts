@@ -5,6 +5,8 @@ import type {
     TaskRecord,
 } from '../types'
 import { tauriTaskTransport } from './tauriTaskTransport'
+import { webTaskTransport } from './webTaskTransport'
+import { isTauri } from '@tauri-apps/api/core'
 
 /** 与 Rust 任务契约对应的批量操作结果。 */
 export interface BatchTaskResult {
@@ -15,6 +17,7 @@ export interface BatchTaskResult {
 
 /** 任务事件携带后端完整记录；前端不得在这里自行推导状态变化。 */
 export interface TaskEventHandlers {
+    snapshot(tasks: TaskRecord[]): void
     updated(task: TaskRecord): void
     removed(taskId: string): void
     metadataError(error: DownloadMetadataErrorPayload): void
@@ -33,5 +36,5 @@ export interface TaskTransport {
     subscribe(handlers: TaskEventHandlers): Promise<() => void>
 }
 
-// 当前桌面和移动端共用 Tauri 实现；页面和 store 只依赖上面的接口。
-export const taskTransport: TaskTransport = tauriTaskTransport
+// 桌面与移动端走 Tauri IPC，浏览器走 HTTP/SSE；页面和 store 只依赖此接口。
+export const taskTransport: TaskTransport = isTauri() ? tauriTaskTransport : webTaskTransport

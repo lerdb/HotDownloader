@@ -1,3 +1,4 @@
+mod adapters;
 mod commands;
 mod download;
 mod events;
@@ -7,6 +8,7 @@ mod utils;
 
 use download::engine::DownloadEngine;
 use download::task_state::TaskState;
+use std::sync::Arc;
 use storage::store_wrapper;
 use tauri::Manager;
 
@@ -33,10 +35,23 @@ pub fn run() {
         .plugin(tauri_plugin_safe_area_insets_css_edge::init()) // 注册安全区域插件
         .setup(|app| {
             // 下载器启动前先恢复持久化任务；后续下载事件才能更新权威任务状态。
+            let task_io = Arc::new(adapters::tauri_task_io::TauriTaskIo::new(
+                app.handle().clone(),
+            ));
             let task_state =
-                TaskState::load(app.handle().clone()).map_err(std::io::Error::other)?;
+                TaskState::load(task_io.clone(), task_io).map_err(std::io::Error::other)?;
             app.manage(task_state);
-            let engine = DownloadEngine::new(app.handle().clone());
+            let engine = DownloadEngine::new(
+                Arc::new(adapters::tauri_download_host::TauriTaskRunner::new(
+                    app.handle().clone(),
+                )),
+                Arc::new(adapters::tauri_download_host::TauriFileDeleter::new(
+                    app.handle().clone(),
+                )),
+                Arc::new(adapters::tauri_download_host::TauriCompletionNotifier::new(
+                    app.handle().clone(),
+                )),
+            );
             let max_concurrent = match store_wrapper::load_string(app.handle(), "settings") {
                 Ok(json) => serde_json::from_str::<serde_json::Value>(&json)
                     .ok()

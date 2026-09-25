@@ -1,10 +1,10 @@
 # 🎵 HotDownloader
 
-> 基于 Tauri 2 和 Vue 3 的跨平台音乐下载工具，支持桌面端（Windows/macOS/Linux）与 Android 端。
+> 基于共享 Rust 下载核心和 Vue 3 的音乐下载工具，支持 Tauri 桌面端、Android 端与 Docker/Web 部署。
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.77.2+-orange.svg)
-![Node](https://img.shields.io/badge/node-18+-green.svg)
+![Node](https://img.shields.io/badge/node-22.12+-green.svg)
 
 ---
 
@@ -14,22 +14,22 @@
 - 🎤 **关联浏览**：点击搜索结果中的歌手或专辑名称查看详情，返回时保留搜索状态与滚动位置
 - 📋 **歌单搜索与导入**：支持歌单关键词搜索，或通过歌单链接/ID 导入并批量下载
 - 🔎 **结果批量下载**：在搜索结果、歌单等列表中勾选多首歌曲统一加入下载队列
-- ⬇️ **智能下载**：多任务并发、断点续传、链接过期自动重试，下载链接实时获取
-- 🔄 **自动降级**：指定音质不可用时按用户配置的顺序自动降级
+- ⬇️ **智能下载**：多任务并发、断点续传、下载链接按需刷新与自动重试
+- 🔄 **自动降级**：以指定音质为起点，按用户配置的顺序选择可用品质
 - 📊 **实时速度**：任务列表显示实时下载速度
 - 🎵 **音频解密**：支持加密格式音频解密
 - 🎤 **歌词与标签**：获取歌词并写入音频文件标签（支持封面、歌词），可独立下载 `.lrc` 歌词文件
 - 🔐 **账号登录**：支持扫码登录和手动输入 `uin` / `authst` 登录，解锁会员歌曲与更高音质
 - 🔁 **重复文件处理**：下载前检测同名文件，支持询问、覆盖、保留两份、取消四种策略，可在设置中配置
-- 📱 **Android 适配**：通过 SAF 选择公共下载目录；未选择时默认使用系统 Download 目录
+- 📱 **Android 适配**：默认使用系统 Download 目录，也支持通过 SAF 选择公共下载目录
 - 🖥️ **系统托盘**：桌面端常驻托盘，支持显示/隐藏主窗口与退出应用，左键点击托盘图标显示窗口
-- 📋 **任务管理**：等待/下载/暂停/完成/错误状态分类，支持批量删除、全部重试、取消、恢复；支持批量清除已下载或全部历史任务；桌面端支持“打开文件位置”；任务列表分页渲染，任务量大时保持流畅
-- 🔔 **下载通知**：任务完成/失败/链接过期时弹出应用内通知
+- 📋 **任务管理**：按任务状态分类，支持批量删除、全部重试、取消、恢复；支持批量清除已下载或全部历史任务；桌面端支持“打开文件位置”；任务列表分页渲染，任务量大时保持流畅
+- 🔔 **下载通知**：任务结果与链接状态变化时弹出应用内通知
 - ⬆️ **检查更新**：从 GitHub Releases 检查新版本，展示更新说明，仅列出当前平台可用的安装包直链
-- 🚪 **退出确认**：窗口关闭时若存在未完成的下载任务，会先弹出二次确认，避免误关丢失进度
+- 🚪 **退出确认**：窗口关闭时若有进行中的下载任务，会先弹出二次确认
 - ⚙️ **个性化设置**：默认音质、自动降级、下载目录、文件命名模板、歌手分隔符、并发数、自动跳转任务页、写入歌曲标签、保存 LRC 歌词等
 - 🎨 **深色模式**：跟随系统主题，沉浸式视觉体验
-- 💾 **本地持久化**：任务、设置、搜索历史、登录状态本地保存
+- 💾 **持久化**：Tauri 客户端保存本地数据；独立服务在持久化数据目录中保存任务、设置与登录状态
 
 ---
 
@@ -37,13 +37,13 @@
 
 | 前端                    | 后端                    |
 | ----------------------- | ----------------------- |
-| Vue 3 (Composition API) | Rust (Tauri 2)          |
-| TypeScript              | Tokio (异步运行时)      |
-| Vite                    | Reqwest (HTTP 客户端)   |
-| Pinia                   | lofty (音频标签写入)    |
-| Vue Router (Hash 模式)  | rumqttc (MQTT 登录)     |
-| Naive UI                | tauri-plugin-store      |
-|                         | tauri-plugin-android-fs |
+| Vue 3 (Composition API) | Rust 共享核心            |
+| TypeScript              | Tokio (异步运行时)       |
+| Vite                    | Reqwest (HTTP 客户端)    |
+| Pinia                   | lofty (音频标签写入)     |
+| Vue Router (Hash 模式)  | Tauri 2 / 独立 HTTP 服务 |
+| Naive UI                | rumqttc (MQTT 登录)      |
+|                         | Android SAF 适配器       |
 
 ---
 
@@ -51,7 +51,7 @@
 
 请根据目标平台准备对应环境：
 
-- **通用**：Rust ≥ 1.77.2、Node.js ≥ 18、npm/pnpm/yarn
+- **通用**：Rust、Node.js 22.12+ 与 npm
 - **桌面端**：参考 [Tauri 桌面端前置要求](https://tauri.app/start/prerequisites/#system-dependencies)
 - **Android 端**：参考 [Tauri Android 前置要求](https://tauri.app/start/prerequisites/#android)
 
@@ -86,13 +86,31 @@ npm run tauri build
 
 构建产物位于 `src-tauri/target/release/bundle/`。
 
-### 5. Android 端开发运行
+### 5. Docker/Web 部署
+
+先在项目根目录创建 `.env`，设置至少 16 个字符的随机访问令牌：
+
+```dotenv
+HOTDOWNLOADER_TOKEN=请替换为随机生成的长令牌
+```
+
+然后启动服务：
+
+```bash
+docker compose up --build -d
+```
+
+浏览器访问 `http://服务器地址:8787`，输入 `.env` 中的访问令牌。容器在 `/data` 保存设置、QQ 凭据、任务记录和下载文件；Compose 使用 `hotdownloader-data` 卷持久化此目录。下载任务由服务进程持续执行，重新打开网页即可查看进度。服务进程重启后，可在任务页重试此前进行中的任务。
+
+若允许非本机访问，请使用 HTTPS 反向代理保护浏览器与服务之间的访问令牌。独立服务的接口和环境变量详见 [服务说明](crates/hotdownloader-server/README.md)。
+
+### 6. Android 端开发运行
 
 ```bash
 npx tauri android dev
 ```
 
-### 6. Android 端构建
+### 7. Android 端构建
 
 ```bash
 npx tauri android build

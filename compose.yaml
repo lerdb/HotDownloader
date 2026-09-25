@@ -1,0 +1,14 @@
+services:
+  hotdownloader:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      # 服务对外监听时要求至少 16 个字符；请在本机 .env 中设置随机令牌。
+      HOTDOWNLOADER_TOKEN: ${HOTDOWNLOADER_TOKEN:?请先设置 HOTDOWNLOADER_TOKEN}
+    volumes:
+      - hotdownloader-data:/data
+
+volumes:
+  hotdownloader-data:

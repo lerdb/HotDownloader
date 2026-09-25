@@ -2,6 +2,11 @@ import { isTauri } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { platform } from '@tauri-apps/plugin-os'
 
+/** 业务页面通过此入口判断是否具备原生窗口和文件操作能力。 */
+export function isNativeRuntime(): boolean {
+    return isTauri()
+}
+
 /** 原生平台标识只在此处读取，UI 不直接依赖 Tauri OS 插件。 */
 export async function getRuntimePlatform(): Promise<string> {
     return isTauri() ? platform() : 'web'

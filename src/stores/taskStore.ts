@@ -103,6 +103,10 @@ export const useTaskStore = defineStore('tasks', () => {
         // 从开始订阅到快照加载完成都缓存事件，避免初始化期间的事件被快照覆盖。
         loading = true
         return taskTransport.subscribe({
+            snapshot(snapshot) {
+                // SSE 重连会重新发完整快照；由后端记录直接替换只读投影。
+                projectEvent(() => { tasks.value = snapshot })
+            },
             updated(task) {
                 projectEvent(() => {
                     const previous = tasks.value.find(t => t.id === task.id)

@@ -1,28 +1,7 @@
-use serde::{Deserialize, Serialize};
+// 平台标识与查询解析位于共享核心；登录存储和下载事件仍由 Tauri 适配。
+pub use hotdownloader_core::platform::Platform;
 
-/// 支持的音乐平台
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Platform {
-    /// QQ 音乐
-    #[serde(rename = "qqmusic")]
-    QqMusic,
-    /// 酷我音乐
-    #[serde(rename = "kuwo")]
-    Kuwo,
-}
-
-impl Platform {
-    /// 从字符串解析平台标识（前端传入）
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s {
-            "qqmusic" => Ok(Platform::QqMusic),
-            "kuwo" => Ok(Platform::Kuwo),
-            _ => Err(format!("不支持的平台: {}", s)),
-        }
-    }
-}
-
-pub mod lyric;
+pub use hotdownloader_core::platforms::lyric;
 
 /// QQ 音乐平台实现模块
 pub mod qqmusic;

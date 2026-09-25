@@ -34,6 +34,10 @@ export default defineConfig({
   // 防止 Vite 清除 Rust 显示的错误
   clearScreen: false,
   server: {
+    // 浏览器开发模式复用独立服务的同源 API；Tauri 开发模式仍走 IPC。
+    proxy: {
+      '/api': 'http://127.0.0.1:8787',
+    },
     watch: {
       // 告诉 Vite 忽略监听 `src-tauri` 目录
       // 同时忽略编辑器/工具链“原子写”产生的临时文件与临时目录：

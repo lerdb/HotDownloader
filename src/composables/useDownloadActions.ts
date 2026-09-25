@@ -167,7 +167,7 @@ export function useDownloadActions() {
             await settingsStore.flushSettings()
             // 返回 false 表示后端按重试规则拒绝启动，错误原因已写入任务记录。
             if (!(await taskStore.retryTask(taskId))) {
-                notification.warning({ title: '重试失败', description: '任务无法重试，已达最大尝试次数或无可降级音质' })
+                notification.warning({ title: '重试失败', description: '任务未重新入队，请查看任务中的错误信息' })
             }
         } catch (error: any) {
             notification.error({ title: '重试失败', description: error?.message || String(error) })

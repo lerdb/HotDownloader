@@ -1,6 +1,7 @@
 //! 搜索命令路由层
 
 use crate::platforms::Platform;
+use crate::utils::filename::get_artist_separator;
 use tauri::{command, AppHandle};
 
 #[command]
@@ -12,12 +13,14 @@ pub async fn search_songs(
     limit: u32,
 ) -> Result<String, String> {
     let p = Platform::from_str(&platform)?;
+    // 只在 IPC 边界读取 Tauri 设置；核心搜索函数只接收普通分隔符文本。
+    let separator = get_artist_separator(&app);
     match p {
         Platform::QqMusic => {
-            crate::platforms::qqmusic::search::search_songs(&app, keyword, page, limit).await
+            crate::platforms::qqmusic::search::search_songs(&separator, keyword, page, limit).await
         }
         Platform::Kuwo => {
-            crate::platforms::kuwo::search::search_songs(&app, keyword, page, limit).await
+            crate::platforms::kuwo::search::search_songs(&separator, keyword, page, limit).await
         }
     }
 }
@@ -46,12 +49,13 @@ pub async fn search_albums(
     if page == 0 || limit == 0 || limit > 100 {
         return Err("无效的分页参数".into());
     }
+    let separator = get_artist_separator(&app);
     match Platform::from_str(&platform)? {
         Platform::QqMusic => {
-            crate::platforms::qqmusic::search::search_albums(&app, keyword, page, limit).await
+            crate::platforms::qqmusic::search::search_albums(&separator, keyword, page, limit).await
         }
         Platform::Kuwo => {
-            crate::platforms::kuwo::search::search_albums(&app, keyword, page, limit).await
+            crate::platforms::kuwo::search::search_albums(&separator, keyword, page, limit).await
         }
     }
 }
@@ -62,9 +66,12 @@ pub async fn fetch_album_songs(
     platform: String,
     id: String,
 ) -> Result<String, String> {
+    let separator = get_artist_separator(&app);
     match Platform::from_str(&platform)? {
-        Platform::QqMusic => crate::platforms::qqmusic::album::fetch_album_songs(&app, id).await,
-        Platform::Kuwo => crate::platforms::kuwo::album::fetch_album_songs(&app, id).await,
+        Platform::QqMusic => {
+            crate::platforms::qqmusic::album::fetch_album_songs(&separator, id).await
+        }
+        Platform::Kuwo => crate::platforms::kuwo::album::fetch_album_songs(&separator, id).await,
     }
 }
 
@@ -95,12 +102,13 @@ pub async fn fetch_artist_songs(
     limit: u32,
 ) -> Result<String, String> {
     validate_artist_page(page, limit)?;
+    let separator = get_artist_separator(&app);
     match Platform::from_str(&platform)? {
         Platform::QqMusic => {
-            crate::platforms::qqmusic::artist::fetch_artist_songs(&app, id, page, limit).await
+            crate::platforms::qqmusic::artist::fetch_artist_songs(&separator, id, page, limit).await
         }
         Platform::Kuwo => {
-            crate::platforms::kuwo::artist::fetch_artist_songs(&app, id, page, limit).await
+            crate::platforms::kuwo::artist::fetch_artist_songs(&separator, id, page, limit).await
         }
     }
 }
@@ -114,12 +122,14 @@ pub async fn fetch_artist_albums(
     limit: u32,
 ) -> Result<String, String> {
     validate_artist_page(page, limit)?;
+    let separator = get_artist_separator(&app);
     match Platform::from_str(&platform)? {
         Platform::QqMusic => {
-            crate::platforms::qqmusic::artist::fetch_artist_albums(&app, id, page, limit).await
+            crate::platforms::qqmusic::artist::fetch_artist_albums(&separator, id, page, limit)
+                .await
         }
         Platform::Kuwo => {
-            crate::platforms::kuwo::artist::fetch_artist_albums(&app, id, page, limit).await
+            crate::platforms::kuwo::artist::fetch_artist_albums(&separator, id, page, limit).await
         }
     }
 }

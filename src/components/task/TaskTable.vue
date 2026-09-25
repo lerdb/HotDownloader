@@ -30,7 +30,8 @@ onMounted(async () => {
     // 异步获取当前平台，设置 isAndroid
     try {
         const currentPlatform = await getRuntimePlatform()
-        isAndroid.value = currentPlatform === 'android'
+        // Web 文件位于服务器，和 Android SAF 一样展示路径但不显示本机“打开位置”。
+        isAndroid.value = currentPlatform === 'android' || currentPlatform === 'web'
     } catch (error) {
         console.warn('获取平台信息失败，默认按非 Android 处理', error)
         isAndroid.value = false
@@ -144,7 +145,7 @@ const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
             return renderProgress(row)
         },
     },
-    // 仅 Android 显示文件路径列
+    // Android 和 Web 无法使用桌面文件管理器，因此直接展示文件路径。
     ...(isAndroid.value ? [{
         title: '文件路径',
         key: 'filePath',

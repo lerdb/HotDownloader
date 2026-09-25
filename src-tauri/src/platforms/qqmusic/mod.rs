@@ -1,9 +1,6 @@
-pub(crate) mod album;
-pub(crate) mod artist;
-pub(crate) mod download;
 pub(crate) mod login;
-pub(crate) mod lyrics;
-pub(crate) mod parser;
-pub(crate) mod playlist;
-pub(crate) mod search;
-pub(crate) mod suggest;
+
+// 平台查询函数接收普通设置值；Tauri 命令在调用前读取歌手分隔符。
+pub(crate) use hotdownloader_core::platforms::qqmusic::{
+    album, artist, lyrics, playlist, search, suggest,
+};

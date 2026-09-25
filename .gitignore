@@ -8,9 +8,14 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.npm-cache
+.env
+.env.*
 dist
 dist-ssr
 dist-windows
+**/target/
+data/
 *.local
 
 # Editor directories and files

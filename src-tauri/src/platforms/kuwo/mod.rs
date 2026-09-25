@@ -1,9 +1,4 @@
-pub(crate) mod album;
-pub(crate) mod artist;
-pub(crate) mod cover;
-pub(crate) mod download;
-pub(crate) mod lyrics;
-pub(crate) mod parser;
-pub(crate) mod playlist;
-pub(crate) mod search;
-pub(crate) mod suggest;
+// 酷我查询、歌词和封面接口均已移到共享核心。
+pub(crate) use hotdownloader_core::platforms::kuwo::{
+    album, artist, cover, lyrics, playlist, search, suggest,
+};

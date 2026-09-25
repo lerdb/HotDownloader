@@ -1,6 +1,7 @@
 //! 歌单导入命令路由层
 
 use crate::platforms::Platform;
+use crate::utils::filename::get_artist_separator;
 use tauri::{command, AppHandle};
 
 #[command]
@@ -10,11 +11,15 @@ pub async fn fetch_playlist_songs(
     input: String,
 ) -> Result<String, String> {
     let p = Platform::from_str(&platform)?;
+    // 歌单解析需要用户设置的歌手分隔符，具体请求无需接触 AppHandle。
+    let separator = get_artist_separator(&app);
     match p {
         Platform::QqMusic => {
-            crate::platforms::qqmusic::playlist::fetch_playlist_songs(&app, input).await
+            crate::platforms::qqmusic::playlist::fetch_playlist_songs(&separator, input).await
         }
-        Platform::Kuwo => crate::platforms::kuwo::playlist::fetch_playlist_songs(&app, input).await,
+        Platform::Kuwo => {
+            crate::platforms::kuwo::playlist::fetch_playlist_songs(&separator, input).await
+        }
     }
 }
 

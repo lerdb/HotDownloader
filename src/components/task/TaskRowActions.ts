@@ -72,22 +72,16 @@ export function renderActions(
         )
     }
 
-    // 错误：重试、删除（删除时询问是否删除未完成文件）
+    // 错误：始终允许用户发起重试请求。是否能重新入队、是否需要降级，
+    // 都由 Rust 根据当前任务与设置判断；错误文字仅用于展示，不作为业务条件。
     if (task.status === 'error') {
-        const isRetriable =
-            task.errorMsg !== '重试次数已用尽' &&
-            task.errorMsg !== '已无更低音质可降级'
-
         nodes.push(
             h(
                 NButton,
                 {
                     size: 'small',
                     type: 'primary',
-                    disabled: !isRetriable,
-                    onClick: () => {
-                        if (isRetriable) emit('retry', taskId)
-                    },
+                    onClick: () => emit('retry', taskId),
                 },
                 () => '重试'
             )

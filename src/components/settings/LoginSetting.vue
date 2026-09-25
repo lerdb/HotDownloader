@@ -59,6 +59,7 @@ import { NTabs, NTabPane, NForm, NFormItem, NInput, NButton, useNotification } f
 import * as musicApi from '../../api/musicApi'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useNarrowLayout } from '../../composables/useNarrowLayout'
+import { isNativeRuntime } from '../../api/runtimeApi'
 
 const PLATFORM = "qqmusic"
 
@@ -85,13 +86,25 @@ const manualAccessToken = ref('')
 const manualOpenid = ref('')
 const manualLoading = ref(false)
 
+/** Tauri 仍使用原有设置字段；Web 凭据由独立 Rust 服务保存，不能混入普通设置。 */
+function updateNativeCredentials(credentials: musicApi.LoginCredentials | null) {
+    if (!isNativeRuntime()) return
+
+    settingsStore.settings.loginUin = credentials?.uin ?? ''
+    settingsStore.settings.authst = credentials?.authst ?? ''
+    settingsStore.settings.refreshToken = credentials?.refreshToken ?? ''
+    settingsStore.settings.refreshKey = credentials?.refreshKey ?? ''
+    settingsStore.settings.accessToken = credentials?.accessToken ?? ''
+    settingsStore.settings.openid = credentials?.openid ?? ''
+}
+
 // 获取新二维码
 async function refreshQr() {
     if (pollTimer) clearInterval(pollTimer)
     qrLoading.value = true
     try {
         const res = await musicApi.createQrLogin(PLATFORM)
-        console.log('[登录] 获取二维码成功:', res)
+        // 登录结果可能包含会话信息，避免将其写入浏览器开发者工具日志。
         qrBase64.value = res.qr_base64
         qrId.value = res.qrcode_id
         qrStatus.value = 'waiting'
@@ -111,18 +124,11 @@ function startPolling() {
     pollTimer = setInterval(async () => {
         try {
             const result = await musicApi.checkQrLogin(PLATFORM, qrId.value)
-            console.log('[登录] 轮询结果:', result)
             qrStatus.value = result.status
             if (result.status === 'confirmed') {
                 if (pollTimer) clearInterval(pollTimer)
-                console.log('[登录] 登录成功，保存凭据')
                 if (result.credentials) {
-                    settingsStore.settings.loginUin = result.credentials.uin
-                    settingsStore.settings.authst = result.credentials.authst
-                    settingsStore.settings.refreshToken = result.credentials.refreshToken
-                    settingsStore.settings.refreshKey = result.credentials.refreshKey
-                    settingsStore.settings.accessToken = result.credentials.accessToken
-                    settingsStore.settings.openid = result.credentials.openid
+                    updateNativeCredentials(result.credentials)
                 }
                 isLoggedIn.value = true
                 loginUin.value = result.credentials?.uin || ''
@@ -164,13 +170,7 @@ async function handleManualLogin() {
             manualAccessToken.value,
             manualOpenid.value
         )
-        console.log('[登录] 手动登录成功:', creds)
-        settingsStore.settings.loginUin = creds.uin
-        settingsStore.settings.authst = creds.authst
-        settingsStore.settings.refreshToken = creds.refreshToken
-        settingsStore.settings.refreshKey = creds.refreshKey
-        settingsStore.settings.accessToken = creds.accessToken
-        settingsStore.settings.openid = creds.openid
+        updateNativeCredentials(creds)
         isLoggedIn.value = true
         loginUin.value = creds.uin
         activeTab.value = 'qr'
@@ -189,12 +189,7 @@ async function handleManualLogin() {
 async function handleLogout() {
     try {
         await musicApi.logout(PLATFORM)
-        settingsStore.settings.loginUin = ''
-        settingsStore.settings.authst = ''
-        settingsStore.settings.refreshToken = ''
-        settingsStore.settings.refreshKey = ''
-        settingsStore.settings.accessToken = ''
-        settingsStore.settings.openid = ''
+        updateNativeCredentials(null)
         isLoggedIn.value = false
         loginUin.value = ''
         if (pollTimer) clearInterval(pollTimer)

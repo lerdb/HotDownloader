@@ -1,6 +1,12 @@
 <template>
     <n-form-item label="下载目录">
-        <template v-if="!isAndroid">
+        <template v-if="isWeb">
+            <div class="current-dir">
+                <n-text>服务器下载目录：{{ settingsStore.settings.downloadDir }}</n-text>
+                <n-text depth="3">目录由服务部署环境设置，文件保存在服务器上。</n-text>
+            </div>
+        </template>
+        <template v-else-if="!isAndroid">
             <n-input-group>
                 <n-input :value="settingsStore.settings.downloadDir" readonly placeholder="请选择下载目录" />
                 <n-button type="primary" @click="selectDirectory">选择</n-button>
@@ -35,12 +41,14 @@ const settingsStore = useSettingsStore()
 
 // 原生平台信息由 API 层提供，初始值为 false
 const isAndroid = ref(false)
+const isWeb = ref(false)
 
 // Android 端初始化：异步获取平台信息，若为 Android 且未选择 SAF，则确保使用默认下载目录
 onMounted(async () => {
     try {
         const currentPlatform = await getRuntimePlatform()
         isAndroid.value = currentPlatform === 'android'
+        isWeb.value = currentPlatform === 'web'
     } catch (error) {
         console.warn('获取平台信息失败，默认按非 Android 处理', error)
         isAndroid.value = false

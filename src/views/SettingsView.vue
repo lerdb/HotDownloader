@@ -31,12 +31,12 @@
                 <ConcurrencySetting />
                 <JumpToTaskSetting />
                 <DuplicateStrategySetting />
-                <NotifySetting />
+                <NotifySetting v-if="native" />
             </n-form>
         </div>
 
         <!-- 检查更新组件 -->
-        <UpdateChecker />
+        <UpdateChecker v-if="native" />
 
         <!-- 关于入口（始终位于页面底部） -->
         <div class="about-entry">
@@ -64,11 +64,13 @@ import LoginSetting from '../components/settings/LoginSetting.vue'
 import DuplicateStrategySetting from '../components/settings/DuplicateStrategySetting.vue'
 import NotifySetting from '../components/settings/NotifySetting.vue'
 import UpdateChecker from '../components/settings/UpdateChecker.vue'
+import { isNativeRuntime } from '../api/runtimeApi'
 
 const router = useRouter()
 
 // 移动端响应式布局状态
 const isNarrow = useNarrowLayout()
+const native = isNativeRuntime()
 
 function goAbout() {
     router.push('/settings/about')

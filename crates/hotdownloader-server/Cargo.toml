@@ -1,0 +1,18 @@
+[package]
+name = "hotdownloader-server"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+license = "Apache-2.0"
+description = "HotDownloader 独立下载服务与 Web 任务 API"
+
+[dependencies]
+hotdownloader-core = { path = "../hotdownloader-core" }
+bytes = "1.12.1"
+futures-util = "0.3.33"
+http-body-util = "0.1.5"
+hyper = { version = "1.11.1", features = ["http1", "server"] }
+hyper-util = { version = "0.1.20", features = ["http1", "server", "tokio"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
