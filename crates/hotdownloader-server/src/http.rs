@@ -211,6 +211,14 @@ pub async fn handle(
     runtime: Arc<ServerRuntime>,
 ) -> Result<Response<HttpBody>, Infallible> {
     let path = request.uri().path().to_string();
+    if path == "/healthz" {
+        // 请求能到达并得到响应，就表示 HTTP 服务仍在运行；下载任务状态不参与判断。
+        return Ok(if request.method() == Method::GET {
+            json_response(StatusCode::OK, json!({ "status": "ok" }))
+        } else {
+            error_response(StatusCode::METHOD_NOT_ALLOWED, "健康检查只支持 GET")
+        });
+    }
     if !path.starts_with("/api/") && path != "/api" {
         return Ok(if request.method() == Method::GET {
             static_response(&runtime.web_dir, &path)

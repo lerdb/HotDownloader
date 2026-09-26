@@ -72,18 +72,18 @@ export function renderActions(
         )
     }
 
-    // 错误：始终允许用户发起重试请求。是否能重新入队、是否需要降级，
-    // 都由 Rust 根据当前任务与设置判断；错误文字仅用于展示，不作为业务条件。
-    if (task.status === 'error') {
+    // 错误任务提交 retry；中断任务提交 resume，由 Rust 分别执行重试或恢复。
+    // 两者都由用户显式触发，前端只展示后端返回的状态。
+    if (task.status === 'error' || task.status === 'interrupted') {
         nodes.push(
             h(
                 NButton,
                 {
                     size: 'small',
                     type: 'primary',
-                    onClick: () => emit('retry', taskId),
+                    onClick: () => emit(task.status === 'interrupted' ? 'resume' : 'retry', taskId),
                 },
-                () => '重试'
+                () => task.status === 'interrupted' ? '恢复' : '重试'
             )
         )
         nodes.push(
@@ -92,7 +92,7 @@ export function renderActions(
                 taskId,
                 '确定删除该任务记录吗？',
                 '同时删除未下载完成的文件',
-                true // 默认勾选，因为错误文件通常无保留价值
+                task.status === 'error' // 中断任务的未完成文件通常用于续传
             )
         )
     }

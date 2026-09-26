@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use futures_util::future::BoxFuture;
-use hotdownloader_core::contract::TaskRecord;
+use hotdownloader_core::contract::{TaskRecord, TaskStatus};
 use hotdownloader_core::download_config::{DownloadConfig, DownloadConfigProvider};
 use hotdownloader_core::download_link::PlatformDownloadLinkProvider;
 use hotdownloader_core::download_worker::download_task;
@@ -54,12 +54,23 @@ impl ServerEvents {
 
 impl TaskEventSink for ServerEvents {
     fn updated(&self, task: TaskRecord) {
+        // 高频进度只走 SSE；稳定的完成和错误状态才写入容器日志。
+        match task.status {
+            TaskStatus::Completed => log::info!("任务 {} 下载完成", task.id),
+            TaskStatus::Error => log::warn!(
+                "任务 {} 失败: {}",
+                task.id,
+                task.error_msg.as_deref().unwrap_or("未知原因")
+            ),
+            _ => {}
+        }
         if let Ok(data) = serde_json::to_string(&task) {
             self.send("task-updated", data);
         }
     }
 
     fn removed(&self, task_id: &str) {
+        log::info!("任务 {} 已删除", task_id);
         self.send("task-removed", serde_json::json!(task_id).to_string());
     }
 }
@@ -326,6 +337,7 @@ impl ServerRuntime {
                 .unwrap_or_else(|| PathBuf::from("./dist")),
         });
         tokio::spawn(async move {
+            // 每个下载任务在引擎内独立结束；一个任务的失败不会终止调度循环。
             engine.run_scheduler().await;
         });
         Ok(runtime)

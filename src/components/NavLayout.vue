@@ -5,15 +5,24 @@
             <n-menu :value="currentRoute" :options="menuOptions" @update:value="handleMenuClick" />
         </aside>
 
-        <!-- 内容区域 -->
-        <main ref="mainContentRef" class="main-content" :class="{ 'has-bottom-nav': isNarrow }">
-            <router-view v-slot="{ Component }">
-                <!-- 每个详情独立缓存，返回时恢复其分页、标签与勾选。 -->
-                <keep-alive>
-                    <component :is="Component" :key="viewKey" />
-                </keep-alive>
-            </router-view>
-        </main>
+        <div class="content-column">
+            <!-- 网页任务进度依赖 SSE；连接中断时保留最后快照并明确标记其时间。 -->
+            <div v-if="!native" class="connection-strip" :class="taskStore.connectionStatus">
+                <span class="connection-dot" aria-hidden="true"></span>
+                <span>{{ connectionLabel }}</span>
+                <span class="last-response">最近响应：{{ lastResponseLabel }}</span>
+            </div>
+
+            <!-- 内容区域 -->
+            <main ref="mainContentRef" class="main-content" :class="{ 'has-bottom-nav': isNarrow }">
+                <router-view v-slot="{ Component }">
+                    <!-- 每个详情独立缓存，返回时恢复其分页、标签与勾选。 -->
+                    <keep-alive>
+                        <component :is="Component" :key="viewKey" />
+                    </keep-alive>
+                </router-view>
+            </main>
+        </div>
 
         <!-- 窄屏底部水平导航：在正常文档流中固定占位，菜单始终居中 -->
         <footer v-if="isNarrow" class="bottom-nav">
@@ -31,9 +40,22 @@ import { useRouter, useRoute } from 'vue-router'
 import { NMenu, useNotification, type MenuOption } from 'naive-ui'
 import { useCloseGuard } from '../composables/useCloseGuard'
 import { useNarrowLayout } from '../composables/useNarrowLayout'
+import { isNativeRuntime } from '../api/runtimeApi'
+import { useTaskStore } from '../stores/taskStore'
 
 const router = useRouter()
 const route = useRoute()
+const native = isNativeRuntime()
+const taskStore = useTaskStore()
+const connectionLabel = computed(() => ({
+    connecting: '正在连接服务',
+    connected: '服务已连接',
+    reconnecting: '连接中断，正在重连',
+    disconnected: '服务连接已断开',
+})[taskStore.connectionStatus])
+const lastResponseLabel = computed(() => taskStore.lastServerActivityAt
+    ? new Date(taskStore.lastServerActivityAt).toLocaleTimeString()
+    : '尚未收到响应')
 const viewKey = computed(() => {
     return ['/artist', '/album'].includes(route.path) ? route.fullPath : route.path
 })
@@ -132,6 +154,47 @@ function handleMenuClick(key: string) {
     --page-padding: 16px;
 
     flex-direction: column;
+}
+
+.content-column {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.connection-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 5px calc(var(--page-padding) + var(--safe-area-right));
+    background: var(--bg-sidebar);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.connection-dot {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: #d99335;
+}
+
+.connection-strip.connected .connection-dot {
+    background: #18a058;
+}
+
+.connection-strip.disconnected .connection-dot {
+    background: #d03050;
+}
+
+.last-response {
+    margin-left: auto;
+    text-align: right;
 }
 
 /* 侧边栏：使用自定义背景变量 */

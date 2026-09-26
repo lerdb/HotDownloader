@@ -6,6 +6,7 @@
         <n-tab-pane name="downloading" :tab="`下载中 (${counts.downloading})`" />
         <n-tab-pane name="paused" :tab="`暂停 (${counts.paused})`" />
         <n-tab-pane name="completed" :tab="`已完成 (${counts.completed})`" />
+        <n-tab-pane name="interrupted" :tab="`已中断 (${counts.interrupted})`" />
         <n-tab-pane name="error" :tab="`错误 (${counts.error})`" />
     </n-tabs>
 </template>
@@ -22,6 +23,7 @@ export interface TabCounts {
     downloading: number
     paused: number
     completed: number
+    interrupted: number
     error: number
 }
 

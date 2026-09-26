@@ -165,9 +165,9 @@ export function useDownloadActions() {
     async function retryTask(taskId: string): Promise<void> {
         try {
             await settingsStore.flushSettings()
-            // 返回 false 表示后端按重试规则拒绝启动，错误原因已写入任务记录。
+            // 错误重试由 Rust 决定计数、续传和降级；中断任务使用独立的 resume 命令。
             if (!(await taskStore.retryTask(taskId))) {
-                notification.warning({ title: '重试失败', description: '任务未重新入队，请查看任务中的错误信息' })
+                notification.warning({ title: '重试失败', description: '任务未重新入队，请查看任务状态' })
             }
         } catch (error: any) {
             notification.error({ title: '重试失败', description: error?.message || String(error) })

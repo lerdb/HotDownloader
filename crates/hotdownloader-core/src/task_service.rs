@@ -267,11 +267,31 @@ impl<'a> TaskService<'a> {
     pub async fn resume_task(&self, task_id: String) -> Result<(), String> {
         let state = self.state;
         let _creation_guard = state.creation_lock.lock().await;
-        if state.get(&task_id).ok_or("任务不存在")?.status != TaskStatus::Paused {
-            return Err("只有暂停的任务可以恢复".into());
+        let task = state.get(&task_id).ok_or("任务不存在")?;
+        match task.status {
+            TaskStatus::Paused => {
+                // 同一进程中的暂停保留了下载器上下文，直接恢复运行即可。
+                self.engine.resume(&task_id).await;
+                state.update(&task_id, true, |task| task.status = TaskStatus::Downloading)?;
+            }
+            TaskStatus::Interrupted => {
+                // 进程重启后的下载器上下文已经消失；按磁盘文件长度恢复原品质任务。
+                // 此操作保留 retry_count，下载错误的重试与降级仍由 retry_task 处理。
+                self.engine.wait_for_task_exit(&task_id).await;
+                let offset = self.resume_offset(&task).await;
+                let resumed = state.update(&task_id, true, |record| {
+                    record.status = TaskStatus::Waiting;
+                    record.downloaded = offset;
+                    record.speed = None;
+                    record.error_msg = None;
+                })?;
+                if let Err(error) = self.register_engine_task(&resumed).await {
+                    state.failed(&task_id, &format!("启动下载失败: {error}"), None);
+                    return Err(error);
+                }
+            }
+            _ => return Err("只有暂停或中断的任务可以恢复".into()),
         }
-        self.engine.resume(&task_id).await;
-        state.update(&task_id, true, |task| task.status = TaskStatus::Downloading)?;
         Ok(())
     }
 
@@ -404,7 +424,7 @@ impl<'a> TaskService<'a> {
                 task.save_path = Some(path.original_path);
             }
         } else {
-            // 同品质重试保留目标路径，但从磁盘重新测量已下载字节数。
+            // 同品质重试保留目标路径，并从磁盘重新测量已下载字节数。
             task.retry_count = next_count;
             task.downloaded = self.resume_offset(&task).await;
         }
@@ -575,6 +595,7 @@ mod tests {
 
     struct ExistingOriginalPath {
         download_dir: String,
+        file_length: Option<u64>,
     }
 
     impl TaskEnvironment for ExistingOriginalPath {
@@ -592,7 +613,7 @@ mod tests {
         }
 
         fn file_len(&self, _path: &str, _is_saf: bool) -> Option<u64> {
-            None
+            self.file_length
         }
     }
 
@@ -629,6 +650,7 @@ mod tests {
         );
         let environment = ExistingOriginalPath {
             download_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+            file_length: None,
         };
         let service = TaskService::new(&state, &engine, &environment);
 
@@ -647,5 +669,43 @@ mod tests {
         };
         assert!(task.save_path.unwrap().ends_with("歌曲 - 歌手 (1).mp3"));
         assert_eq!(repository.load().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn interrupted_task_resumes_from_file_without_spending_retry_budget() {
+        let mut record: TaskRecord = serde_json::from_value(serde_json::json!({
+            "id": "interrupted-1", "platform": "qqmusic", "songId": 1, "songMid": "mid",
+            "songTitle": "歌曲", "artist": "歌手", "album": "专辑",
+            "filename": "song.mp3", "quality": "320kmp3", "status": "interrupted",
+            "fileSize": 100, "downloaded": 0, "retryCount": 3, "addedAt": 1
+        }))
+        .unwrap();
+        record.save_path = Some(
+            std::env::temp_dir()
+                .join("interrupted-1.mp3")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let repository = Arc::new(MemoryRepository(Mutex::new(vec![record])));
+        let state = TaskState::load(repository.clone(), Arc::new(QuietEvents)).unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+            file_length: Some(40),
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+
+        // 已达到普通错误的降级阈值；中断恢复仍保持原品质和计数。
+        assert!(!service.retry_task("interrupted-1".into()).await.unwrap());
+        service.resume_task("interrupted-1".into()).await.unwrap();
+        let resumed = state.get("interrupted-1").unwrap();
+        assert_eq!(resumed.status, crate::contract::TaskStatus::Waiting);
+        assert_eq!(resumed.retry_count, 3);
+        assert_eq!(resumed.quality, "320kmp3");
+        assert_eq!(resumed.downloaded, 40);
     }
 }

@@ -64,6 +64,11 @@ function renderProgress(row: TaskRecord) {
         return '100%'
     }
 
+    // 中断状态由 Rust 在重启恢复时写入，恢复动作由用户主动发起。
+    if (row.status === 'interrupted') {
+        return '上次运行中断，等待恢复'
+    }
+
     // 错误状态显示错误信息
     if (row.status === 'error') {
         return row.errorMsg || ''
@@ -132,8 +137,9 @@ const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
                 completed: { type: 'success', label: '已完成' },
                 error: { type: 'error', label: '错误' },
                 processing: { type: 'info', label: '处理中' },
+                interrupted: { type: 'warning', label: '已中断' },
             }
-            const s = statusMap[row.status] || { type: 'default', label: row.status }
+            const s = statusMap[row.status] || { type: 'default' as const, label: row.status }
             return h(NTag, { type: s.type, size: 'small' }, () => s.label)
         },
     },

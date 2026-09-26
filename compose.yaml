@@ -2,6 +2,12 @@ services:
   hotdownloader:
     build: .
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     ports:
       - "8787:8787"
     environment:

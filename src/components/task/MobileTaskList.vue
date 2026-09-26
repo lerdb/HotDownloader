@@ -64,6 +64,7 @@ export default defineComponent({
             completed: { type: 'success', label: '已完成' },
             error: { type: 'error', label: '错误' },
             processing: { type: 'info', label: '处理中' },
+            interrupted: { type: 'warning', label: '已中断' },
         }
 
         // 操作按钮 VNode 数组
@@ -89,7 +90,7 @@ export default defineComponent({
 
         // 构建单个任务卡片
         function renderTaskCard(task: TaskRecord) {
-            const status = statusMap[task.status] || { type: 'default', label: task.status }
+            const status = statusMap[task.status] || { type: 'default' as const, label: task.status }
             const checked = props.selectedRowKeys.includes(task.id)
             const disabled = task.status === 'downloading'
 
@@ -117,10 +118,17 @@ export default defineComponent({
                         : null,
                 ]),
 
-                // 进度条或错误信息展示
-                // 错误状态不显示进度条，改为展示错误信息，提升可读性
-                task.status === 'error'
-                    ? h('div', { class: 'task-card-error' }, task.errorMsg || '下载失败')
+                // 终止状态展示明确原因；中断任务等待用户恢复后再显示续传进度。
+                task.status === 'error' || task.status === 'interrupted'
+                    ? h('div', {
+                        class: [
+                            'task-card-status-message',
+                            task.status === 'error' ? 'is-error' : 'is-interrupted',
+                        ],
+                    },
+                        task.status === 'interrupted'
+                            ? '上次运行中断，等待恢复'
+                            : task.errorMsg || '下载失败')
                     : h('div', { class: 'task-card-progress' }, [
                         h(NProgress, {
                             percentage: progressPercent(task),
@@ -270,17 +278,24 @@ export default defineComponent({
     color: var(--color-text-secondary, #555);
 }
 
-/* 错误信息样式，替代进度条显示 */
-.task-card-error {
+/* 错误与中断都以文字替代进度条，并按各自状态使用对应颜色。 */
+.task-card-status-message {
     margin-bottom: 8px;
     padding: 4px 8px;
     background: var(--bg-body);
     border-radius: 4px;
     font-size: 12px;
-    color: var(--n-error-color, #d03050);
     word-break: break-word;
     overflow-wrap: anywhere;
     line-height: 1.6;
+}
+
+.task-card-status-message.is-error {
+    color: var(--n-error-color, #d03050);
+}
+
+.task-card-status-message.is-interrupted {
+    color: var(--n-warning-color, #f0a020);
 }
 
 /* 操作沿用原有按钮与确认流程，手机上增大点击区域并与进度信息留出间距 */

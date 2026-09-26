@@ -33,9 +33,9 @@ impl TaskState {
     ) -> Result<Self, String> {
         let mut tasks = repository.load()?;
 
-        // 进程重启后下载器上下文已经不存在，不能把旧的进行中状态继续展示为运行中。
-        // 保留记录并转为错误，用户可以显式重试，由重试命令重新建立下载器上下文。
-        let mut interrupted = false;
+        // 进程重启后下载器上下文已经不存在，未完成的任务要进入独立的中断状态。
+        // 用户显式恢复时，服务会核对磁盘上的续传位置并重建下载器上下文。
+        let mut changed = false;
         for task in &mut tasks {
             if matches!(
                 task.status,
@@ -44,14 +44,14 @@ impl TaskState {
                     | TaskStatus::Processing
                     | TaskStatus::Paused
             ) {
-                task.status = TaskStatus::Error;
-                task.error_msg = Some("应用关闭导致中断".into());
+                task.status = TaskStatus::Interrupted;
+                task.error_msg = None;
                 task.speed = None;
                 task.downloaded = 0;
-                interrupted = true;
+                changed = true;
             }
         }
-        if interrupted {
+        if changed {
             repository.save(&tasks)?;
         }
         Ok(Self {
@@ -145,10 +145,13 @@ impl TaskState {
         let Some(index) = tasks.iter().position(|task| task.id == id) else {
             return;
         };
-        // 迟到的进度事件不得把已结束或正在处理元数据的任务重新改回下载中。
+        // 迟到的进度事件不得改写已结束、等待恢复或正在处理元数据的任务。
         if matches!(
             tasks[index].status,
-            TaskStatus::Completed | TaskStatus::Error | TaskStatus::Processing
+            TaskStatus::Completed
+                | TaskStatus::Error
+                | TaskStatus::Interrupted
+                | TaskStatus::Processing
         ) {
             return;
         }
@@ -280,14 +283,55 @@ mod tests {
 
     #[test]
     fn restart_marks_interrupted_tasks_and_saves_without_emitting() {
-        let repository = Arc::new(MemoryRepository::new(vec![task(TaskStatus::Downloading)]));
+        let active = [
+            TaskStatus::Waiting,
+            TaskStatus::Downloading,
+            TaskStatus::Paused,
+            TaskStatus::Processing,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, status)| {
+            let mut record = task(status);
+            record.id = format!("task-{index}");
+            record.retry_count = 2;
+            record
+        })
+        .collect();
+        let repository = Arc::new(MemoryRepository::new(active));
         let events = Arc::new(RecordedEvents::default());
 
         let state = TaskState::load(repository.clone(), events.clone()).unwrap();
 
-        assert_eq!(state.list()[0].status, TaskStatus::Error);
+        for record in state.list() {
+            assert_eq!(record.status, TaskStatus::Interrupted);
+            assert_eq!(record.error_msg, None);
+            assert_eq!(record.retry_count, 2);
+        }
         assert_eq!(repository.saves.load(Ordering::SeqCst), 1);
         assert!(events.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn restart_keeps_existing_terminal_states() {
+        let mut ordinary_error = task(TaskStatus::Error);
+        ordinary_error.error_msg = Some("网络连接失败".into());
+        let mut completed = task(TaskStatus::Completed);
+        completed.id = "task-2".into();
+        let mut interrupted = task(TaskStatus::Interrupted);
+        interrupted.id = "task-3".into();
+        let repository = Arc::new(MemoryRepository::new(vec![
+            ordinary_error,
+            completed,
+            interrupted,
+        ]));
+        let state =
+            TaskState::load(repository.clone(), Arc::new(RecordedEvents::default())).unwrap();
+
+        assert_eq!(state.list()[0].status, TaskStatus::Error);
+        assert_eq!(state.list()[1].status, TaskStatus::Completed);
+        assert_eq!(state.list()[2].status, TaskStatus::Interrupted);
+        assert_eq!(repository.saves.load(Ordering::SeqCst), 0);
     }
 
     #[test]

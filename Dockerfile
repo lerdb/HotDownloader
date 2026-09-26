@@ -18,7 +18,7 @@ RUN cargo build --release --locked --manifest-path crates/hotdownloader-server/C
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=rust-builder /build/crates/hotdownloader-server/target/release/hotdownloader-server /app/hotdownloader-server

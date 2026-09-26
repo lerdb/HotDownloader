@@ -3,6 +3,7 @@
 这个 crate 为 Tauri 客户端与独立服务提供共享下载能力，包含任务契约、音质规则、状态仓库、下载调度器与普通文件系统实现。
 
 - `TaskRepository` 保存和读取完整任务快照；Tauri 客户端通过 `TauriTaskIo` 接到现有 `data.json`，独立进程可使用 `JsonTaskRepository`。
+- `TaskStatus::Interrupted` 表示进程重启后等待用户恢复的任务。`resume_task` 恢复时读取实际文件偏移，保留原有音质与错误重试次数；`retry_task` 处理下载错误。
 - `TaskEventSink` 输出完整任务更新与删除事件。核心按先持久化稳定状态、再发送事件的顺序运行；Tauri 事件名称由适配器定义。
 - `FileDeleter` 删除任务文件；普通路径使用 `LocalFileDeleter`，Android SAF URI 由 Tauri 适配器处理。
 - `CompletionNotifier` 将下载完成提示交给运行时。桌面和 Android 使用系统通知适配器，独立服务通过任务事件向在线页面展示进度与结果。

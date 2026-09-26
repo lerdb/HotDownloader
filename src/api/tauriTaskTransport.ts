@@ -62,8 +62,11 @@ export const tauriTaskTransport: TaskTransport = {
             throw error
         }
 
+        handlers.connection('connected')
+
         return () => {
             unlisteners.forEach(unlisten => unlisten())
+            handlers.connection('disconnected')
         }
     },
 }

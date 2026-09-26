@@ -18,6 +18,10 @@ export interface BatchTaskResult {
 
 /** 任务事件携带后端完整记录；前端不得在这里自行推导状态变化。 */
 export interface TaskEventHandlers {
+    /** Web SSE 的连接状态；原生端建立监听后视为已连接。 */
+    connection(status: 'connecting' | 'connected' | 'reconnecting' | 'disconnected'): void
+    /** 收到事件或心跳的时间，用于显示当前进度最近一次得到服务响应的时刻。 */
+    activity(at: number): void
     settings(snapshot: SettingsSnapshot): void
     snapshot(tasks: TaskRecord[]): void
     updated(task: TaskRecord): void

@@ -4,12 +4,14 @@
 
         <!-- 批量操作栏：按当前标签页显示可用的一键操作 -->
         <div v-if="showToolbar" class="task-toolbar">
-            <!-- 错误任务较多时逐个点太麻烦，提供一键重试（并发仍由后端调度器按最大并发数控制） -->
-            <n-button v-if="activeTab === 'error' && tabCounts.error > 0" size="small" type="primary"
+            <!-- 中断恢复与错误重试按任务状态分别选择，实际规则交给 Rust。 -->
+            <n-button v-if="(activeTab === 'error' && tabCounts.error > 0) ||
+                (activeTab === 'interrupted' && tabCounts.interrupted > 0)" size="small" type="primary"
                 :loading="retryingAll" :disabled="retryingAll" @click="handleRetryAll">
-                全部重试（{{ tabCounts.error }}）
+                {{ activeTab === 'interrupted' ? '恢复全部中断任务' : '全部重试' }}
+                （{{ activeTab === 'interrupted' ? tabCounts.interrupted : tabCounts.error }}）
             </n-button>
-            <span v-if="activeTab === 'error'" class="task-toolbar-hint">
+            <span v-if="activeTab === 'error' || activeTab === 'interrupted'" class="task-toolbar-hint">
                 会依次重新入队，实际同时下载数量由“最大并发数”决定
             </span>
 
@@ -99,6 +101,7 @@ const tabCounts = computed(() => {
         downloading: 0,
         paused: 0,
         completed: 0,
+        interrupted: 0,
         error: 0,
     }
     for (const task of taskStore.tasks) {
@@ -107,6 +110,7 @@ const tabCounts = computed(() => {
         else if (task.status === 'downloading') counts.downloading++
         else if (task.status === 'paused') counts.paused++
         else if (task.status === 'completed') counts.completed++
+        else if (task.status === 'interrupted') counts.interrupted++
         else if (task.status === 'error') counts.error++
     }
     return counts
@@ -114,9 +118,10 @@ const tabCounts = computed(() => {
 
 const filteredTasks = computed(() => {
     const tab = activeTab.value
-    return taskStore.tasks.filter((t) => {
-        return tab === 'all' || t.status === tab;
-    });
+    return taskStore.tasks.filter((task) => {
+        if (tab === 'all') return true
+        return task.status === tab
+    })
 })
 
 const pagedTasks = computed(() => {
@@ -138,6 +143,7 @@ const canClearAll = computed(() => inClearableTab.value && tabCounts.value.total
 const showToolbar = computed(
     () =>
         (activeTab.value === 'error' && tabCounts.value.error > 0) ||
+        (activeTab.value === 'interrupted' && tabCounts.value.interrupted > 0) ||
         canClearCompleted.value ||
         canClearAll.value
 )
@@ -167,6 +173,10 @@ async function handleAction(action: TaskAction, taskId: string, extra?: TaskActi
                 await taskStore.pauseTask(taskId)
                 break
             case 'resume':
+                // 中断任务恢复会重新读取当前下载设置；先完成待写入的设置变更。
+                if (taskStore.tasks.find(task => task.id === taskId)?.status === 'interrupted') {
+                    await settingsStore.flushSettings()
+                }
                 await taskStore.resumeTask(taskId)
                 break
             case 'retry':
@@ -228,11 +238,12 @@ async function handleBatchClear(deleteFile: boolean) {
     }
 }
 
-/** 一键重试当前所有“错误”状态的任务 */
+/** 仅处理当前标签的任务；中断任务由用户明确发起恢复。 */
 async function handleRetryAll() {
     if (retryingAll.value) return
+    const targetStatus = activeTab.value === 'interrupted' ? 'interrupted' : 'error'
     const ids = taskStore.tasks
-        .filter((t) => t.status === 'error')
+        .filter((task) => task.status === targetStatus)
         .map((t) => t.id)
     if (ids.length === 0) return
 
@@ -240,10 +251,12 @@ async function handleRetryAll() {
     try {
         // 批量重试读取同一份当前设置，先完成防抖写盘。
         await settingsStore.flushSettings()
-        const { succeeded, failed } = await taskStore.retryTasks(ids)
+        const { succeeded, failed } = targetStatus === 'interrupted'
+            ? await taskStore.resumeTasks(ids)
+            : await taskStore.retryTasks(ids)
         notification.success({
-            title: '批量重试',
-            description: `已重新入队 ${succeeded} 个任务${failed > 0 ? `，${failed} 个无法重试（重试次数用尽或无可降级音质）` : ''}`,
+            title: targetStatus === 'interrupted' ? '批量恢复' : '批量重试',
+            description: `已重新入队 ${succeeded} 个任务${failed > 0 ? `，${failed} 个未能入队，请查看任务状态` : ''}`,
             duration: 4000,
         })
     } catch (e: any) {

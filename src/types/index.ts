@@ -62,7 +62,7 @@ export function normalizeQualityDowngradeOrder(value: unknown): string[] {
 
 export type Quality = string  // 不再限制字面量，兼容所有后端标签
 
-export type TaskStatus = 'waiting' | 'downloading' | 'paused' | 'completed' | 'error' | 'processing'
+export type TaskStatus = 'waiting' | 'downloading' | 'paused' | 'completed' | 'error' | 'processing' | 'interrupted'
 
 export interface Settings {
     defaultQuality: Quality

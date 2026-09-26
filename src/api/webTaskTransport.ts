@@ -5,12 +5,18 @@ import { webHeaders, webRequest, webSession } from './webClient'
 
 /** 解析一条 SSE 消息。数据始终是服务端序列化的 JSON。 */
 function dispatchEvent(frame: string, handlers: Parameters<TaskTransport['subscribe']>[0]) {
+    // SSE 心跳是注释帧，没有业务事件，但同样证明服务连接仍在响应。
+    if (frame.startsWith(':')) {
+        handlers.activity(Date.now())
+        return
+    }
     const lines = frame.split('\n')
     const event = lines.find(line => line.startsWith('event: '))?.slice(7)
     const raw = lines.filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('\n')
     if (!event || !raw) return
 
     const data: unknown = JSON.parse(raw)
+    handlers.activity(Date.now())
     switch (event) {
         case 'settings-snapshot':
         case 'settings-updated':
@@ -39,27 +45,37 @@ function dispatchEvent(frame: string, handlers: Parameters<TaskTransport['subscr
 /** fetch 支持 Authorization 请求头；EventSource 无法带 Bearer 令牌。 */
 async function followEvents(signal: AbortSignal, handlers: Parameters<TaskTransport['subscribe']>[0]) {
     let retryDelay = 1000
+    handlers.connection('connecting')
     while (!signal.aborted) {
+        const connection = new AbortController()
+        const abortConnection = () => connection.abort()
+        signal.addEventListener('abort', abortConnection, { once: true })
+        let lastBytesAt = Date.now()
+        // 代理可能保持 TCP 连接却停止转发 SSE。超过三个心跳周期仍无字节时主动重连。
+        const watchdog = setInterval(() => {
+            if (Date.now() - lastBytesAt > 60000) connection.abort()
+        }, 10000)
         try {
             const response = await fetch('/api/events', {
                 headers: webHeaders(),
                 cache: 'no-store',
-                signal,
+                signal: connection.signal,
             })
             if (response.status === 401) {
                 webSession.authorized = false
+                handlers.connection('disconnected')
                 return
             }
             if (!response.ok || !response.body) {
                 throw new Error(`SSE 连接失败：HTTP ${response.status}`)
             }
-            retryDelay = 1000
             const reader = response.body.getReader()
             const decoder = new TextDecoder()
             let buffer = ''
             while (!signal.aborted) {
                 const { done, value } = await reader.read()
                 if (done) break
+                lastBytesAt = Date.now()
                 buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
                 let boundary = buffer.indexOf('\n\n')
                 while (boundary >= 0) {
@@ -67,6 +83,8 @@ async function followEvents(signal: AbortSignal, handlers: Parameters<TaskTransp
                     buffer = buffer.slice(boundary + 2)
                     try {
                         dispatchEvent(frame, handlers)
+                        handlers.connection('connected')
+                        retryDelay = 1000
                     } catch (error) {
                         console.warn('忽略无法解析的任务事件:', error)
                     }
@@ -76,11 +94,17 @@ async function followEvents(signal: AbortSignal, handlers: Parameters<TaskTransp
         } catch (error) {
             if (signal.aborted) break
             console.warn('任务事件连接已断开，准备重连:', error)
+        } finally {
+            clearInterval(watchdog)
+            signal.removeEventListener('abort', abortConnection)
         }
+        if (signal.aborted) break
+        handlers.connection('reconnecting')
         // 重连后服务端首先发送完整快照，浏览器离线期间遗漏的事件不会造成状态陈旧。
         await new Promise(resolve => setTimeout(resolve, retryDelay))
         retryDelay = Math.min(retryDelay * 2, 10000)
     }
+    handlers.connection('disconnected')
 }
 
 function taskAction(taskId: string, action: string, body?: object): Promise<unknown> {

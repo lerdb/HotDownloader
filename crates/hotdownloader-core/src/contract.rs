@@ -71,6 +71,8 @@ pub enum TaskStatus {
     Processing,
     Completed,
     Error,
+    /// 进程重启后等待用户恢复的任务；恢复不消耗下载错误重试次数。
+    Interrupted,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]

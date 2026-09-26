@@ -10,10 +10,12 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
 use hotdownloader_server::http;
+use hotdownloader_server::logging;
 use hotdownloader_server::runtime::ServerRuntime;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    logging::initialize();
     // 数据目录和绑定地址由部署环境指定。对外监听时必须设置访问令牌，
     // HTTP 层对所有 /api 请求（包括 SSE 连接）统一校验 Bearer 令牌。
     let data_dir = std::env::var_os("HOTDOWNLOADER_DATA_DIR")
@@ -27,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let runtime = ServerRuntime::start(data_dir).map_err(std::io::Error::other)?;
     let listener = TcpListener::bind(address).await?;
-    println!("HotDownloader 任务服务已监听 http://{bind}");
+    log::info!("任务服务已监听 http://{bind}");
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -38,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .serve_connection(TokioIo::new(stream), service)
                 .await
             {
-                eprintln!("HTTP 连接结束: {error}");
+                log::warn!("HTTP 连接结束: {error}");
             }
         });
     }

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { isTauri } from '@tauri-apps/api/core'
 import { taskTransport } from '../api/taskTransport'
 import { useSettingsStore } from './settingsStore'
 import type { BatchTaskResult } from '../api/taskTransport'
@@ -13,6 +14,10 @@ import type {
 /** Rust 持有任务和状态流转；此 store 仅保存页面展示用的投影。 */
 export const useTaskStore = defineStore('tasks', () => {
     const tasks = ref<TaskRecord[]>([])
+    const connectionStatus = ref<'connecting' | 'connected' | 'reconnecting' | 'disconnected'>(
+        isTauri() ? 'connected' : 'connecting'
+    )
+    const lastServerActivityAt = ref<number | null>(null)
     let loading = false
     let pendingEvents: Array<() => void> = []
 
@@ -76,6 +81,22 @@ export const useTaskStore = defineStore('tasks', () => {
         await taskTransport.resume(taskId)
     }
 
+    /** 按顺序请求恢复中断任务；是否可恢复由 Rust 根据任务状态决定。 */
+    async function resumeTasks(taskIds: string[]): Promise<{ total: number; succeeded: number; failed: number }> {
+        let succeeded = 0
+        let failed = 0
+        for (const id of taskIds) {
+            try {
+                await resumeTask(id)
+                succeeded++
+            } catch (error) {
+                console.error('恢复任务失败:', id, error)
+                failed++
+            }
+        }
+        return { total: taskIds.length, succeeded, failed }
+    }
+
     function retryTask(taskId: string): Promise<boolean> {
         // 后端统一处理重试次数、断点续传及音质降级；false 表示当前无法继续重试。
         return taskTransport.retry(taskId)
@@ -104,6 +125,12 @@ export const useTaskStore = defineStore('tasks', () => {
         // 从开始订阅到快照加载完成都缓存事件，避免初始化期间的事件被快照覆盖。
         loading = true
         return taskTransport.subscribe({
+            connection(status) {
+                connectionStatus.value = status
+            },
+            activity(at) {
+                lastServerActivityAt.value = at
+            },
             settings(snapshot) {
                 useSettingsStore().applyServerSnapshot(snapshot)
             },
@@ -160,6 +187,8 @@ export const useTaskStore = defineStore('tasks', () => {
 
     return {
         tasks,
+        connectionStatus,
+        lastServerActivityAt,
         loadTasks,
         createTask,
         cancelTask,
@@ -167,6 +196,7 @@ export const useTaskStore = defineStore('tasks', () => {
         removeTask,
         pauseTask,
         resumeTask,
+        resumeTasks,
         retryTask,
         retryTasks,
         setupListeners,

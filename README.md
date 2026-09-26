@@ -88,21 +88,7 @@ npm run tauri build
 
 ### 5. Docker/Web 部署
 
-先在项目根目录创建 `.env`，设置至少 16 个字符的随机访问令牌：
-
-```dotenv
-HOTDOWNLOADER_TOKEN=请替换为随机生成的长令牌
-```
-
-然后启动服务：
-
-```bash
-docker compose up --build -d
-```
-
-浏览器访问 `http://服务器地址:8787`，输入 `.env` 中的访问令牌。容器在 `/data` 保存设置、QQ 凭据、任务记录和下载文件；Compose 使用 `hotdownloader-data` 卷持久化此目录。下载任务由服务进程持续执行，重新打开网页即可查看进度。服务进程重启后，可在任务页重试此前进行中的任务。
-
-若允许非本机访问，请使用 HTTPS 反向代理保护浏览器与服务之间的访问令牌。独立服务的接口和环境变量详见 [服务说明](crates/hotdownloader-server/README.md)。
+容器中的服务进程持续执行下载任务，网页用于控制任务和查看进度。令牌配置、Compose 启动、数据持久化与接口说明见 [独立服务部署文档](crates/hotdownloader-server/README.md)。
 
 ### 6. Android 端开发运行
 
