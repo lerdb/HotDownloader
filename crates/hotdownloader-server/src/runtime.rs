@@ -1,7 +1,7 @@
 //! 独立进程组装共享核心。此模块持有任务和调度器，HTTP 连接只借用它们。
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use futures_util::future::BoxFuture;
 use hotdownloader_core::contract::TaskRecord;
@@ -15,6 +15,9 @@ use hotdownloader_core::local_file_deleter::LocalFileDeleter;
 use hotdownloader_core::ports::{DownloadProgressSink, NoopCompletionNotifier};
 use hotdownloader_core::postprocess::LocalDownloadPostprocessor;
 use hotdownloader_core::qq_login::FileLoginStore;
+use hotdownloader_core::settings_patch::{
+    apply_patch, snapshot, SettingsPatch, SettingsPatchError, SettingsScope, SettingsSnapshot,
+};
 use hotdownloader_core::task_context::TaskContext;
 use hotdownloader_core::task_rules::TaskRules;
 use hotdownloader_core::task_service::TaskEnvironment;
@@ -106,8 +109,8 @@ impl ServerEnvironment {
         })
     }
 
-    pub fn settings(&self) -> Value {
-        self.settings.read().unwrap().clone()
+    pub fn settings_snapshot(&self) -> SettingsSnapshot {
+        snapshot(&self.settings.read().unwrap())
     }
 
     pub fn default_download_dir(&self) -> &str {
@@ -122,45 +125,44 @@ impl ServerEnvironment {
             .to_string()
     }
 
-    pub fn save_settings(&self, mut incoming: Value) -> Result<Value, String> {
-        let object = incoming.as_object_mut().ok_or("设置必须是 JSON 对象")?;
-        // 客户端设置类型包含旧版登录字段；独立服务把凭据单独存放，不能写进普通设置。
-        for field in [
-            "loginUin",
-            "authst",
-            "refreshToken",
-            "refreshKey",
-            "accessToken",
-            "openid",
-            "loginResponseData",
-            "safFolderUri",
-            "safFolderName",
-        ] {
-            object.remove(field);
+    pub fn patch_settings(
+        &self,
+        patch: SettingsPatch,
+    ) -> Result<(SettingsSnapshot, bool), SettingsPatchError> {
+        // 写锁覆盖比较原值、合并、写盘和内存更新。两个请求即使同时到达，
+        // 后一个也只能基于前一个已提交的状态判断冲突。
+        let mut current = self.settings.write().unwrap();
+        let applied = apply_patch(&current, patch, SettingsScope::Web)?;
+        if applied.changed_fields.is_empty() {
+            return Ok((applied.snapshot, false));
         }
-        object.insert(
-            "downloadDir".to_string(),
-            Value::String(self.default_download_dir.clone()),
-        );
-        let bytes = serde_json::to_vec_pretty(&incoming).map_err(|error| error.to_string())?;
+        let concurrency_changed = applied
+            .changed_fields
+            .iter()
+            .any(|field| field == "maxConcurrent");
+        let bytes = serde_json::to_vec_pretty(&applied.stored)
+            .map_err(|error| SettingsPatchError::Invalid(error.to_string()))?;
         let temporary = self.settings_path.with_extension("json.tmp");
-        std::fs::write(&temporary, bytes)
-            .map_err(|error| format!("写入设置临时文件失败: {error}"))?;
+        std::fs::write(&temporary, bytes).map_err(|error| {
+            SettingsPatchError::Invalid(format!("写入设置临时文件失败: {error}"))
+        })?;
         #[cfg(windows)]
         if self.settings_path.exists() {
-            std::fs::copy(&temporary, &self.settings_path)
-                .map_err(|error| format!("更新设置文件失败: {error}"))?;
+            std::fs::copy(&temporary, &self.settings_path).map_err(|error| {
+                SettingsPatchError::Invalid(format!("更新设置文件失败: {error}"))
+            })?;
             let _ = std::fs::remove_file(&temporary);
         } else {
-            std::fs::rename(&temporary, &self.settings_path)
-                .map_err(|error| format!("保存设置文件失败: {error}"))?;
+            std::fs::rename(&temporary, &self.settings_path).map_err(|error| {
+                SettingsPatchError::Invalid(format!("保存设置文件失败: {error}"))
+            })?;
         }
         #[cfg(not(windows))]
         std::fs::rename(&temporary, &self.settings_path)
-            .map_err(|error| format!("保存设置文件失败: {error}"))?;
+            .map_err(|error| SettingsPatchError::Invalid(format!("保存设置文件失败: {error}")))?;
 
-        *self.settings.write().unwrap() = incoming.clone();
-        Ok(incoming)
+        *current = applied.stored;
+        Ok((applied.snapshot, concurrency_changed))
     }
 
     pub fn max_concurrent(&self) -> u32 {
@@ -277,6 +279,7 @@ pub struct ServerRuntime {
     pub login_store: Arc<FileLoginStore>,
     api_token: Option<String>,
     pub web_dir: PathBuf,
+    settings_patch_lock: Mutex<()>,
 }
 
 impl ServerRuntime {
@@ -314,6 +317,7 @@ impl ServerRuntime {
             environment,
             events,
             login_store,
+            settings_patch_lock: Mutex::new(()),
             api_token: std::env::var("HOTDOWNLOADER_TOKEN")
                 .ok()
                 .filter(|value| !value.is_empty()),
@@ -327,10 +331,22 @@ impl ServerRuntime {
         Ok(runtime)
     }
 
-    pub fn save_settings(&self, settings: Value) -> Result<Value, String> {
-        let saved = self.environment.save_settings(settings)?;
-        self.engine
-            .set_concurrency(self.environment.max_concurrent());
+    pub fn patch_settings(
+        &self,
+        patch: SettingsPatch,
+    ) -> Result<SettingsSnapshot, SettingsPatchError> {
+        // 事件与调度器更新也按提交顺序执行，订阅者不会先收到较新的修订。
+        let _guard = self.settings_patch_lock.lock().unwrap();
+        let before = self.environment.settings_snapshot().revision;
+        let (saved, concurrency_changed) = self.environment.patch_settings(patch)?;
+        if concurrency_changed {
+            self.engine
+                .set_concurrency(self.environment.max_concurrent());
+        }
+        if saved.revision != before {
+            self.events
+                .send("settings-updated", serde_json::to_string(&saved).unwrap());
+        }
         Ok(saved)
     }
 
@@ -350,5 +366,53 @@ impl ServerRuntime {
             .zip(supplied.bytes())
             .fold(0_u8, |difference, (a, b)| difference | (a ^ b))
             == 0
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    use serde_json::{json, Map};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn concurrent_field_updates_are_merged_and_persisted() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("hotdownloader-settings-{nonce}"));
+        std::fs::create_dir_all(&directory).unwrap();
+        let environment = Arc::new(ServerEnvironment::load(&directory).unwrap());
+
+        // 两个页面都从旧快照出发，但修改不同字段；写锁应让两次持久化都保留。
+        let handles: Vec<_> = [
+            ("maxConcurrent", json!(5)),
+            ("namingTemplate", json!("{artist}")),
+        ]
+        .into_iter()
+        .map(|(field, value)| {
+            let environment = environment.clone();
+            std::thread::spawn(move || {
+                environment
+                    .patch_settings(SettingsPatch {
+                        changes: Map::from_iter([(field.to_string(), value)]),
+                        expected: Map::from_iter([(field.to_string(), Value::Null)]),
+                    })
+                    .unwrap();
+            })
+        })
+        .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(directory.join("settings.json")).unwrap())
+                .unwrap();
+        assert_eq!(saved["maxConcurrent"], 5);
+        assert_eq!(saved["namingTemplate"], "{artist}");
+        assert_eq!(saved["_settingsRevision"], 2);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

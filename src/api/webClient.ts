@@ -15,6 +15,18 @@ export function webHeaders(): HeadersInit {
     return accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
 }
 
+/** 保留 HTTP 状态和响应体，设置页据此区分字段冲突与普通请求错误。 */
+export class WebRequestError extends Error {
+    readonly status: number
+    readonly body: unknown
+
+    constructor(message: string, status: number, body: unknown) {
+        super(message)
+        this.status = status
+        this.body = body
+    }
+}
+
 export async function webRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
     const headers = new Headers(options.headers)
     if (accessToken) {
@@ -27,11 +39,11 @@ export async function webRequest<T>(path: string, options: RequestInit = {}): Pr
     const response = await fetch(path, { ...options, headers, cache: 'no-store' })
     if (response.status === 401) {
         webSession.authorized = false
-        throw new Error('访问令牌无效或已失效')
+        throw new WebRequestError('访问令牌无效或已失效', 401, null)
     }
     if (!response.ok) {
         const body = await response.json().catch(() => null) as { error?: string } | null
-        throw new Error(body?.error ?? `请求失败：HTTP ${response.status}`)
+        throw new WebRequestError(body?.error ?? `请求失败：HTTP ${response.status}`, response.status, body)
     }
     return response.json() as Promise<T>
 }

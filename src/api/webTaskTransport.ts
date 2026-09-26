@@ -1,5 +1,6 @@
 import type { TaskRecord, DownloadMetadataErrorPayload } from '../types'
 import type { TaskTransport } from './taskTransport'
+import type { SettingsSnapshot } from './settingsApi'
 import { webHeaders, webRequest, webSession } from './webClient'
 
 /** 解析一条 SSE 消息。数据始终是服务端序列化的 JSON。 */
@@ -11,6 +12,10 @@ function dispatchEvent(frame: string, handlers: Parameters<TaskTransport['subscr
 
     const data: unknown = JSON.parse(raw)
     switch (event) {
+        case 'settings-snapshot':
+        case 'settings-updated':
+            handlers.settings(data as SettingsSnapshot)
+            break
         case 'task-snapshot':
             handlers.snapshot(data as TaskRecord[])
             break

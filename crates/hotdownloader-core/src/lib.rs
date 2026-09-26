@@ -24,6 +24,7 @@ pub mod qq_credentials;
 pub mod qq_login;
 pub mod qqmusic_link;
 pub mod qrc;
+pub mod settings_patch;
 pub mod task_context;
 pub mod task_rules;
 pub mod task_service;

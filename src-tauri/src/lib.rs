@@ -127,8 +127,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::settings::load_settings,
-            commands::settings::save_settings,
+            commands::settings::get_settings_snapshot,
+            commands::settings::patch_settings,
             commands::history::load_history,
             commands::history::save_history,
             commands::tasks::load_tasks,

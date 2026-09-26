@@ -33,8 +33,28 @@ impl LoginCredentialStore for TauriLoginStore {
     }
 
     fn save(&self, settings: &Value) -> Result<(), String> {
-        store_wrapper::save_string(&self.app, "settings", &settings.to_string())
-            .map_err(|error| error.to_string())
+        // 登录核心给出的是它读取时的整份设置。只合并凭据字段，
+        // 使等待网络刷新的这段时间里用户修改的下载选项仍然有效。
+        store_wrapper::update_settings(&self.app, |previous| {
+            let mut latest: Value = if previous.is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::from_str(previous)
+                    .map_err(|error| format!("解析登录设置失败: {error}"))?
+            };
+            let target = latest.as_object_mut().ok_or("设置必须是 JSON 对象")?;
+            for key in [
+                "loginUin", "authst", "refreshToken", "refreshKey", "accessToken",
+                "openid", "loginResponseData",
+            ] {
+                match settings.get(key) {
+                    Some(value) => { target.insert(key.to_string(), value.clone()); }
+                    None => { target.remove(key); }
+                }
+            }
+            Ok(latest.to_string())
+        })?;
+        Ok(())
     }
 }
 

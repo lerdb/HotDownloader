@@ -7,6 +7,7 @@ import type {
 import { tauriTaskTransport } from './tauriTaskTransport'
 import { webTaskTransport } from './webTaskTransport'
 import { isTauri } from '@tauri-apps/api/core'
+import type { SettingsSnapshot } from './settingsApi'
 
 /** 与 Rust 任务契约对应的批量操作结果。 */
 export interface BatchTaskResult {
@@ -17,6 +18,7 @@ export interface BatchTaskResult {
 
 /** 任务事件携带后端完整记录；前端不得在这里自行推导状态变化。 */
 export interface TaskEventHandlers {
+    settings(snapshot: SettingsSnapshot): void
     snapshot(tasks: TaskRecord[]): void
     updated(task: TaskRecord): void
     removed(taskId: string): void

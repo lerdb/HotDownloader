@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { BatchTaskResult, TaskTransport } from './taskTransport'
+import type { SettingsSnapshot } from './settingsApi'
 import type {
     CreateTaskResult,
     DownloadMetadataErrorPayload,
@@ -41,6 +42,9 @@ export const tauriTaskTransport: TaskTransport = {
         const unlisteners: UnlistenFn[] = []
         try {
             // 逐个注册，以便后续注册失败时取消已经成功的监听器。
+            unlisteners.push(await listen<SettingsSnapshot>('settings-updated', event => {
+                handlers.settings(event.payload)
+            }))
             unlisteners.push(await listen<TaskRecord>('task-updated', event => {
                 handlers.updated(event.payload)
             }))

@@ -1,5 +1,16 @@
 <template>
     <div class="settings-view" :class="{ 'is-narrow': isNarrow }">
+        <n-alert v-if="settingsStore.saveError" type="error" class="settings-alert">
+            设置保存失败：{{ settingsStore.saveError }}
+        </n-alert>
+        <n-alert v-if="settingsStore.conflictFields.length" type="warning" class="settings-alert">
+            以下设置已在其他页面更新，请逐项选择要保留的值：
+            <div v-for="field in settingsStore.conflictFields" :key="field" class="conflict-row">
+                <span>{{ settingLabel(field) }}</span>
+                <n-button size="small" @click="settingsStore.resolveConflict(field, false)">使用最新设置</n-button>
+                <n-button size="small" type="primary" @click="settingsStore.resolveConflict(field, true)">保留本页修改</n-button>
+            </div>
+        </n-alert>
         <!-- 移动端：分组纵向布局；桌面端：原有左右分栏表单。
              共用组件实例，缩放窗口时保留登录输入和弹窗中的编辑草稿。 -->
         <!-- 账号设置：独立分类，位于基本设置上方，增加底部间距避免与下方黏连 -->
@@ -48,7 +59,7 @@
 <script setup lang="ts">
 import { useNarrowLayout } from '../composables/useNarrowLayout'
 import { useRouter } from 'vue-router'
-import { NForm, NButton } from 'naive-ui'
+import { NForm, NButton, NAlert } from 'naive-ui'
 import QualitySetting from '../components/settings/QualitySetting.vue'
 import DowngradeSetting from '../components/settings/DowngradeSetting.vue'
 import DirectorySetting from '../components/settings/DirectorySetting.vue'
@@ -65,12 +76,36 @@ import DuplicateStrategySetting from '../components/settings/DuplicateStrategySe
 import NotifySetting from '../components/settings/NotifySetting.vue'
 import UpdateChecker from '../components/settings/UpdateChecker.vue'
 import { isNativeRuntime } from '../api/runtimeApi'
+import { useSettingsStore } from '../stores/settingsStore'
+import type { Settings } from '../types'
 
 const router = useRouter()
 
 // 移动端响应式布局状态
 const isNarrow = useNarrowLayout()
 const native = isNativeRuntime()
+const settingsStore = useSettingsStore()
+
+const settingLabels: Partial<Record<keyof Settings, string>> = {
+    defaultQuality: '默认音质',
+    autoDowngrade: '自动降级',
+    qualityDowngradeOrder: '音质降级顺序',
+    downloadDir: '下载目录',
+    namingTemplate: '文件命名规则',
+    maxConcurrent: '并发下载数',
+    jumpToTask: '添加后跳转任务',
+    artistSeparator: '歌手连接符',
+    safFolderUri: 'Android 文件夹',
+    safFolderName: 'Android 文件夹名称',
+    writeMetadata: '写入元数据',
+    downloadLrc: '下载歌词',
+    duplicateStrategy: '重复文件处理',
+    notifyOnComplete: '完成通知',
+}
+
+function settingLabel(field: keyof Settings): string {
+    return settingLabels[field] ?? field
+}
 
 function goAbout() {
     router.push('/settings/about')
@@ -86,6 +121,18 @@ function goAbout() {
     display: flex;
     flex-direction: column;
     min-height: 100%;
+}
+
+.settings-alert {
+    margin-bottom: 16px;
+}
+
+.conflict-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
 }
 
 /* 移动端移除最大宽度限制，撑满父容器 */

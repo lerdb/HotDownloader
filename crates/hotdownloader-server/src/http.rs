@@ -9,6 +9,7 @@ use bytes::Bytes;
 use futures_util::stream;
 use hotdownloader_core::contract::CreateTaskRequest;
 use hotdownloader_core::qq_login::{self, LoginCredentialStore};
+use hotdownloader_core::settings_patch::{SettingsPatch, SettingsPatchError};
 use hotdownloader_core::task_service::TaskService;
 use http_body_util::{BodyExt, Full, Limited, StreamBody};
 use hyper::body::{Frame, Incoming};
@@ -151,6 +152,14 @@ fn event_stream(runtime: Arc<ServerRuntime>) -> Response<HttpBody> {
         {
             return;
         }
+        let settings = json!(runtime.environment.settings_snapshot()).to_string();
+        if sender
+            .send(sse_frame("settings-snapshot", &settings))
+            .await
+            .is_err()
+        {
+            return;
+        }
         let mut heartbeat = tokio::time::interval(Duration::from_secs(20));
         loop {
             tokio::select! {
@@ -158,7 +167,13 @@ fn event_stream(runtime: Arc<ServerRuntime>) -> Response<HttpBody> {
                     let frame = match event {
                         Ok(event) => sse_frame(event.name, &event.data),
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            sse_frame("task-snapshot", &json!(runtime.tasks.list()).to_string())
+                            // 设置和任务共用广播队列，丢失增量时两种快照都要补齐。
+                            let tasks = json!(runtime.tasks.list()).to_string();
+                            let settings = json!(runtime.environment.settings_snapshot()).to_string();
+                            if sender.send(sse_frame("settings-snapshot", &settings)).await.is_err() {
+                                break;
+                            }
+                            sse_frame("task-snapshot", &tasks)
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     };
@@ -221,17 +236,31 @@ pub async fn handle(
     let response = match (method, path.as_str()) {
         (Method::GET, "/api/tasks") => json_response(StatusCode::OK, json!(service.load_tasks())),
         (Method::GET, "/api/events") => event_stream(runtime),
-        (Method::GET, "/api/settings") => {
-            json_response(StatusCode::OK, runtime.environment.settings())
-        }
+        (Method::GET, "/api/settings") => json_response(
+            StatusCode::OK,
+            json!(runtime.environment.settings_snapshot()),
+        ),
         (Method::GET, "/api/settings/default-download-dir") => json_response(
             StatusCode::OK,
             json!(runtime.environment.default_download_dir()),
         ),
-        (Method::PUT, "/api/settings") => match read_json(request).await {
-            Ok(value) => match runtime.save_settings(value) {
-                Ok(saved) => json_response(StatusCode::OK, saved),
-                Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+        (Method::PATCH, "/api/settings") => match read_json(request).await {
+            Ok(value) => match serde_json::from_value::<SettingsPatch>(value) {
+                Ok(patch) => match runtime.patch_settings(patch) {
+                    Ok(saved) => json_response(StatusCode::OK, json!(saved)),
+                    Err(SettingsPatchError::Conflict { fields, snapshot }) => json_response(
+                        StatusCode::CONFLICT,
+                        json!({
+                            "error": "设置已被其他页面更新",
+                            "fields": fields,
+                            "snapshot": snapshot,
+                        }),
+                    ),
+                    Err(SettingsPatchError::Invalid(error)) => {
+                        error_response(StatusCode::BAD_REQUEST, error)
+                    }
+                },
+                Err(error) => error_response(StatusCode::BAD_REQUEST, error.to_string()),
             },
             Err(error) => error_response(StatusCode::BAD_REQUEST, error),
         },

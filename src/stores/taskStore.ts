@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { taskTransport } from '../api/taskTransport'
+import { useSettingsStore } from './settingsStore'
 import type { BatchTaskResult } from '../api/taskTransport'
 import type {
     SongInfo,
@@ -103,6 +104,9 @@ export const useTaskStore = defineStore('tasks', () => {
         // 从开始订阅到快照加载完成都缓存事件，避免初始化期间的事件被快照覆盖。
         loading = true
         return taskTransport.subscribe({
+            settings(snapshot) {
+                useSettingsStore().applyServerSnapshot(snapshot)
+            },
             snapshot(snapshot) {
                 // SSE 重连会重新发完整快照；由后端记录直接替换只读投影。
                 projectEvent(() => { tasks.value = snapshot })
