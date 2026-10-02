@@ -4,7 +4,7 @@
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.77.2+-orange.svg)
-![Node](https://img.shields.io/badge/node-22.12+-green.svg)
+![Node](https://img.shields.io/badge/node-24+-green.svg)
 
 ---
 
@@ -50,7 +50,7 @@
 ## 📦 环境要求
 
 - **Docker/Web**：Docker。
-- **源码开发**：Rust、Node.js 22.12+ 与 npm
+- **源码开发**：Rust、Node.js 24+ 与 npm
 - **桌面端**：参考 [Tauri 桌面端前置要求](https://tauri.app/start/prerequisites/#system-dependencies)
 - **Android 端**：参考 [Tauri Android 前置要求](https://tauri.app/start/prerequisites/#android)
 

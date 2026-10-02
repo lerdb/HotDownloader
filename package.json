@@ -5,6 +5,9 @@
   "license": "Apache-2.0",
   "description": "基于共享 Rust 下载核心和 Vue 3 的音乐下载工具",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
