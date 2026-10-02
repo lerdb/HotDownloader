@@ -3,5 +3,6 @@
 pub mod auth;
 pub mod http;
 pub mod logging;
+pub mod monitor;
 pub mod music;
 pub mod runtime;

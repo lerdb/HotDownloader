@@ -248,6 +248,85 @@ pub async fn handle(
     );
 
     let response = match (method, path.as_str()) {
+        (Method::GET, "/api/library") => {
+            monitor_result(runtime.monitors.library_status(&runtime.environment))
+        }
+        (Method::POST, "/api/library/scan") => {
+            let _guard = runtime.monitors.operation.lock().await;
+            monitor_result(runtime.monitors.scan(&runtime).await.map(|r| json!(r)))
+        }
+        (Method::GET, "/api/monitors") => monitor_result(runtime.monitors.list()),
+        (Method::POST, "/api/monitors") => {
+            match read_json(request).await.and_then(|v| {
+                serde_json::from_value::<crate::monitor::MonitorInput>(v).map_err(|e| e.to_string())
+            }) {
+                Ok(input) => {
+                    monitor_result(runtime.monitors.save(None, input).await.map(|m| json!(m)))
+                }
+                Err(error) => monitor_result(Err(error)),
+            }
+        }
+        (Method::GET, path) if path.starts_with("/api/monitors/") => {
+            let parts: Vec<_> = path
+                .trim_start_matches("/api/monitors/")
+                .split('/')
+                .collect();
+            if parts.len() == 2 && parts[1] == "songs" {
+                monitor_result(runtime.monitors.songs(parts[0]))
+            } else {
+                error_response(StatusCode::NOT_FOUND, "未知监控接口")
+            }
+        }
+        (Method::PATCH, path) if path.starts_with("/api/monitors/") => {
+            let id = path.trim_start_matches("/api/monitors/");
+            match read_json(request).await.and_then(|v| {
+                serde_json::from_value::<crate::monitor::MonitorInput>(v).map_err(|e| e.to_string())
+            }) {
+                Ok(input) => monitor_result(
+                    runtime
+                        .monitors
+                        .save(Some(id), input)
+                        .await
+                        .map(|m| json!(m)),
+                ),
+                Err(error) => monitor_result(Err(error)),
+            }
+        }
+        (Method::POST, path) if path.starts_with("/api/monitors/") => {
+            let parts: Vec<_> = path
+                .trim_start_matches("/api/monitors/")
+                .split('/')
+                .collect();
+            if parts.len() == 2 && parts[1] == "check" {
+                monitor_result(
+                    runtime
+                        .monitors
+                        .request_check(parts[0])
+                        .await
+                        .map(|_| json!({"ok":true})),
+                )
+            } else {
+                error_response(StatusCode::NOT_FOUND, "未知监控操作")
+            }
+        }
+        (Method::POST, path) if path.starts_with("/api/library/songs/") => {
+            let mid = path.trim_start_matches("/api/library/songs/");
+            match read_json(request).await {
+                Ok(value) => monitor_result(
+                    runtime
+                        .monitors
+                        .decide(
+                            &runtime,
+                            mid,
+                            value["action"].as_str().unwrap_or(""),
+                            value["path"].as_str().map(str::to_string),
+                        )
+                        .await
+                        .map(|_| json!({"ok":true})),
+                ),
+                Err(error) => monitor_result(Err(error)),
+            }
+        }
         (Method::GET, "/api/tasks") => json_response(StatusCode::OK, json!(service.load_tasks())),
         (Method::GET, "/api/events") => event_stream(runtime),
         (Method::GET, "/api/settings") => json_response(
@@ -405,6 +484,13 @@ pub async fn handle(
         _ => error_response(StatusCode::NOT_FOUND, "未知 API 路径"),
     };
     Ok(response)
+}
+
+fn monitor_result(result: Result<Value, String>) -> Response<HttpBody> {
+    match result {
+        Ok(value) => json_response(StatusCode::OK, value),
+        Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+    }
 }
 
 /// 共享登录接口沿用现有客户端的 JSON 字符串返回值；HTTP 层将其变成 JSON 响应体。

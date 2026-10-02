@@ -16,9 +16,12 @@ services:
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
       HOTDOWNLOADER_TOKEN: ${HOTDOWNLOADER_TOKEN:-}
       HOTDOWNLOADER_DOWNLOAD_DIR: ${HOTDOWNLOADER_DOWNLOAD_DIR:-/downloads}
+      # JSON 数组；目录必须另外挂载到容器，示例见服务端 README。
+      HOTDOWNLOADER_SCAN_DIRS: ${HOTDOWNLOADER_SCAN_DIRS:-[]}
     volumes:
       - hotdownloader-data:/data
       - ${HOTDOWNLOADER_DOWNLOAD_MOUNT:-hotdownloader-downloads}:${HOTDOWNLOADER_DOWNLOAD_DIR:-/downloads}
+      # 例如：- /srv/music/archive:/music/archive:ro
 
 volumes:
   hotdownloader-data:

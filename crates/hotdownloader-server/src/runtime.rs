@@ -36,6 +36,7 @@ pub struct ServerEvent {
 
 pub struct ServerEvents {
     sender: broadcast::Sender<ServerEvent>,
+    monitors: Option<Arc<crate::monitor::MonitorService>>,
 }
 
 impl Default for ServerEvents {
@@ -47,7 +48,10 @@ impl Default for ServerEvents {
 impl ServerEvents {
     pub fn new() -> Self {
         let (sender, _) = broadcast::channel(512);
-        Self { sender }
+        Self {
+            sender,
+            monitors: None,
+        }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ServerEvent> {
@@ -62,6 +66,14 @@ impl ServerEvents {
 
 impl TaskEventSink for ServerEvents {
     fn updated(&self, task: TaskRecord) {
+        if let Some(monitors) = &self.monitors {
+            if let Err(error) = monitors.observe_task(&task) {
+                monitors
+                    .persistence_failed
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                log::error!("保存监控台账失败: {error}");
+            }
+        }
         // 高频进度只走 SSE；稳定的完成和错误状态才写入容器日志。
         match task.status {
             TaskStatus::Completed => log::info!("任务 {} 下载完成", task.id),
@@ -293,6 +305,7 @@ impl DownloadTaskRunner for ServerRunner {
 
 /// 进程级状态。浏览器关闭只会丢弃 HTTP/SSE 连接，不会丢弃这里的引擎。
 pub struct ServerRuntime {
+    pub monitors: Arc<crate::monitor::MonitorService>,
     pub tasks: Arc<TaskState>,
     pub engine: DownloadEngine,
     pub environment: Arc<ServerEnvironment>,
@@ -304,13 +317,62 @@ pub struct ServerRuntime {
 }
 
 impl ServerRuntime {
+    #[cfg(test)]
+    pub(crate) fn test_runtime(
+        data_dir: &Path,
+        monitors: Arc<crate::monitor::MonitorService>,
+    ) -> Arc<Self> {
+        struct NoNetworkRunner;
+        impl DownloadTaskRunner for NoNetworkRunner {
+            fn run(&self, _: TaskContext, _: TaskController) -> BoxFuture<'static, bool> {
+                panic!("测试不允许真实下载")
+            }
+            fn report_error(&self, _: &str, _: &str) {}
+        }
+        let environment = Arc::new(ServerEnvironment::load(data_dir).unwrap());
+        let mut events = ServerEvents::new();
+        events.monitors = Some(monitors.clone());
+        let events = Arc::new(events);
+        let tasks = Arc::new(
+            TaskState::load(
+                Arc::new(JsonTaskRepository::new(data_dir.join("tasks.json"))),
+                events.clone(),
+            )
+            .unwrap(),
+        );
+        Arc::new(Self {
+            monitors,
+            tasks,
+            engine: DownloadEngine::new(
+                Arc::new(NoNetworkRunner),
+                Arc::new(LocalFileDeleter),
+                Arc::new(NoopCompletionNotifier),
+            ),
+            environment,
+            events,
+            login_store: Arc::new(FileLoginStore::new(data_dir.join("qq-credentials.json"))),
+            auth: crate::auth::AccessAuth::None,
+            web_dir: data_dir.into(),
+            settings_patch_lock: Mutex::new(()),
+        })
+    }
+
     pub fn start(data_dir: PathBuf, auth: crate::auth::AccessAuth) -> Result<Arc<Self>, String> {
         std::fs::create_dir_all(&data_dir).map_err(|error| format!("创建数据目录失败: {error}"))?;
         let data_dir = data_dir
             .canonicalize()
             .map_err(|error| format!("解析数据目录失败: {error}"))?;
         let environment = Arc::new(ServerEnvironment::load(&data_dir)?);
-        let events = Arc::new(ServerEvents::new());
+        let monitors = crate::monitor::MonitorService::open(&data_dir)?;
+        // 提前校验环境配置，配置错误应在启动时明确报告。
+        crate::monitor::library::roots(
+            environment.default_download_dir(),
+            &environment.current().naming_template,
+            &environment.artist_separator(),
+        )?;
+        let mut events = ServerEvents::new();
+        events.monitors = Some(monitors.clone());
+        let events = Arc::new(events);
         let repository = Arc::new(JsonTaskRepository::new(data_dir.join("tasks.json")));
         let tasks = Arc::new(TaskState::load(repository, events.clone())?);
         let progress = Arc::new(ServerProgress {
@@ -333,6 +395,7 @@ impl ServerRuntime {
         );
         engine.set_concurrency(environment.max_concurrent());
         let runtime = Arc::new(Self {
+            monitors,
             tasks,
             engine: engine.clone(),
             environment,
@@ -348,6 +411,7 @@ impl ServerRuntime {
             // 每个下载任务在引擎内独立结束；一个任务的失败不会终止调度循环。
             engine.run_scheduler().await;
         });
+        crate::monitor::start(&runtime);
         Ok(runtime)
     }
 

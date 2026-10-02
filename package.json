@@ -17,6 +17,7 @@
     "format:css": "prettier --write \"src/**/*.{css,scss,less}\"",
     "format:css:check": "prettier --check \"src/**/*.{css,scss,less}\"",
     "test:storage-recovery": "node --test scripts/storage-recovery.test.mjs",
+    "test:monitor-http": "node scripts/monitor-http.test.mjs",
     "generate:licenses": "node scripts/generate-licenses.mjs"
   },
   "dependencies": {

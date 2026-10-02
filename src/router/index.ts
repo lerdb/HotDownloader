@@ -3,8 +3,14 @@ import {
     createWebHashHistory,
     type RouteRecordRaw,
 } from 'vue-router'
+import { isNativeRuntime } from '../api/runtimeApi'
 
 const routes: RouteRecordRaw[] = [
+    {
+        path: '/playlist/monitors',
+        component: () => import('../views/MonitorView.vue'),
+        beforeEnter: () => (isNativeRuntime() ? '/playlist' : true),
+    },
     {
         path: '/',
         redirect: '/search',

@@ -1,5 +1,10 @@
 <template>
     <div class="playlist-home">
+        <n-button
+            v-if="!isNativeRuntime()"
+            @click="router.push('/playlist/monitors')"
+            >歌单监控与自动补齐</n-button
+        >
         <section class="playlist-section">
             <h2>导入歌单</h2>
             <SearchBar
@@ -51,6 +56,7 @@ import PlaylistSearchResult from '../search/PlaylistSearchResult.vue'
 import * as musicApi from '../../api/musicApi'
 import { DEFAULT_PLATFORM, PLATFORMS } from '../../config/platforms'
 import type { PlaylistSearchItem } from '../../types'
+import { isNativeRuntime } from '../../api/runtimeApi'
 
 const emit = defineEmits<{
     (e: 'import', platform: string, input: string): void
