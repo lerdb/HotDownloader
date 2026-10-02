@@ -1,28 +1,37 @@
 services:
   hotdownloader:
     image: ghcr.io/lerdb/hotdownloader:latest
-    restart: unless-stopped
+    restart: unless-stopped # 异常退出自动重启
+
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8787/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      test: [ "CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8787/healthz" ] # 健康检查
+      interval: 30s # 检查间隔
+      timeout: 5s # 单次检查超时
+      retries: 3 # 连续失败 3 次标记为 unhealthy
+      start_period: 10s # 启动后等待 10 秒再检查
+
     ports:
-      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:8787:8787" # 只绑定宿主机回环地址，远程访问请走 HTTPS 反向代理
+
     environment:
-      # 设置用户名和密码时优先使用账号登录；否则使用至少 16 个字符的令牌。
+      # 账号密码认证。同时设置时优先于令牌，不能只设一个。
       AUTH_USERNAME: ${AUTH_USERNAME:-}
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+
+      # 令牌认证。未设置账号密码时使用，至少 16 个字符。
       HOTDOWNLOADER_TOKEN: ${HOTDOWNLOADER_TOKEN:-}
+
+      # 容器内下载目录，要和下面 volumes 的挂载目标一致。
       HOTDOWNLOADER_DOWNLOAD_DIR: ${HOTDOWNLOADER_DOWNLOAD_DIR:-/downloads}
-      # JSON 数组；目录必须另外挂载到容器，示例见服务端 README。
+
+      # 额外扫描目录的 JSON 数组。目录必须另外挂载进容器。
       HOTDOWNLOADER_SCAN_DIRS: ${HOTDOWNLOADER_SCAN_DIRS:-[]}
+
     volumes:
-      - hotdownloader-data:/data
-      - ${HOTDOWNLOADER_DOWNLOAD_MOUNT:-hotdownloader-downloads}:${HOTDOWNLOADER_DOWNLOAD_DIR:-/downloads}
-      # 例如：- /srv/music/archive:/music/archive:ro
+      - hotdownloader-data:/data # 持久化设置
+      - ${HOTDOWNLOADER_DOWNLOAD_MOUNT:-hotdownloader-downloads}:${HOTDOWNLOADER_DOWNLOAD_DIR:-/downloads} # 下载目录
+      # - /srv/music/archive:/music/archive:ro # 额外只读音乐库挂载示例
 
 volumes:
-  hotdownloader-data:
-  hotdownloader-downloads:
+  hotdownloader-data: # 数据命名卷
+  hotdownloader-downloads: # 下载命名卷
