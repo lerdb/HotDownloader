@@ -217,6 +217,7 @@
             preset="card"
             :title="editingId ? '编辑监控' : '添加监控'"
             class="monitor-modal"
+            style="width: min(480px, calc(100vw - 32px))"
         >
             <n-form label-placement="top">
                 <n-form-item label="名称"
