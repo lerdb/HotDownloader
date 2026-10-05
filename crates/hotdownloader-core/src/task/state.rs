@@ -80,9 +80,15 @@ impl TaskState {
     }
 
     pub fn path_reserved(&self, path: &str) -> bool {
+        self.path_reserved_except(path, "")
+    }
+
+    pub fn path_reserved_except(&self, path: &str, except_id: &str) -> bool {
         // 磁盘文件尚未出现时，排队中的任务也已经占用了目标路径。
         self.tasks.lock().unwrap().iter().any(|task| {
-            task.status != TaskStatus::Completed && task.save_path.as_deref() == Some(path)
+            task.id != except_id
+                && task.status != TaskStatus::Completed
+                && task.save_path.as_deref() == Some(path)
         })
     }
 

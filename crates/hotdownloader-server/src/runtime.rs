@@ -278,7 +278,12 @@ impl DownloadTaskRunner for ServerRunner {
         let config = self.settings.current();
         let links = self.links.clone();
         let progress = self.progress.clone();
+        let settings = self.settings.clone();
         Box::pin(async move {
+            let fallback = hotdownloader_core::download::fallback::TaskQualityFallback::new(
+                &progress.tasks,
+                settings.as_ref(),
+            );
             let opener = LocalDownloadFileOpener;
             let deleter = LocalFileDeleter;
             let postprocessor = LocalDownloadPostprocessor;
@@ -287,6 +292,7 @@ impl DownloadTaskRunner for ServerRunner {
                 controller,
                 config,
                 DownloadWorkerPorts {
+                    quality_fallback: Some(&fallback),
                     link_provider: links.as_ref(),
                     progress_sink: progress.as_ref(),
                     file_opener: &opener,

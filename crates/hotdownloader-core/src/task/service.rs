@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::download::config::DownloadConfig;
 use crate::download::context::{SongInfo, TaskContext};
-use crate::download::engine::{DownloadEngine, ERR_TASK_CONTEXT_MISSING};
+use crate::download::engine::DownloadEngine;
 use crate::platforms::Platform;
 use crate::task::contract::{
     BatchResult, CreateTaskRequest, CreateTaskResult, DuplicateAction, TaskRecord, TaskStatus,
@@ -371,7 +371,6 @@ impl<'a> TaskService<'a> {
         engine.wait_for_task_exit(&task_id).await;
         let rules = self.environment.task_rules();
         let next_count = task.retry_count + 1;
-        let mut downgraded = false;
         if next_count > 3 {
             // 次数耗尽后的行为完全由 Rust 决定；旧任务没有品质列表时不能凭空推断文件名。
             if !rules.auto_downgrade {
@@ -407,7 +406,6 @@ impl<'a> TaskService<'a> {
             task.downloaded = 0;
             task.retry_count = 0;
             task.save_path = None;
-            downgraded = true;
             // 降级后的文件名和大小都已变更，需要重新计算路径并解决冲突。
             let path = self.task_path_check(&task).await?;
             let reserved = state.path_reserved(&path.original_path);
@@ -451,20 +449,9 @@ impl<'a> TaskService<'a> {
             record.status = TaskStatus::Waiting;
         })?;
 
-        let result = if downgraded {
-            // 品质改变后，旧下载器上下文中的 URL、目标路径都不再适用。
-            engine.forget_final_path(&task_id).await;
-            self.register_engine_task(&task).await
-        } else {
-            match engine.enqueue_task(&task_id, task.downloaded).await {
-                Ok(()) => Ok(()),
-                Err(e) if e.contains(ERR_TASK_CONTEXT_MISSING) => {
-                    // 应用重启后只有持久化记录，没有进程内下载器上下文，直接重建。
-                    self.register_engine_task(&task).await
-                }
-                Err(e) => Err(e),
-            }
-        };
+        engine.forget_final_path(&task_id).await;
+        // worker 可在同一次执行中降级；始终从最新持久化记录重建上下文。
+        let result = self.register_engine_task(&task).await;
         if let Err(e) = result {
             state.failed(&task_id, &format!("启动下载失败: {e}"), None);
             return Err(e);

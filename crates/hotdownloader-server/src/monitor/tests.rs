@@ -9,16 +9,18 @@ use std::{
 };
 
 struct Fixture(PathBuf);
+static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
 impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join("hotdownloader-monitor-tests");
         let path = root.join(format!(
-            "{}-{}",
+            "{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&path).unwrap();
         Self(path.canonicalize().unwrap())
@@ -122,6 +124,30 @@ fn runtime(dir: &Path, remote: Arc<FakeRemote>) -> Arc<ServerRuntime> {
 }
 fn entry(service: &MonitorService, mid: &str) -> Entry {
     service.store.get("entry", mid).unwrap().unwrap()
+}
+
+#[tokio::test]
+async fn exhausted_fallback_updates_actual_quality_and_stops_monitor_retries() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![song("mid1", "虚构曲")]));
+    rt.monitors.save(None, config("歌单")).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    let id = rt.tasks.list()[0].id.clone();
+    rt.tasks
+        .update(&id, true, |task| task.quality = "flac".into())
+        .unwrap();
+    rt.tasks.failed(
+        &id,
+        "音质候选已耗尽，最后音质 flac 获取链接失败: 模拟拒绝",
+        None,
+    );
+    let saved = entry(&rt.monitors, "mid1");
+    assert_eq!(saved.quality, "flac");
+    assert_eq!(saved.next_retry, 0);
+    assert!(!eligible(&saved));
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(rt.tasks.list().len(), 1);
+    assert_eq!(rt.tasks.get(&id).unwrap().status, TaskStatus::Error);
 }
 
 #[test]

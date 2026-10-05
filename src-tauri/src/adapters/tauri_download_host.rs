@@ -4,8 +4,8 @@ use hotdownloader_core::download::link::{DownloadLinkProvider, PlatformDownloadL
 use hotdownloader_core::platforms::qqmusic::credentials::{QqAuth, QqCredentialSource};
 use hotdownloader_core::platforms::Platform;
 use std::sync::Arc;
-use tauri::AppHandle;
 use tauri::Emitter;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_android_fs::{AndroidFsExt, FsUri};
 
 use crate::download::progress;
@@ -44,11 +44,18 @@ impl DownloadTaskRunner for TauriTaskRunner {
             let file_deleter = TauriFileDeleter::new(app.clone());
             let file_opener = TauriDownloadFileOpener::new(app.clone());
             let postprocessor = TauriDownloadPostprocessor::new(app.clone());
+            let tasks = app.state::<hotdownloader_core::task::state::TaskState>();
+            let environment = crate::download::task_service::TauriTaskEnvironment::new(app.clone());
+            let fallback = hotdownloader_core::download::fallback::TaskQualityFallback::new(
+                &tasks,
+                &environment,
+            );
             download_task(
                 context,
                 controller,
                 config,
                 DownloadWorkerPorts {
+                    quality_fallback: Some(&fallback),
                     link_provider: &link_provider,
                     progress_sink: &progress_sink,
                     file_opener: &file_opener,

@@ -77,6 +77,7 @@ pub trait DownloadPostprocessor: Send + Sync {
 
 /// 一次 worker 执行所需的运行时端口。运行时持有实现，worker 只借用它们。
 pub struct DownloadWorkerPorts<'a> {
+    pub quality_fallback: Option<&'a dyn super::fallback::DownloadQualityFallback>,
     pub link_provider: &'a dyn DownloadLinkProvider,
     pub progress_sink: &'a dyn DownloadProgressSink,
     pub file_opener: &'a dyn DownloadFileOpener,

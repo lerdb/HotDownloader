@@ -33,7 +33,7 @@
             </div>
             <p class="downgrade-help">
                 <template v-if="settingsStore.settings.autoDowngrade">
-                    目标音质不可用时，将从它的下一项开始，按从上到下的顺序依次尝试。
+                    目标音质缺失或获取下载链接失败时，按下方顺序继续尝试后续音质，直到成功或候选耗尽。
                 </template>
                 <template v-else>
                     当前顺序已保留，开启自动降级后可编辑并生效。
@@ -62,7 +62,7 @@
         :mask-closable="false"
     >
         <p id="downgrade-order-help" class="editor-help">
-            排在目标音质之后的项目才会作为降级候选。目标音质本身可用时仍会直接下载。
+            优先下载目标音质；获取链接失败后，只尝试排在它之后且歌曲提供的音质。同一音质的临时网络错误最多尝试三次。
         </p>
 
         <ol class="quality-order-list" aria-describedby="downgrade-order-help">

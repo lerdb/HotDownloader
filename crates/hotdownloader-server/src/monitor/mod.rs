@@ -392,6 +392,7 @@ impl MonitorService {
                 }
                 e.task_id = Some(task.id.clone());
             }
+            e.quality = task.quality.clone();
             match task.status {
                 TaskStatus::Completed => {
                     e.state = State::Downloaded;
@@ -422,6 +423,12 @@ impl MonitorService {
                         State::DownloadFailed
                     };
                     e.fail(state, message);
+                    if task.error_msg.as_deref().is_some_and(|message| {
+                        message
+                            .starts_with(hotdownloader_core::download::fallback::QUALITY_EXHAUSTED)
+                    }) {
+                        e.next_retry = 0;
+                    }
                 }
                 _ => {}
             }

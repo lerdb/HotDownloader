@@ -16,12 +16,12 @@ use hotdownloader_core::task::state::TaskState;
 
 /// 创建、重试时读取当下设置，避免页面持有过期的重试和降级策略。
 /// 本地文件长度直接从磁盘读取；SAF 文件名必须由 Android 插件在授权目录内解析。
-struct TauriTaskEnvironment {
+pub(crate) struct TauriTaskEnvironment {
     app: AppHandle,
 }
 
 impl TauriTaskEnvironment {
-    fn new(app: AppHandle) -> Self {
+    pub(crate) fn new(app: AppHandle) -> Self {
         Self { app }
     }
 }

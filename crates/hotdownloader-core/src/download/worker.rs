@@ -3,6 +3,7 @@ use std::io::{BufWriter, Write};
 use std::sync::atomic::Ordering;
 
 use super::decryption;
+use super::fallback::{FallbackOutcome, QUALITY_EXHAUSTED};
 use crate::download::config::DownloadConfig;
 use crate::download::context::TaskContext;
 use crate::download::engine::TaskController;
@@ -17,22 +18,23 @@ use crate::download::transfer::{
 /// 与 Tauri 无关的完整下载任务循环。运行时提供设置、链接、文件、状态和收尾端口。
 /// 返回任务是否成功完成，供调度器决定是否清理任务上下文。
 pub async fn download_task(
-    ctx: TaskContext,
+    mut ctx: TaskContext,
     controller: TaskController,
     config: DownloadConfig,
     ports: DownloadWorkerPorts<'_>,
 ) -> bool {
     let DownloadWorkerPorts {
+        quality_fallback,
         link_provider,
         progress_sink,
         file_opener,
         file_deleter,
         postprocessor,
     } = ports;
-    // 1. 构建最终保存路径（只需一次）
+    // 1. 构建初始保存路径；降级后使用新品质已持久化的路径。
     // 创建任务时已经确定目标路径；Android SAF 任务需保留 URI 上下文，
     // 否则重试时会把相对文件名当成本地文件系统路径。
-    let (is_saf, download_dir, saf_folder_uri) = if !ctx.save_path.is_empty() {
+    let (is_saf, mut download_dir, saf_folder_uri) = if !ctx.save_path.is_empty() {
         if config.download_dir == "saf://"
             && cfg!(target_os = "android")
             && config.saf_folder_uri.is_some()
@@ -78,6 +80,7 @@ pub async fn download_task(
     let mut stream_retries: u32 = 0;
 
     let mut completed_ok = false; // 标记下载是否真正完成
+    let mut attempted = std::collections::HashSet::from([ctx.quality.clone()]);
 
     // 下载循环
     'download: loop {
@@ -95,21 +98,84 @@ pub async fn download_task(
 
         // 如果没有有效链接，实时获取（首次进入或暂停恢复后）
         if url.is_empty() {
-            match fetch_download_link_with_retry(
-                link_provider,
-                &ctx.song_mid,
-                &ctx.quality_filename,
-                &ctx.task_id,
-                ctx.platform, // 添加平台参数
-            )
-            .await
-            {
+            let link_result = tokio::select! {
+                biased;
+                _ = controller.cancel_token.cancelled() => break 'download,
+                result = fetch_download_link_with_retry(
+                    link_provider,
+                    &ctx.song_mid,
+                    &ctx.quality_filename,
+                    &ctx.task_id,
+                    ctx.platform,
+                ) => result,
+            };
+            match link_result {
                 Ok((new_url, new_key)) => {
                     url = new_url;
                     key = new_key;
                     log::info!("任务 {} 获取到新下载链接", ctx.task_id);
                 }
                 Err(e) => {
+                    if controller.pause_flag.load(Ordering::SeqCst) {
+                        if controller.wait_for_resume_or_cancel().await {
+                            break 'download;
+                        }
+                    }
+                    if let Some(fallback) = quality_fallback.filter(|_| {
+                        !e.contains("凭据") && !e.contains("凭证") && !e.contains("登录")
+                    }) {
+                        // 关闭旧文件后才能切换品质；旧片段保留，下一品质从零另存。
+                        drop(file.take());
+                        let result = tokio::select! {
+                            biased;
+                            _ = controller.cancel_token.cancelled() => break 'download,
+                            result = fallback.next(&ctx, &config) => result,
+                        };
+                        match result {
+                            Ok(FallbackOutcome::Next(next)) => {
+                                if !attempted.insert(next.quality.clone()) {
+                                    progress_sink
+                                        .error(&ctx.task_id, "音质降级出现重复候选，已停止");
+                                    break 'download;
+                                }
+                                log::info!(
+                                    "任务 {} 获取 {} 链接失败，降级至 {}",
+                                    ctx.task_id,
+                                    ctx.quality,
+                                    next.quality
+                                );
+                                ctx = next;
+                                download_dir = ctx.save_path.clone();
+                                downloaded = 0;
+                                stream_retries = 0;
+                                saf_file_uri = None;
+                                *controller.final_path.lock().await = None;
+                                if !is_saf && file_opener.prepare_parent(&download_dir).is_err() {
+                                    progress_sink.error(&ctx.task_id, "下载目录无法访问");
+                                    break 'download;
+                                }
+                                continue 'download;
+                            }
+                            Ok(FallbackOutcome::Exhausted) => {
+                                progress_sink.error(
+                                    &ctx.task_id,
+                                    &format!(
+                                        "{QUALITY_EXHAUSTED}，最后音质 {} 获取链接失败: {e}",
+                                        ctx.quality
+                                    ),
+                                );
+                                break 'download;
+                            }
+                            Err(error) => {
+                                progress_sink.error(
+                                    &ctx.task_id,
+                                    &format!("切换音质失败: {error}；原错误: {e}"),
+                                );
+                                break 'download;
+                            }
+                            Ok(FallbackOutcome::Disabled) => {}
+                        }
+                    }
                     // 将具体错误信息发送到前端，便于用户了解失败原因
                     log::error!("任务 {} 最终获取下载链接失败: {}", ctx.task_id, e);
                     progress_sink.error(&ctx.task_id, &format!("获取下载链接失败: {}", e));
@@ -419,6 +485,7 @@ mod tests {
             controller,
             config,
             DownloadWorkerPorts {
+                quality_fallback: None,
                 link_provider: &RejectedLink,
                 progress_sink: &sink,
                 file_opener: &LocalDownloadFileOpener,
