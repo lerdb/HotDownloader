@@ -29,6 +29,13 @@
                             formatPlayCount(playlist.playCount)
                         }}
                     </div>
+                    <n-button
+                        v-if="canMonitor"
+                        class="monitor-button"
+                        @click="emit('monitor')"
+                    >
+                        添加歌单监控
+                    </n-button>
                 </div>
             </div>
 
@@ -93,10 +100,12 @@ defineProps<{
     selectedIds: string[]
     isAllSelected: boolean
     isIndeterminate: boolean
+    canMonitor?: boolean
 }>()
 
 const emit = defineEmits<{
     (e: 'back'): void
+    (e: 'monitor'): void
     (e: 'retry'): void
     (e: 'toggle-all', checked: boolean): void
     (e: 'toggle-select', songMid: string, selected: boolean): void
@@ -164,6 +173,10 @@ const emit = defineEmits<{
     color: var(--color-text-secondary);
     font-size: 13px;
     margin-top: 4px;
+}
+
+.monitor-button {
+    margin-top: 12px;
 }
 
 .list-header {

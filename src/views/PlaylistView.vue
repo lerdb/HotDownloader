@@ -15,6 +15,8 @@
         :selected-ids="selectedIds"
         :is-all-selected="isAllSelected"
         :is-indeterminate="isIndeterminate"
+        :can-monitor="canMonitor"
+        @monitor="addMonitor"
         @back="goBack"
         @retry="loadDetail(true)"
         @toggle-all="toggleAll"
@@ -36,6 +38,7 @@ import { useDownloadActions } from '../composables/useDownloadActions'
 import { useMusicNavigation } from '../composables/useMusicNavigation'
 import type { PlaylistSearchItem } from '../types'
 import { PLATFORMS } from '../config/platforms'
+import { isNativeRuntime } from '../api/runtimeApi'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,6 +65,31 @@ const {
     reset,
 } = usePlaylistImport()
 const { downloadSingle, batchDownload } = useDownloadActions()
+const canMonitor = computed(
+    () =>
+        !isNativeRuntime() &&
+        playlistQuery.value.platform === 'qqmusic' &&
+        !!playlist.value &&
+        /^\d+$/.test(playlist.value.id),
+)
+function addMonitor() {
+    if (!canMonitor.value || !playlist.value) return
+    const mine = playlistQuery.value.source === 'mine'
+    const dirid =
+        mine && typeof playlistQuery.value.dirid === 'string'
+            ? playlistQuery.value.dirid
+            : ''
+    void router.push({
+        path: '/playlist/monitors',
+        query: {
+            add: '1',
+            name: playlist.value.name,
+            playlistId: playlist.value.id,
+            source: mine ? (dirid === '201' ? 'liked' : 'created') : 'public',
+            dirid,
+        },
+    })
+}
 const { openRelatedArtist, openSongAlbum, goBack, backLabel } =
     useMusicNavigation('/playlist')
 

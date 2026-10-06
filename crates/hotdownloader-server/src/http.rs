@@ -277,6 +277,16 @@ pub async fn handle(
                 error_response(StatusCode::NOT_FOUND, "未知监控接口")
             }
         }
+        (Method::DELETE, path) if path.starts_with("/api/monitors/") => {
+            let id = path.trim_start_matches("/api/monitors/");
+            monitor_result(
+                runtime
+                    .monitors
+                    .delete(id)
+                    .await
+                    .map(|_| json!({"ok":true})),
+            )
+        }
         (Method::PATCH, path) if path.starts_with("/api/monitors/") => {
             let id = path.trim_start_matches("/api/monitors/");
             match read_json(request).await.and_then(|v| {
@@ -305,6 +315,20 @@ pub async fn handle(
                         .await
                         .map(|_| json!({"ok":true})),
                 )
+            } else if parts.len() == 2 && parts[1] == "decisions" {
+                match read_json(request).await.and_then(|v| {
+                    serde_json::from_value::<crate::monitor::BatchDecision>(v)
+                        .map_err(|e| e.to_string())
+                }) {
+                    Ok(input) => monitor_result(
+                        runtime
+                            .monitors
+                            .decide_batch(&runtime, parts[0], input)
+                            .await
+                            .map(|count| json!({"ok":true,"count":count})),
+                    ),
+                    Err(error) => monitor_result(Err(error)),
+                }
             } else {
                 error_response(StatusCode::NOT_FOUND, "未知监控操作")
             }

@@ -112,6 +112,30 @@ pub struct Entry {
     pub force_download: bool,
     #[serde(default)]
     pub dispatch_started_at: u64,
+    #[serde(default)]
+    pub requested_by: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BatchDecision {
+    pub mids: Vec<String>,
+    pub action: String,
+}
+
+fn same_playlist(a: &MonitorInput, b: &MonitorInput) -> bool {
+    let liked = |m: &MonitorInput| {
+        m.source == Source::Liked
+            || (m.source == Source::Created && m.dirid.trim_start_matches('0') == "201")
+    };
+    if liked(a) && liked(b) {
+        return true;
+    }
+    a.source == b.source
+        && a.source != Source::Liked
+        && a.playlist_id.trim_start_matches('0') == b.playlist_id.trim_start_matches('0')
+        && (a.source != Source::Created
+            || a.dirid.trim_start_matches('0') == b.dirid.trim_start_matches('0'))
 }
 
 impl Entry {
@@ -268,6 +292,19 @@ impl MonitorService {
             return Err("个人歌单需要有效目录 ID".into());
         }
         let _guard = self.operation.lock().await;
+        if id.is_none() {
+            if let Some(existing) = self
+                .store
+                .all::<Monitor>("monitor")?
+                .iter()
+                .find(|m| same_playlist(&m.config, &input))
+            {
+                return Err(format!(
+                    "此歌单已有监控“{}”，请编辑或启用已有监控",
+                    existing.config.name
+                ));
+            }
+        }
         let mut monitor = if let Some(id) = id {
             let monitor = self
                 .store
@@ -315,6 +352,22 @@ impl MonitorService {
         }
         self.store.put("monitor", &monitor.id, &monitor)?;
         Ok(monitor)
+    }
+
+    pub async fn delete(&self, id: &str) -> Result<()> {
+        let _guard = self.operation.lock().await;
+        // 仅删除配置及成员快照；文件、任务与 MID 台账继续保留。
+        let deleted = self
+            .store
+            .0
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM records WHERE kind='monitor' AND key=?", [id])
+            .map_err(|e| e.to_string())?;
+        if deleted == 0 {
+            return Err("监控不存在".into());
+        }
+        Ok(())
     }
 
     pub async fn request_check(&self, id: &str) -> Result<()> {
@@ -368,6 +421,7 @@ impl MonitorService {
                 next_retry: 0,
                 force_download: false,
                 dispatch_started_at: 0,
+                requested_by: None,
             };
             self.store.insert("entry", &task.song_mid, &entry)?;
         }
@@ -515,6 +569,7 @@ impl MonitorService {
                     next_retry: 0,
                     force_download: false,
                     dispatch_started_at: 0,
+                    requested_by: None,
                 };
                 store::write(&tx, "entry", &parsed.mid, &entry)?;
             }
@@ -588,7 +643,73 @@ impl MonitorService {
     ) -> Result<()> {
         let _guard = self.operation.lock().await;
         let _task_guard = runtime.tasks.creation_lock.lock().await;
+        let monitor = self
+            .store
+            .all::<Monitor>("monitor")?
+            .into_iter()
+            .find(|m| m.members.iter().any(|s| s == mid));
         let mut entry = self.store.get::<Entry>("entry", mid)?.ok_or("歌曲不存在")?;
+        self.prepare_decision(runtime, &mut entry, action, path, monitor.as_ref())?;
+        self.store.put("entry", mid, &entry)
+    }
+
+    pub async fn decide_batch(
+        &self,
+        runtime: &ServerRuntime,
+        id: &str,
+        input: BatchDecision,
+    ) -> Result<usize> {
+        if !matches!(input.action.as_str(), "download" | "ignore") {
+            return Err("批量操作仅支持下载或忽略待确认歌曲".into());
+        }
+        if input.mids.is_empty() || input.mids.len() > 200 {
+            return Err("每次请选择 1–200 首待确认歌曲".into());
+        }
+        let _guard = self.operation.lock().await;
+        let _task_guard = runtime.tasks.creation_lock.lock().await;
+        let monitor = self
+            .store
+            .get::<Monitor>("monitor", id)?
+            .ok_or("监控不存在")?;
+        let mut entries = Vec::new();
+        let mut seen = HashSet::new();
+        for mid in &input.mids {
+            if !seen.insert(mid) {
+                continue;
+            }
+            if !monitor.members.contains(mid) {
+                return Err("所选歌曲不属于当前监控，请刷新后重试".into());
+            }
+            let mut entry = self.store.get::<Entry>("entry", mid)?.ok_or("歌曲不存在")?;
+            if entry.state != State::PendingConfirmation {
+                return Err("所选歌曲状态已变化，请刷新后重新选择待确认歌曲".into());
+            }
+            self.prepare_decision(runtime, &mut entry, &input.action, None, Some(&monitor))?;
+            entries.push(entry);
+        }
+        // 任务事件可能在校验期间更新台账；事务内再次比较，整批成功或整批不写入。
+        let mut db = self.store.0.lock().unwrap();
+        let tx = db.transaction().map_err(|e| e.to_string())?;
+        for entry in &entries {
+            let current = store::read::<Entry>(&tx, "entry", entry.mid())?.ok_or("歌曲不存在")?;
+            if current.state != State::PendingConfirmation {
+                return Err("所选歌曲状态已变化，请刷新后重试".into());
+            }
+            store::write(&tx, "entry", entry.mid(), entry)?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(entries.len())
+    }
+
+    fn prepare_decision(
+        &self,
+        runtime: &ServerRuntime,
+        entry: &mut Entry,
+        action: &str,
+        path: Option<String>,
+        monitor: Option<&Monitor>,
+    ) -> Result<()> {
+        let mid = entry.mid();
         if runtime.tasks.list().iter().any(|t| {
             t.platform == "qqmusic"
                 && t.song_mid == mid
@@ -633,21 +754,15 @@ impl MonitorService {
                 entry.next_retry = 0;
                 entry.force_download = true;
                 entry.message = "已请求下载".into();
-                // 当前监控配置决定手动重下的品质；MID 决定跨歌单共享。
-                let mut monitors = self.store.all::<Monitor>("monitor")?;
-                if let Some(m) = monitors
-                    .iter_mut()
-                    .find(|m| m.members.iter().any(|s| s == mid))
-                {
+                // 只派发明确选择的歌曲，不开启停用歌单的整轮补齐。
+                if let Some(m) = monitor {
                     entry.quality = m.config.quality.clone();
-                    m.draining = true;
-                    self.store.put("monitor", &m.id, m)?;
+                    entry.requested_by = Some(m.id.clone());
                 }
             }
             _ => return Err("未知逐曲操作".into()),
         }
         entry.candidates.clear();
-        self.store.put("entry", mid, &entry)?;
         // 只做状态变更，实际派发由同一个服务循环完成。
         Ok(())
     }
@@ -827,6 +942,13 @@ impl MonitorService {
         }
         self.reconcile(runtime).await?;
         let mut monitors = self.store.all::<Monitor>("monitor")?;
+        let requested = |e: &Entry| {
+            e.requested_by.as_ref().is_some_and(|id| {
+                monitors
+                    .iter()
+                    .any(|m| &m.id == id && m.members.iter().any(|mid| mid == e.mid()))
+            })
+        };
         let due = monitors
             .iter()
             .any(|m| m.requested || (m.config.enabled && m.next_check <= now()));
@@ -839,7 +961,7 @@ impl MonitorService {
             .store
             .all::<Entry>("entry")?
             .iter()
-            .any(|e| active.contains(e.mid()) && eligible(e));
+            .any(|e| (active.contains(e.mid()) || requested(e)) && eligible(e));
         if !due && !pending {
             return Ok(());
         }
@@ -887,7 +1009,12 @@ impl MonitorService {
         let mut dispatched = 0;
         let mut auth = None;
         for mut entry in self.store.all::<Entry>("entry")? {
-            if !active.contains(entry.mid()) || !eligible(&entry) {
+            let requested = entry.requested_by.as_ref().is_some_and(|id| {
+                monitors
+                    .iter()
+                    .any(|m| &m.id == id && m.members.iter().any(|mid| mid == entry.mid()))
+            });
+            if (!active.contains(entry.mid()) && !requested) || !eligible(&entry) {
                 continue;
             }
             if entry.state == State::Pending

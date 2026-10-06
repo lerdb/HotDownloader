@@ -106,9 +106,20 @@
                 >
                 <n-button
                     :type="selectedId === monitor.id ? 'primary' : 'default'"
+                    :disabled="busy"
                     @click="selectMonitor(monitor.id)"
                     >查看歌曲</n-button
                 >
+                <n-popconfirm @positive-click="remove(monitor)">
+                    <template #trigger
+                        ><n-button type="error" :disabled="busy"
+                            >删除监控</n-button
+                        ></template
+                    >
+                    删除“{{
+                        monitor.name
+                    }}”后停止该监控的后续检查与补齐；已有文件、共享处理台账和下载任务保留。
+                </n-popconfirm>
             </n-space>
         </n-card>
 
@@ -132,6 +143,53 @@
                 {{ filteredSongs.length }}
                 首。忽略或关联后，即使文件移动或任务记录清除，也不会自动重下。
             </p>
+            <n-space class="batch-actions" align="center">
+                <n-checkbox
+                    :checked="allPagePendingSelected"
+                    :indeterminate="
+                        somePagePendingSelected && !allPagePendingSelected
+                    "
+                    :disabled="busy || !pagePending.length"
+                    @update:checked="selectPagePending"
+                >
+                    选择本页待确认
+                </n-checkbox>
+                <span>已选 {{ selectedMids.length }} 首（最多 200 首）</span>
+                <n-button
+                    :disabled="busy || !selectedMids.length"
+                    @click="selectedMids = []"
+                    >清空选择</n-button
+                >
+                <n-popconfirm
+                    :show-icon="false"
+                    @positive-click="batchDecide('download')"
+                >
+                    <template #trigger
+                        ><n-button :disabled="busy || !selectedMids.length"
+                            >下载所选</n-button
+                        ></template
+                    >
+                    将下载所选
+                    {{ selectedMids.length }}
+                    首待确认歌曲，使用当前监控音质；决定对其他歌单中的相同歌曲也生效，已有文件保留。
+                </n-popconfirm>
+                <n-popconfirm
+                    :show-icon="false"
+                    @positive-click="batchDecide('ignore')"
+                >
+                    <template #trigger
+                        ><n-button :disabled="busy || !selectedMids.length"
+                            >忽略所选</n-button
+                        ></template
+                    >
+                    将忽略所选
+                    {{ selectedMids.length }}
+                    首待确认歌曲，对其他歌单中的相同歌曲也生效。
+                </n-popconfirm>
+            </n-space>
+            <n-alert v-if="batchMessage" type="success">{{
+                batchMessage
+            }}</n-alert>
             <n-empty
                 v-if="!filteredSongs.length"
                 description="暂无符合条件的歌曲"
@@ -142,6 +200,17 @@
                 class="song-row"
             >
                 <div class="song-header">
+                    <n-checkbox
+                        v-if="entry.state === 'pending_confirmation'"
+                        :checked="selectedMids.includes(entry.song.mid)"
+                        :disabled="
+                            busy ||
+                            (selectedMids.length >= 200 &&
+                                !selectedMids.includes(entry.song.mid))
+                        "
+                        :aria-label="`选择 ${entry.song.title}`"
+                        @update:checked="selectSong(entry.song.mid, $event)"
+                    />
                     <strong>{{ entry.song.title }}</strong
                     ><n-tag :type="stateType(entry.state)">{{
                         stateLabel(entry.state)
@@ -283,12 +352,32 @@
                 </p>
             </n-form>
             <n-alert v-if="editorError" type="error">{{ editorError }}</n-alert>
+            <n-alert
+                v-if="duplicateMonitor && !editingId"
+                type="warning"
+                title="此歌单已有监控"
+            >
+                “{{ duplicateMonitor.name }}”{{
+                    duplicateMonitor.enabled ? '已启用' : '已停用'
+                }}。
+                <n-button :disabled="busy" @click="edit(duplicateMonitor)"
+                    >编辑已有监控</n-button
+                >
+            </n-alert>
             <template #footer
                 ><n-space justify="end"
                     ><n-button @click="showEditor = false">取消</n-button
-                    ><n-button type="primary" :loading="busy" @click="save">{{
-                        !editingId && form.enabled ? '保存并首次补齐' : '保存'
-                    }}</n-button></n-space
+                    ><n-button
+                        type="primary"
+                        :loading="busy"
+                        :disabled="!editingId && !!duplicateMonitor"
+                        @click="save"
+                        >{{
+                            !editingId && form.enabled
+                                ? '保存并首次补齐'
+                                : '保存'
+                        }}</n-button
+                    ></n-space
                 ></template
             >
         </n-modal>
@@ -345,11 +434,12 @@ import {
     ref,
     watch,
 } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
     NAlert,
     NButton,
     NCard,
+    NCheckbox,
     NEmpty,
     NForm,
     NFormItem,
@@ -371,10 +461,13 @@ import { ALL_QUALITY_ORDER, type PlaylistSearchItem } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
 
 const router = useRouter()
+const route = useRoute()
 const settings = useSettingsStore()
 const library = ref<api.LibraryStatus>()
 const monitors = ref<api.Monitor[]>([])
 const songs = ref<api.MonitorSong[]>([])
+const selectedMids = ref<string[]>([])
+const batchMessage = ref('')
 const selectedId = ref('')
 const selectedName = computed(
     () => monitors.value.find((m) => m.id === selectedId.value)?.name || '歌单',
@@ -408,6 +501,9 @@ const sourceOptions = [
     { label: '我的 QQ 歌单', value: 'created' },
     { label: '我喜欢', value: 'liked' },
 ]
+const duplicateMonitor = computed(() =>
+    monitors.value.find((m) => api.samePlaylist(m, form.value)),
+)
 const qualityOptions = [...ALL_QUALITY_ORDER]
     .reverse()
     .map((q) => ({ label: q, value: q }))
@@ -493,17 +589,54 @@ const filteredSongs = computed(() =>
 const pageSongs = computed(() =>
     filteredSongs.value.slice((page.value - 1) * 30, page.value * 30),
 )
+const pagePending = computed(() =>
+    pageSongs.value.filter((e) => e.state === 'pending_confirmation'),
+)
+const allPagePendingSelected = computed(
+    () =>
+        pagePending.value.length > 0 &&
+        pagePending.value.every((e) => selectedMids.value.includes(e.song.mid)),
+)
+const somePagePendingSelected = computed(() =>
+    pagePending.value.some((e) => selectedMids.value.includes(e.song.mid)),
+)
+function selectSong(mid: string, checked: boolean) {
+    selectedMids.value = checked
+        ? [...new Set([...selectedMids.value, mid])].slice(0, 200)
+        : selectedMids.value.filter((id) => id !== mid)
+}
+function selectPagePending(checked: boolean) {
+    for (const e of pagePending.value) selectSong(e.song.mid, checked)
+}
+watch(songs, () => {
+    selectedMids.value = selectedMids.value.filter((mid) =>
+        songs.value.some(
+            (e) => e.song.mid === mid && e.state === 'pending_confirmation',
+        ),
+    )
+    page.value = Math.min(
+        page.value,
+        Math.max(1, Math.ceil(filteredSongs.value.length / 30)),
+    )
+})
 watch([filter, query, selectedId], () => {
     page.value = 1
+    selectedMids.value = []
+    batchMessage.value = ''
 })
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 let timer: ReturnType<typeof setTimeout> | undefined
-let active = false,
-    refreshing = false
+let active = false
+let refreshPromise: Promise<void> | undefined
 let pollGeneration = 0
-async function refresh() {
-    if (refreshing) return
-    refreshing = true
+function refresh(): Promise<void> {
+    if (!refreshPromise)
+        refreshPromise = loadSnapshot().finally(() => {
+            refreshPromise = undefined
+        })
+    return refreshPromise
+}
+async function loadSnapshot() {
     try {
         const [lib, result] = await Promise.all([
             api.getLibrary(),
@@ -514,15 +647,16 @@ async function refresh() {
         running.value = result.running
         persistenceFailed.value = result.persistenceFailed
         const id = selectedId.value
-        if (id) {
+        if (id && !monitors.value.some((m) => m.id === id)) {
+            selectedId.value = ''
+            songs.value = []
+        } else if (id) {
             const entries = await api.getMonitorSongs(id)
             if (selectedId.value === id) songs.value = entries
         }
         error.value = ''
     } catch (e) {
         error.value = message(e)
-    } finally {
-        refreshing = false
     }
 }
 async function poll(generation: number) {
@@ -540,17 +674,21 @@ onActivated(() => {
         active = true
         void poll(++pollGeneration)
     }
+    consumeAddRoute()
 })
 onDeactivated(stop)
 onUnmounted(stop)
 async function selectMonitor(id: string) {
     selectedId.value = id
     songs.value = []
+    await refreshPromise
     await refresh()
 }
 async function perform(action: () => Promise<unknown>) {
+    if (busy.value) return
     busy.value = true
     try {
+        await refreshPromise
         await action()
         await refresh()
     } catch (e) {
@@ -566,6 +704,26 @@ async function scan() {
 }
 async function check(m: api.Monitor) {
     await perform(() => api.checkMonitor(m.id))
+}
+async function remove(m: api.Monitor) {
+    await perform(async () => {
+        await api.deleteMonitor(m.id)
+        if (selectedId.value === m.id) {
+            selectedId.value = ''
+            songs.value = []
+        }
+    })
+}
+async function batchDecide(action: 'download' | 'ignore') {
+    const id = selectedId.value
+    const mids = [...selectedMids.value]
+    if (!id || !mids.length) return
+    batchMessage.value = ''
+    await perform(async () => {
+        const result = await api.decideMonitorSongs(id, mids, action)
+        selectedMids.value = []
+        batchMessage.value = `已${action === 'download' ? '请求下载' : '忽略'} ${result.count} 首歌曲`
+    })
 }
 function inputOf(m: api.Monitor): api.MonitorInput {
     return {
@@ -600,13 +758,33 @@ function edit(m?: api.Monitor) {
           }
     showEditor.value = true
 }
+function consumeAddRoute() {
+    if (route.path !== '/playlist/monitors' || route.query.add !== '1') return
+    const q = route.query
+    edit()
+    if (q.source === 'public' || q.source === 'created' || q.source === 'liked')
+        form.value.source = q.source
+    form.value.name = typeof q.name === 'string' ? q.name : ''
+    form.value.playlistId =
+        form.value.source !== 'liked' && typeof q.playlistId === 'string'
+            ? q.playlistId
+            : ''
+    form.value.dirid =
+        form.value.source === 'created' && typeof q.dirid === 'string'
+            ? q.dirid
+            : ''
+    void router.replace({ path: '/playlist/monitors' })
+}
+watch(() => route.fullPath, consumeAddRoute)
 async function save() {
+    if (busy.value) return
     if (!form.value.quality || !form.value.intervalMinutes) {
         editorError.value = '请选择自动下载音质并填写检查间隔'
         return
     }
     busy.value = true
     try {
+        await refreshPromise
         await api.saveMonitor(form.value, editingId.value || undefined)
         showEditor.value = false
         await refresh()

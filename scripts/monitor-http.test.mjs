@@ -185,13 +185,18 @@ try {
         await request('/api/monitors', 'POST', {
             ...config,
             name: '虚构歌单乙',
+            playlistId: '654321',
         })
     ).json()
     assert.ok(created.id)
+    const duplicate = await request('/api/monitors', 'POST', config)
+    assert.equal(duplicate.status, 400)
+    assert.match((await duplicate.json()).error, /已有监控/)
     assert.equal(
         (
             await request(`/api/monitors/${created.id}`, 'PATCH', {
                 ...config,
+                playlistId: '654321',
                 name: '修改后的虚构歌单',
                 intervalMinutes: 15,
             })
@@ -236,6 +241,73 @@ try {
     )
     assert.deepEqual(fs.readFileSync(filePath), wav)
     assert.equal((await (await request('/api/tasks')).json()).length, 0)
+    const batchUrl = '/api/monitors/fixture/decisions'
+    assert.equal((await fetch(base + batchUrl, { method: 'POST' })).status, 401)
+    assert.equal(
+        (await fetch(base + '/api/monitors/fixture', { method: 'DELETE' }))
+            .status,
+        401,
+    )
+    assert.equal(
+        (
+            await request(batchUrl, 'POST', {
+                mids: ['fictionalConfirm', 'fictionalDone'],
+                action: 'ignore',
+            })
+        ).status,
+        400,
+    )
+    let entries = await (await request('/api/monitors/fixture/songs')).json()
+    assert.equal(
+        entries.find((e) => e.song.mid === 'fictionalConfirm').state,
+        'pending_confirmation',
+    )
+    assert.equal(
+        (
+            await request(batchUrl, 'POST', {
+                mids: ['outsider'],
+                action: 'ignore',
+            })
+        ).status,
+        400,
+    )
+    assert.equal(
+        (
+            await request(batchUrl, 'POST', {
+                mids: ['fictionalConfirm'],
+                action: 'reset',
+            })
+        ).status,
+        400,
+    )
+    const batchResult = await request(batchUrl, 'POST', {
+        mids: ['fictionalConfirm'],
+        action: 'ignore',
+    })
+    assert.equal(batchResult.status, 200)
+    assert.equal((await batchResult.json()).count, 1)
+    entries = await (await request('/api/monitors/fixture/songs')).json()
+    assert.equal(
+        entries.find((e) => e.song.mid === 'fictionalConfirm').state,
+        'ignored',
+    )
+    assert.equal(
+        (await request(`/api/monitors/${created.id}`, 'DELETE')).status,
+        200,
+    )
+    assert.equal(
+        (await request(`/api/monitors/${created.id}/songs`)).status,
+        400,
+    )
+    assert.equal(
+        (await request(`/api/monitors/${created.id}/check`, 'POST')).status,
+        400,
+    )
+    assert.deepEqual(
+        await (await request('/api/monitors/fixture/songs')).json(),
+        entries,
+    )
+    assert.deepEqual(fs.readFileSync(filePath), wav)
     console.log('Monitor HTTP smoke checks passed (synthetic data only).')
     if (process.argv.includes('--serve')) {
         console.log(`Fixture preview: ${base}/#/playlist/monitors`)

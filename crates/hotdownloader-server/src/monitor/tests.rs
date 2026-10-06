@@ -126,6 +126,247 @@ fn entry(service: &MonitorService, mid: &str) -> Entry {
     service.store.get("entry", mid).unwrap().unwrap()
 }
 
+fn batch(mids: &[&str], action: &str) -> BatchDecision {
+    BatchDecision {
+        mids: mids.iter().map(|s| s.to_string()).collect(),
+        action: action.into(),
+    }
+}
+
+#[tokio::test]
+async fn duplicate_sources_and_concurrent_creation_are_rejected() {
+    let dir = Fixture::new();
+    let service = MonitorService::open(&dir.0).unwrap();
+    let (a, b) = tokio::join!(
+        service.save(None, config("甲")),
+        service.save(None, config("乙"))
+    );
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    let existing = a.or(b).unwrap();
+    service
+        .save(Some(&existing.id), existing.config.clone())
+        .await
+        .unwrap();
+    let mut created = config("个人歌单");
+    created.source = Source::Created;
+    created.playlist_id = "000123456".into();
+    created.dirid = "1".into();
+    service.save(None, created.clone()).await.unwrap();
+    created.playlist_id = "123456".into();
+    created.dirid = "01".into();
+    assert!(service
+        .save(None, created.clone())
+        .await
+        .unwrap_err()
+        .contains("已有监控"));
+    created.dirid = "2".into();
+    service.save(None, created).await.unwrap();
+    let mut liked = config("我喜欢");
+    liked.source = Source::Liked;
+    liked.playlist_id.clear();
+    service.save(None, liked.clone()).await.unwrap();
+    liked.source = Source::Created;
+    liked.dirid = "201".into();
+    liked.playlist_id = "98765".into();
+    assert!(service.save(None, liked).await.is_err());
+}
+
+#[tokio::test]
+async fn batch_decisions_validate_all_members_and_preserve_shared_choices() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+    let mut m = rt.monitors.save(None, config("批量")).await.unwrap();
+    rt.monitors
+        .ingest(&mut m, vec![song("a", "甲"), song("b", "乙")], "、")
+        .unwrap();
+    rt.monitors
+        .store
+        .change::<Entry>("entry", "a", |e| e.state = State::PendingConfirmation)
+        .unwrap();
+    for request in [
+        batch(&[], "ignore"),
+        batch(&["a"], "link"),
+        batch(&["a", "foreign"], "ignore"),
+        batch(&["a", "b"], "ignore"),
+    ] {
+        assert!(rt.monitors.decide_batch(&rt, &m.id, request).await.is_err());
+        assert_eq!(entry(&rt.monitors, "a").state, State::PendingConfirmation);
+    }
+    assert!(rt
+        .monitors
+        .decide_batch(&rt, &m.id, batch(&vec!["a"; 201], "ignore"))
+        .await
+        .is_err());
+    rt.monitors
+        .store
+        .change::<Entry>("entry", "b", |e| e.state = State::PendingConfirmation)
+        .unwrap();
+    rt.monitors.store.0.lock().unwrap().execute_batch(
+        "CREATE TRIGGER reject_batch_write BEFORE UPDATE ON records
+         WHEN NEW.kind='entry' AND NEW.key='b' BEGIN SELECT RAISE(ABORT, 'simulated disk failure'); END;"
+    ).unwrap();
+    assert!(rt
+        .monitors
+        .decide_batch(&rt, &m.id, batch(&["a", "b"], "ignore"))
+        .await
+        .is_err());
+    assert_eq!(entry(&rt.monitors, "a").state, State::PendingConfirmation);
+    assert_eq!(entry(&rt.monitors, "b").state, State::PendingConfirmation);
+    rt.monitors
+        .store
+        .0
+        .lock()
+        .unwrap()
+        .execute_batch("DROP TRIGGER reject_batch_write;")
+        .unwrap();
+    assert_eq!(
+        rt.monitors
+            .decide_batch(&rt, &m.id, batch(&["a", "b", "a"], "ignore"))
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(entry(&rt.monitors, "a").state, State::Ignored);
+    assert_eq!(entry(&rt.monitors, "b").state, State::Ignored);
+    assert!(rt
+        .monitors
+        .decide_batch(&rt, &m.id, batch(&["a"], "download"))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn explicit_download_only_dispatches_selected_songs_after_restart() {
+    let dir = Fixture::new();
+    let remote = FakeRemote::new(vec![]);
+    let rt = runtime(&dir.0, remote.clone());
+    let mut m = rt.monitors.save(None, config("停用歌单")).await.unwrap();
+    rt.monitors
+        .ingest(
+            &mut m,
+            vec![song("a", "甲"), song("b", "乙"), song("c", "丙")],
+            "、",
+        )
+        .unwrap();
+    m.config.enabled = false;
+    rt.monitors
+        .save(Some(&m.id), m.config.clone())
+        .await
+        .unwrap();
+    rt.monitors
+        .store
+        .change::<Entry>("entry", "a", |e| e.state = State::PendingConfirmation)
+        .unwrap();
+    rt.monitors
+        .decide_batch(&rt, &m.id, batch(&["a"], "download"))
+        .await
+        .unwrap();
+    rt.monitors
+        .decide(&rt, "b", "download", None)
+        .await
+        .unwrap();
+    assert!(
+        !rt.monitors
+            .store
+            .get::<Monitor>("monitor", &m.id)
+            .unwrap()
+            .unwrap()
+            .draining
+    );
+    drop(rt);
+    let rt = runtime(&dir.0, remote.clone());
+    rt.monitors.tick(&rt).await.unwrap();
+    let mids: HashSet<_> = rt.tasks.list().into_iter().map(|t| t.song_mid).collect();
+    assert_eq!(mids, HashSet::from(["a".to_string(), "b".to_string()]));
+    assert_eq!(entry(&rt.monitors, "c").state, State::Pending);
+    assert_eq!(remote.calls.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn batch_download_uses_selected_monitors_quality() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+    let mut a = rt.monitors.save(None, config("甲")).await.unwrap();
+    let mut other = config("乙");
+    other.playlist_id = "98765".into();
+    other.quality = "flac".into();
+    let mut b = rt.monitors.save(None, other).await.unwrap();
+    for m in [&mut a, &mut b] {
+        rt.monitors.ingest(m, vec![song("a", "甲")], "、").unwrap();
+    }
+    rt.monitors
+        .store
+        .change::<Entry>("entry", "a", |e| e.state = State::PendingConfirmation)
+        .unwrap();
+    rt.monitors
+        .decide_batch(&rt, &b.id, batch(&["a"], "download"))
+        .await
+        .unwrap();
+    assert_eq!(entry(&rt.monitors, "a").quality, "flac");
+}
+
+#[tokio::test]
+async fn delete_preserves_files_tasks_and_ledger_and_stops_future_dispatch() {
+    let dir = Fixture::new();
+    let remote = FakeRemote::new(vec![]);
+    let rt = runtime(&dir.0, remote.clone());
+    let mut m = rt.monitors.save(None, config("删除测试")).await.unwrap();
+    rt.monitors
+        .ingest(&mut m, vec![song("a", "甲"), song("b", "乙")], "、")
+        .unwrap();
+    m.config.enabled = false;
+    rt.monitors
+        .save(Some(&m.id), m.config.clone())
+        .await
+        .unwrap();
+    rt.monitors
+        .decide(&rt, "a", "download", None)
+        .await
+        .unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    let file = dir.0.join("keep.wav");
+    wave(&file, None, None);
+    rt.monitors
+        .decide(&rt, "b", "download", None)
+        .await
+        .unwrap();
+    let mut other = config("共享歌单");
+    other.playlist_id = "98765".into();
+    other.enabled = false;
+    let mut shared = rt.monitors.save(None, other).await.unwrap();
+    rt.monitors
+        .ingest(&mut shared, vec![song("a", "甲"), song("b", "乙")], "、")
+        .unwrap();
+    rt.monitors
+        .save(Some(&shared.id), shared.config.clone())
+        .await
+        .unwrap();
+    let entries = rt.monitors.songs(&m.id).unwrap();
+    rt.monitors.delete(&m.id).await.unwrap();
+    assert!(rt.monitors.songs(&m.id).is_err());
+    assert!(rt.monitors.delete(&m.id).await.is_err());
+    assert_eq!(rt.monitors.songs(&shared.id).unwrap(), entries);
+    assert!(file.is_file());
+    assert_eq!(rt.tasks.list().len(), 1);
+    assert_eq!(
+        json!(rt.monitors.store.all::<Entry>("entry").unwrap()),
+        entries
+    );
+    drop(rt);
+    let rt = runtime(&dir.0, remote);
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(rt.tasks.list().len(), 1);
+    assert_eq!(entry(&rt.monitors, "b").state, State::Ready);
+    let mut recreated = rt.monitors.save(None, config("重新添加")).await.unwrap();
+    rt.monitors
+        .ingest(&mut recreated, vec![song("a", "甲")], "、")
+        .unwrap();
+    assert_eq!(
+        entry(&rt.monitors, "a").task_id,
+        rt.tasks.list().first().map(|t| t.id.clone())
+    );
+}
+
 #[tokio::test]
 async fn exhausted_fallback_updates_actual_quality_and_stops_monitor_retries() {
     let dir = Fixture::new();
@@ -301,7 +542,9 @@ async fn snapshot_deduplicates_across_playlists_and_keeps_removed_decisions() {
     let dir = Fixture::new();
     let service = MonitorService::open(&dir.0).unwrap();
     let mut a = service.save(None, config("甲歌单")).await.unwrap();
-    let mut b = service.save(None, config("乙歌单")).await.unwrap();
+    let mut other = config("乙歌单");
+    other.playlist_id = "654321".into();
+    let mut b = service.save(None, other).await.unwrap();
     service
         .ingest(
             &mut a,
@@ -341,7 +584,9 @@ async fn batches_share_tasks_and_only_new_songs_are_added() {
     );
     let rt = runtime(&dir.0, remote.clone());
     let a = rt.monitors.save(None, config("歌单甲")).await.unwrap();
-    rt.monitors.save(None, config("歌单乙")).await.unwrap();
+    let mut other = config("歌单乙");
+    other.playlist_id = "654321".into();
+    rt.monitors.save(None, other).await.unwrap();
     rt.monitors.tick(&rt).await.unwrap();
     assert_eq!(rt.tasks.list().len(), BATCH_SIZE);
     rt.monitors.tick(&rt).await.unwrap();

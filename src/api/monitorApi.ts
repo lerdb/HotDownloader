@@ -68,6 +68,36 @@ export const checkMonitor = (id: string) =>
     webRequest(`/api/monitors/${encodeURIComponent(id)}/check`, {
         method: 'POST',
     })
+export const deleteMonitor = (id: string) =>
+    webRequest(`/api/monitors/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export const decideMonitorSongs = (
+    id: string,
+    mids: string[],
+    action: 'download' | 'ignore',
+) =>
+    webRequest<{ count: number }>(
+        `/api/monitors/${encodeURIComponent(id)}/decisions`,
+        {
+            method: 'POST',
+            body: JSON.stringify({ mids, action }),
+        },
+    )
+
+export function samePlaylist(a: MonitorInput, b: MonitorInput): boolean {
+    const liked = (m: MonitorInput) =>
+        m.source === 'liked' ||
+        (m.source === 'created' && m.dirid.replace(/^0+/, '') === '201')
+    return (
+        (liked(a) && liked(b)) ||
+        (a.source === b.source &&
+            a.source !== 'liked' &&
+            !!a.playlistId.trim() &&
+            a.playlistId.trim().replace(/^0+/, '') ===
+                b.playlistId.trim().replace(/^0+/, '') &&
+            (a.source !== 'created' ||
+                a.dirid.replace(/^0+/, '') === b.dirid.replace(/^0+/, '')))
+    )
+}
 export const decideSong = (
     mid: string,
     action: 'link' | 'download' | 'ignore' | 'reset',
