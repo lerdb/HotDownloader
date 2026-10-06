@@ -51,6 +51,49 @@
                     目录由服务端环境变量配置；下载目录自动扫描，其他 NAS
                     目录请只读挂载。
                 </p>
+                <div
+                    v-for="directory in library.directories"
+                    :key="directory.path"
+                    class="directory-status"
+                >
+                    <code>{{ directory.path }}</code>
+                    <n-tag
+                        :type="
+                            directory.state === 'unavailable'
+                                ? 'error'
+                                : directory.state === 'warning'
+                                  ? 'warning'
+                                  : directory.state === 'healthy'
+                                    ? 'success'
+                                    : 'default'
+                        "
+                    >
+                        {{
+                            {
+                                unknown: '尚未检查',
+                                healthy: '可读取',
+                                warning: '文件信息需检查',
+                                unavailable: '不可访问',
+                            }[directory.state]
+                        }}
+                    </n-tag>
+                    <p>
+                        已索引 {{ directory.fileCount }} 个文件 · 索引时间：{{
+                            time(directory.indexedAt)
+                        }}
+                    </p>
+                    <p class="muted">
+                        最近检查：{{ time(directory.checkedAt)
+                        }}<template v-if="directory.observedCount !== null">
+                            · 本次读取 {{ directory.observedCount }} 个文件 ·
+                            信息异常 {{ directory.warningCount }} 个</template
+                        >
+                    </p>
+                    <p v-if="directory.error">{{ directory.error }}</p>
+                </div>
+                <p v-if="library.error" class="muted">
+                    本轮未更新索引；各目录的“已索引”数量仍来自上次完整扫描。
+                </p>
             </template>
         </n-card>
 
@@ -89,6 +132,40 @@
                 }}
             </p>
             <p>{{ monitor.lastResult }}</p>
+            <div
+                v-if="monitor.initialProgress.initialized"
+                class="initial-progress"
+            >
+                <strong>首次补齐进度</strong>
+                <n-progress
+                    type="line"
+                    :percentage="monitor.initialProgress.percent"
+                    :status="
+                        monitor.initialProgress.percent === 100
+                            ? 'success'
+                            : 'default'
+                    "
+                />
+                <p class="muted">
+                    首次快照 {{ monitor.initialProgress.total }} 首 · 已处理
+                    {{ monitor.initialProgress.completed }} · 已移出歌单
+                    {{ monitor.initialProgress.removed }} · 处理中
+                    {{ monitor.initialProgress.active }} · 待确认
+                    {{ monitor.initialProgress.confirmation }} · 失败
+                    {{ monitor.initialProgress.failed }}
+                </p>
+                <p class="muted">
+                    已处理包括关联、下载成功和忽略；已移出项不再需要补齐。新加入歌曲单独计入逐曲状态。
+                </p>
+            </div>
+            <p v-else class="muted">首次补齐进度：等待成功读取歌单建立快照。</p>
+            <p v-if="monitor.latestRound" class="muted">
+                最近一轮 · {{ roundLabel(monitor.latestRound.status) }} · 新增
+                {{ monitor.latestRound.added }} · 关联
+                {{ monitor.latestRound.linked }} · 入队
+                {{ monitor.latestRound.enqueued }} · 派发失败
+                {{ monitor.latestRound.failed }}
+            </p>
             <n-space
                 ><n-tag
                     v-for="(count, state) in monitor.counts"
@@ -120,6 +197,9 @@
                         monitor.name
                     }}”后停止该监控的后续检查与补齐；已有文件、共享处理台账和下载任务保留。
                 </n-popconfirm>
+                <n-button :disabled="busy" @click="openHistory(monitor)"
+                    >检查历史</n-button
+                >
             </n-space>
         </n-card>
 
@@ -253,7 +333,14 @@
                             >忽略</n-button
                         >
                     </template>
-                    <n-button v-if="entry.taskId" @click="router.push('/task')"
+                    <n-button
+                        v-if="entry.taskId"
+                        @click="
+                            router.push({
+                                path: '/task',
+                                query: { taskId: entry.taskId },
+                            })
+                        "
                         >查看任务</n-button
                     >
                     <n-button
@@ -280,6 +367,65 @@
                 :item-count="filteredSongs.length"
             />
         </n-card>
+
+        <n-modal
+            v-model:show="showHistory"
+            preset="card"
+            :title="`${historyName} · 检查历史`"
+            class="monitor-modal"
+        >
+            <p class="muted">
+                保留最近 100
+                轮，按时间倒序排列。新增为歌单成员相对上次快照的增量；关联为本轮自动匹配本地文件；入队包含成功提交的新任务与重试，不代表下载完成。同一歌曲在参与本轮的多个歌单中分别计数。
+            </p>
+            <n-alert v-if="historyError" type="error">{{
+                historyError
+            }}</n-alert>
+            <n-button :loading="historyLoading" @click="loadHistory"
+                >刷新历史</n-button
+            >
+            <n-empty
+                v-if="!historyLoading && !history.length"
+                description="暂无检查历史"
+            />
+            <article
+                v-for="(record, index) in history.slice(
+                    (historyPage - 1) * 10,
+                    historyPage * 10,
+                )"
+                :key="index"
+                class="song-row"
+            >
+                <strong
+                    >{{ time(record.startedAt) }} ·
+                    {{
+                        {
+                            manual: '立即检查',
+                            scheduled: '定时检查',
+                            backfill: '补齐或重试',
+                        }[record.trigger]
+                    }}</strong
+                >
+                <p>
+                    {{ roundLabel(record.status) }} · 结束：{{
+                        time(
+                            record.finishedAt,
+                            record.status === 'running' ? '进行中' : '未记录',
+                        )
+                    }}
+                </p>
+                <p>
+                    新增 {{ record.added }} · 关联 {{ record.linked }} · 入队
+                    {{ record.enqueued }} · 派发失败 {{ record.failed }}
+                </p>
+                <p class="muted">{{ record.message }}</p>
+            </article>
+            <n-pagination
+                v-model:page="historyPage"
+                :page-size="10"
+                :item-count="history.length"
+            />
+        </n-modal>
 
         <n-modal
             v-model:show="showEditor"
@@ -448,6 +594,7 @@ import {
     NModal,
     NPagination,
     NPopconfirm,
+    NProgress,
     NRadio,
     NRadioGroup,
     NSelect,
@@ -468,6 +615,42 @@ const monitors = ref<api.Monitor[]>([])
 const songs = ref<api.MonitorSong[]>([])
 const selectedMids = ref<string[]>([])
 const batchMessage = ref('')
+const showHistory = ref(false),
+    historyLoading = ref(false),
+    historyError = ref(''),
+    historyId = ref(''),
+    historyName = ref('')
+const history = ref<api.CheckRecord[]>([]),
+    historyPage = ref(1)
+const roundLabel = (status: api.CheckRecord['status']) =>
+    ({
+        running: '进行中（统计待完成）',
+        completed: '本轮完成',
+        warning: '部分派发失败',
+        failed: '本轮失败',
+        interrupted: '本轮中断（统计不完整）',
+    })[status]
+async function openHistory(m: api.Monitor) {
+    historyId.value = m.id
+    historyName.value = m.name
+    history.value = []
+    historyPage.value = 1
+    showHistory.value = true
+    await loadHistory()
+}
+async function loadHistory() {
+    const id = historyId.value
+    historyLoading.value = true
+    historyError.value = ''
+    try {
+        const result = await api.getMonitorHistory(id)
+        if (historyId.value === id) history.value = result
+    } catch (e) {
+        if (historyId.value === id) historyError.value = message(e)
+    } finally {
+        if (historyId.value === id) historyLoading.value = false
+    }
+}
 const selectedId = ref('')
 const selectedName = computed(
     () => monitors.value.find((m) => m.id === selectedId.value)?.name || '歌单',
@@ -646,6 +829,7 @@ async function loadSnapshot() {
         monitors.value = result.monitors
         running.value = result.running
         persistenceFailed.value = result.persistenceFailed
+        if (showHistory.value && !historyLoading.value) await loadHistory()
         const id = selectedId.value
         if (id && !monitors.value.some((m) => m.id === id)) {
             selectedId.value = ''
@@ -873,6 +1057,16 @@ function choosePlaylist(i: number) {
     flex-direction: column;
     gap: 8px;
     margin: 12px 0;
+}
+.directory-status,
+.initial-progress {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+.directory-status code {
+    margin-right: 12px;
 }
 .actions {
     margin-top: 12px;

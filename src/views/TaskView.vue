@@ -1,9 +1,26 @@
 <template>
     <div class="task-view">
-        <TaskTabs v-model:activeTab="activeTab" :counts="tabCounts" />
+        <n-alert
+            v-if="focusedId"
+            :type="focusedTask ? 'info' : 'warning'"
+            title="监控关联任务"
+        >
+            <template v-if="focusedTask"
+                >正在查看：{{ focusedTask.songTitle }} ·
+                {{ focusedId }}</template
+            >
+            <template v-else-if="taskStore.connectionStatus !== 'connected'"
+                >正在等待服务同步任务，请检查连接状态。</template
+            >
+            <template v-else
+                >未找到任务 {{ focusedId }}，任务记录可能已被移除。</template
+            >
+            <n-button size="small" @click="clearFocus">返回全部任务</n-button>
+        </n-alert>
+        <TaskTabs v-else v-model:activeTab="activeTab" :counts="tabCounts" />
 
         <!-- 批量操作栏：按当前标签页显示可用的一键操作 -->
-        <div v-if="showToolbar" class="task-toolbar">
+        <div v-if="showToolbar && !focusedId" class="task-toolbar">
             <!-- 中断恢复与错误重试按任务状态分别选择，实际规则交给 Rust。 -->
             <n-button
                 v-if="
@@ -119,9 +136,12 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { filterTasks, taskFocusId } from '../utils/taskFocus'
 import { openFileLocation } from '../api/fileApi'
 import {
     NPagination,
+    NAlert,
     NButton,
     NPopconfirm,
     NCheckbox,
@@ -143,6 +163,18 @@ const taskStore = useTaskStore()
 const settingsStore = useSettingsStore()
 const { retryTask } = useDownloadActions()
 const notification = useNotification()
+const route = useRoute()
+const router = useRouter()
+const focusedId = computed(() => taskFocusId(route.path, route.query.taskId))
+const focusedTask = computed(() =>
+    taskStore.tasks.find((task) => task.id === focusedId.value),
+)
+function clearFocus() {
+    activeTab.value = 'all'
+    const query = { ...route.query }
+    delete query.taskId
+    void router.replace({ path: '/task', query })
+}
 
 const activeTab = ref('all')
 const selectedRowKeys = ref<string[]>([])
@@ -179,13 +211,17 @@ const tabCounts = computed(() => {
     return counts
 })
 
-const filteredTasks = computed(() => {
-    const tab = activeTab.value
-    return taskStore.tasks.filter((task) => {
-        if (tab === 'all') return true
-        return task.status === tab
-    })
-})
+const filteredTasks = computed(() =>
+    filterTasks(taskStore.tasks, activeTab.value, focusedId.value),
+)
+watch(
+    focusedId,
+    () => {
+        page.value = 1
+        selectedRowKeys.value = []
+    },
+    { immediate: true },
+)
 
 const pagedTasks = computed(() => {
     const start = (page.value - 1) * pageSize.value

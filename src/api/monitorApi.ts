@@ -18,6 +18,30 @@ export interface Monitor extends MonitorInput {
     lastResult: string
     lastState: string
     counts: Record<string, number>
+    initialProgress:
+        | { initialized: false }
+        | {
+              initialized: true
+              total: number
+              completed: number
+              removed: number
+              confirmation: number
+              failed: number
+              active: number
+              percent: number
+          }
+    latestRound: CheckRecord | null
+}
+export interface CheckRecord {
+    startedAt: number
+    finishedAt: number
+    trigger: 'manual' | 'scheduled' | 'backfill'
+    status: 'running' | 'completed' | 'warning' | 'failed' | 'interrupted'
+    added: number
+    linked: number
+    enqueued: number
+    failed: number
+    message: string
 }
 export interface LibraryStatus {
     roots: { path: string; template: string | null; artistSeparator: string }[]
@@ -28,6 +52,16 @@ export interface LibraryStatus {
     error: string | null
     unresolvedCount: number
     scanning: boolean
+    directories: {
+        path: string
+        fileCount: number
+        observedCount: number | null
+        warningCount: number
+        state: 'unknown' | 'healthy' | 'warning' | 'unavailable'
+        error: string | null
+        checkedAt: number
+        indexedAt: number
+    }[]
 }
 export interface LocalFile {
     path: string
@@ -59,6 +93,8 @@ export const getMonitors = () =>
     }>('/api/monitors')
 export const getMonitorSongs = (id: string) =>
     webRequest<MonitorSong[]>(`/api/monitors/${encodeURIComponent(id)}/songs`)
+export const getMonitorHistory = (id: string) =>
+    webRequest<CheckRecord[]>(`/api/monitors/${encodeURIComponent(id)}/history`)
 export const saveMonitor = (input: MonitorInput, id?: string) =>
     webRequest<Monitor>(
         id ? `/api/monitors/${encodeURIComponent(id)}` : '/api/monitors',

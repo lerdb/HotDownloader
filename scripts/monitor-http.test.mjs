@@ -176,6 +176,22 @@ try {
     const library = await (await request('/api/library')).json()
     assert.equal(library.fileCount, 1)
     assert.equal(library.error, null)
+    assert.equal(library.directories.length, 1)
+    assert.equal(library.directories[0].fileCount, 1)
+    assert.equal(library.directories[0].state, 'healthy')
+    assert.ok(library.directories[0].indexedAt > 0)
+    assert.equal(
+        (await fetch(base + '/api/monitors/fixture/history')).status,
+        401,
+    )
+    assert.deepEqual(
+        await (await request('/api/monitors/fixture/history')).json(),
+        [],
+    )
+    assert.equal((await request('/api/monitors/missing/history')).status, 400)
+    const initialList = await (await request('/api/monitors')).json()
+    assert.equal(initialList.monitors[0].initialProgress.initialized, false)
+    assert.equal(initialList.monitors[0].latestRound, null)
     assert.equal(
         (await request('/api/monitors', 'POST', { ...config, quality: 'ask' }))
             .status,

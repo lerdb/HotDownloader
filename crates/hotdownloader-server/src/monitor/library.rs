@@ -90,6 +90,21 @@ pub struct ScanReport {
     pub last_success: u64,
     pub error: Option<String>,
     pub unresolved_count: usize,
+    #[serde(default)]
+    pub directories: Vec<DirectoryStatus>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryStatus {
+    pub path: String,
+    pub file_count: usize,
+    pub observed_count: Option<usize>,
+    pub warning_count: usize,
+    pub state: String,
+    pub error: Option<String>,
+    pub checked_at: u64,
+    pub indexed_at: u64,
 }
 
 pub fn roots(download: &str, template: &str, artist_separator: &str) -> Result<Vec<ScanRoot>> {
@@ -271,7 +286,9 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
         .into_iter()
         .map(|f| (f.path.clone(), f))
         .collect();
-    let collect = || -> Result<(Vec<LocalFile>, usize)> {
+    let mut directories = Vec::new();
+    let mut scan_errors = Vec::new();
+    let mut collect = || -> Result<(Vec<LocalFile>, usize)> {
         let mut files = Vec::new();
         let mut updated = 0;
         let mut seen = HashSet::new();
@@ -279,42 +296,91 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
         let mut ordered = roots.clone();
         ordered.sort_by_key(|r| std::cmp::Reverse(r.path.len()));
         for root in &ordered {
-            let base = Path::new(&root.path)
-                .canonicalize()
-                .map_err(|e| format!("目录不可访问 {}: {e}", root.path))?;
-            let mut paths = Vec::new();
-            walk(&base, &mut paths)?;
-            for path in paths {
-                let key = path.to_string_lossy().to_string();
-                if excluded.contains(&key) || !seen.insert(key.clone()) {
-                    continue;
+            let previous = report.directories.iter().find(|d| d.path == root.path);
+            let mut directory = DirectoryStatus {
+                path: root.path.clone(),
+                file_count: old.values().filter(|f| f.root == root.path).count(),
+                indexed_at: previous.map(|d| d.indexed_at).unwrap_or_else(|| {
+                    if old_roots.iter().any(|r| r.path == root.path) {
+                        report.last_success
+                    } else {
+                        0
+                    }
+                }),
+                checked_at: report.last_scan,
+                ..Default::default()
+            };
+            let start = files.len();
+            let result = (|| -> Result<()> {
+                let base = Path::new(&root.path)
+                    .canonicalize()
+                    .map_err(|e| format!("目录不可访问 {}: {e}", root.path))?;
+                let mut paths = Vec::new();
+                walk(&base, &mut paths)?;
+                for path in paths {
+                    let key = path.to_string_lossy().to_string();
+                    if excluded.contains(&key) || !seen.insert(key.clone()) {
+                        continue;
+                    }
+                    let info =
+                        std::fs::metadata(&path).map_err(|e| format!("文件不可访问 {key}: {e}"))?;
+                    let modified = info
+                        .modified()
+                        .map_err(|e| e.to_string())?
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|e| e.to_string())?
+                        .as_nanos()
+                        .to_string();
+                    if let Some(previous) = old.get(&key).filter(|f| {
+                        f.size == info.len()
+                            && f.modified == modified
+                            && f.root == root.path
+                            && old_roots.contains(root)
+                    }) {
+                        files.push(previous.clone());
+                    } else {
+                        files.push(read_file(&path, root, info.len(), modified));
+                        updated += 1;
+                    }
                 }
-                let info =
-                    std::fs::metadata(&path).map_err(|e| format!("文件不可访问 {key}: {e}"))?;
-                let modified = info
-                    .modified()
-                    .map_err(|e| e.to_string())?
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|e| e.to_string())?
-                    .as_nanos()
-                    .to_string();
-                if let Some(previous) = old.get(&key).filter(|f| {
-                    f.size == info.len()
-                        && f.modified == modified
-                        && f.root == root.path
-                        && old_roots.contains(root)
-                }) {
-                    files.push(previous.clone());
-                } else {
-                    files.push(read_file(&path, root, info.len(), modified));
-                    updated += 1;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => {
+                    directory.observed_count = Some(files.len() - start);
+                    directory.warning_count = files[start..]
+                        .iter()
+                        .filter(|f| f.warning.is_some() || f.conflict || !f.identity.complete())
+                        .count();
+                    directory.state = if directory.warning_count > 0 {
+                        "warning"
+                    } else {
+                        "healthy"
+                    }
+                    .into();
+                }
+                Err(error) => {
+                    directory.state = "unavailable".into();
+                    directory.error = Some(error.clone());
+                    scan_errors.push(error);
                 }
             }
+            directories.push(directory);
         }
-        Ok((files, updated))
+        if scan_errors.is_empty() {
+            Ok((files, updated))
+        } else {
+            Err(scan_errors.join("；"))
+        }
     };
-    match collect() {
+    let result = collect();
+    report.directories = directories;
+    match result {
         Ok((files, updated)) => {
+            for directory in &mut report.directories {
+                directory.file_count = directory.observed_count.unwrap_or(0);
+                directory.indexed_at = report.last_scan;
+            }
             report.indexed_roots = roots;
             report.last_success = report.last_scan;
             report.file_count = files.len();

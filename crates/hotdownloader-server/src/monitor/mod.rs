@@ -37,6 +37,21 @@ pub fn now() -> u64 {
 }
 const BATCH_SIZE: usize = 20;
 const RETRY_DELAYS: [u64; 3] = [300, 900, 3600];
+const HISTORY_LIMIT: usize = 100;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckRecord {
+    pub started_at: u64,
+    pub finished_at: u64,
+    pub trigger: String,
+    pub status: String,
+    pub added: usize,
+    pub linked: usize,
+    pub enqueued: usize,
+    pub failed: usize,
+    pub message: String,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -74,6 +89,8 @@ pub struct Monitor {
     pub last_state: String,
     pub requested: bool,
     pub draining: bool,
+    #[serde(default)]
+    pub initial_members: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,8 +230,17 @@ impl MonitorService {
         data_dir: &std::path::Path,
         remote: Arc<dyn MonitorRemote>,
     ) -> Result<Arc<Self>> {
+        let store = Arc::new(Store::open(&data_dir.join("library.sqlite3"))?);
+        for m in store.all::<Monitor>("monitor")? {
+            store.change::<Vec<CheckRecord>>("history", &m.id, |history| {
+                for record in history.iter_mut().filter(|r| r.status == "running") {
+                    record.status = "interrupted".into();
+                    record.message = "服务在本轮结束前退出，统计可能不完整".into();
+                }
+            })?;
+        }
         Ok(Arc::new(Self {
-            store: Arc::new(Store::open(&data_dir.join("library.sqlite3"))?),
+            store,
             operation: Mutex::new(()),
             scanning: AtomicBool::new(false),
             running: AtomicBool::new(false),
@@ -244,9 +270,14 @@ impl MonitorService {
                 }
                 let mut value = json!(m);
                 value["counts"] = json!(counts);
-                value
+                value["initialProgress"] = initial_progress(&m, &entries);
+                value["latestRound"] = json!(self
+                    .store
+                    .get::<Vec<CheckRecord>>("history", &m.id)?
+                    .and_then(|h| h.last().cloned()));
+                Ok(value)
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
         Ok(
             json!({"monitors": monitors, "running": self.running.load(Ordering::Relaxed), "persistenceFailed": self.persistence_failed.load(Ordering::Relaxed)}),
         )
@@ -263,6 +294,22 @@ impl MonitorService {
             &config.naming_template,
             &env.artist_separator(),
         )?;
+        report.directories = report
+            .roots
+            .iter()
+            .map(|root| {
+                report
+                    .directories
+                    .iter()
+                    .find(|d| d.path == root.path)
+                    .cloned()
+                    .unwrap_or_else(|| library::DirectoryStatus {
+                        path: root.path.clone(),
+                        state: "unknown".into(),
+                        ..Default::default()
+                    })
+            })
+            .collect();
         let mut value = json!(report);
         value["scanning"] = json!(self.scanning.load(Ordering::Relaxed));
         Ok(value)
@@ -335,6 +382,7 @@ impl MonitorService {
                 last_state: "idle".into(),
                 requested: false,
                 draining: false,
+                initial_members: None,
             }
         };
         let newly_enabled = input.enabled && (!monitor.config.enabled || monitor.last_check == 0);
@@ -357,16 +405,17 @@ impl MonitorService {
     pub async fn delete(&self, id: &str) -> Result<()> {
         let _guard = self.operation.lock().await;
         // 仅删除配置及成员快照；文件、任务与 MID 台账继续保留。
-        let deleted = self
-            .store
-            .0
-            .lock()
-            .unwrap()
+        let mut db = self.store.0.lock().unwrap();
+        let tx = db.transaction().map_err(|e| e.to_string())?;
+        let deleted = tx
             .execute("DELETE FROM records WHERE kind='monitor' AND key=?", [id])
             .map_err(|e| e.to_string())?;
         if deleted == 0 {
             return Err("监控不存在".into());
         }
+        tx.execute("DELETE FROM records WHERE kind='history' AND key=?", [id])
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -394,6 +443,18 @@ impl MonitorService {
             .filter(|e| monitor.members.iter().any(|m| m == e.mid()))
             .collect();
         Ok(json!(entries))
+    }
+
+    pub fn history(&self, id: &str) -> Result<Value> {
+        self.store
+            .get::<Monitor>("monitor", id)?
+            .ok_or("监控不存在")?;
+        let mut history = self
+            .store
+            .get::<Vec<CheckRecord>>("history", id)?
+            .unwrap_or_default();
+        history.reverse();
+        Ok(json!(history))
     }
 
     /// 任务事件在持久化后同步进入台账，浏览器立即删除任务也不会丢失成功决定。
@@ -573,6 +634,9 @@ impl MonitorService {
                 };
                 store::write(&tx, "entry", &parsed.mid, &entry)?;
             }
+        }
+        if monitor.initial_members.is_none() {
+            monitor.initial_members = Some(members.clone());
         }
         monitor.members = members;
         monitor.last_check = now();
@@ -826,7 +890,7 @@ impl MonitorService {
         runtime: &ServerRuntime,
         mut entry: Entry,
         auth: &Result<()>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let mid = entry.mid().to_string();
         let previous = entry.clone();
         let service = TaskService::new(
@@ -847,10 +911,10 @@ impl MonitorService {
                     .store
                     .compare_and_put("entry", &mid, &previous, &entry)?
                 {
-                    return Ok(());
+                    return Ok(false);
                 }
                 self.observe_task(task)?;
-                return Ok(());
+                return Ok(false);
             }
         }
         let song: SongInput =
@@ -866,7 +930,7 @@ impl MonitorService {
             entry.next_retry = 0;
             self.store
                 .compare_and_put("entry", &mid, &previous, &entry)?;
-            return Ok(());
+            return Ok(false);
         }
         if matches!(
             entry.state,
@@ -878,7 +942,7 @@ impl MonitorService {
             entry.fail(State::CredentialInvalid, error.clone());
             self.store
                 .compare_and_put("entry", &mid, &previous, &entry)?;
-            return Ok(());
+            return Ok(false);
         }
         entry.state = State::Dispatching;
         entry.dispatch_started_at = SystemTime::now()
@@ -889,14 +953,14 @@ impl MonitorService {
             .store
             .compare_and_put("entry", &mid, &previous, &entry)?
         {
-            return Ok(());
+            return Ok(false);
         }
         if let Some(id) = &entry.task_id {
             if !entry.owned {
-                return Ok(());
+                return Ok(false);
             }
             match service.retry_task(id.clone()).await {
-                Ok(true) => {}
+                Ok(true) => return Ok(true),
                 Ok(false) => self.store.change::<Entry>("entry", &mid, |e| {
                     e.state = State::DownloadFailed;
                     e.next_retry = 0;
@@ -922,7 +986,10 @@ impl MonitorService {
                 })
                 .await
             {
-                Ok(CreateTaskResult::Created { task }) => self.observe_task(&task)?,
+                Ok(CreateTaskResult::Created { task }) => {
+                    self.observe_task(&task)?;
+                    return Ok(true);
+                }
                 Ok(_) => self.store.change::<Entry>("entry", &mid, |e| {
                     e.state = State::PendingConfirmation;
                     e.message = "下载目标路径已存在，请确认处理方式".into();
@@ -932,7 +999,7 @@ impl MonitorService {
                     .change::<Entry>("entry", &mid, |e| e.fail(State::DownloadFailed, error))?,
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     pub async fn tick(&self, runtime: &ServerRuntime) -> Result<()> {
@@ -942,29 +1009,82 @@ impl MonitorService {
         }
         self.reconcile(runtime).await?;
         let mut monitors = self.store.all::<Monitor>("monitor")?;
-        let requested = |e: &Entry| {
-            e.requested_by.as_ref().is_some_and(|id| {
-                monitors
-                    .iter()
-                    .any(|m| &m.id == id && m.members.iter().any(|mid| mid == e.mid()))
-            })
-        };
-        let due = monitors
-            .iter()
-            .any(|m| m.requested || (m.config.enabled && m.next_check <= now()));
-        let active: HashSet<String> = monitors
-            .iter()
-            .filter(|m| m.config.enabled || m.draining)
-            .flat_map(|m| m.members.clone())
-            .collect();
-        let pending = self
-            .store
-            .all::<Entry>("entry")?
-            .iter()
-            .any(|e| (active.contains(e.mid()) || requested(e)) && eligible(e));
-        if !due && !pending {
+        let entries = self.store.all::<Entry>("entry")?;
+        let mut records = HashMap::new();
+        for m in &monitors {
+            let due = m.requested || (m.config.enabled && m.next_check <= now());
+            let pending = entries.iter().any(|e| {
+                m.members.iter().any(|mid| mid == e.mid())
+                    && (m.config.enabled || m.draining || e.requested_by.as_deref() == Some(&m.id))
+                    && eligible(e)
+            });
+            if !due && !pending {
+                continue;
+            }
+            let record = CheckRecord {
+                started_at: now(),
+                status: "running".into(),
+                trigger: if m.requested {
+                    "manual"
+                } else if due {
+                    "scheduled"
+                } else {
+                    "backfill"
+                }
+                .into(),
+                message: "正在扫描、检查与派发".into(),
+                ..Default::default()
+            };
+            let mut history = self
+                .store
+                .get::<Vec<CheckRecord>>("history", &m.id)?
+                .unwrap_or_default();
+            history.push(record.clone());
+            if history.len() > HISTORY_LIMIT {
+                history.drain(..history.len() - HISTORY_LIMIT);
+            }
+            self.store.put("history", &m.id, &history)?;
+            records.insert(m.id.clone(), record);
+        }
+        if records.is_empty() {
             return Ok(());
         }
+        let result = self.run_round(runtime, &mut monitors, &mut records).await;
+        for (id, mut record) in records {
+            record.finished_at = now();
+            if let Err(error) = &result {
+                record.status = "failed".into();
+                record.message = error.clone();
+            } else if record.status == "running" {
+                record.status = if record.failed > 0 {
+                    "warning"
+                } else {
+                    "completed"
+                }
+                .into();
+                record.message = if record.failed > 0 {
+                    "本轮派发存在失败，请查看逐曲状态"
+                } else {
+                    "本轮处理完成，下载结果见逐曲状态"
+                }
+                .into();
+            }
+            self.store
+                .change::<Vec<CheckRecord>>("history", &id, |history| {
+                    if let Some(last) = history.last_mut() {
+                        *last = record;
+                    }
+                })?;
+        }
+        result
+    }
+
+    async fn run_round(
+        &self,
+        runtime: &ServerRuntime,
+        monitors: &mut [Monitor],
+        records: &mut HashMap<String, CheckRecord>,
+    ) -> Result<()> {
         if let Err(error) = self.scan(runtime).await {
             for m in monitors
                 .iter_mut()
@@ -976,10 +1096,11 @@ impl MonitorService {
             }
             return Err(error);
         }
-        for m in monitors
-            .iter_mut()
-            .filter(|m| m.requested || (m.config.enabled && m.next_check <= now()))
-        {
+        for m in monitors.iter_mut() {
+            if !records.get(&m.id).is_some_and(|r| r.trigger != "backfill") {
+                continue;
+            }
+            let previous: HashSet<_> = m.members.iter().cloned().collect();
             let result =
                 tokio::time::timeout(Duration::from_secs(120), self.remote.fetch(m, runtime))
                     .await
@@ -988,6 +1109,10 @@ impl MonitorService {
             let result = result
                 .and_then(|songs| self.ingest(m, songs, &runtime.environment.artist_separator()));
             if let Err(error) = result {
+                if let Some(record) = records.get_mut(&m.id) {
+                    record.status = "failed".into();
+                    record.message = error.clone();
+                }
                 m.last_check = now();
                 m.next_check = now() + m.config.interval_minutes * 60;
                 m.requested = false;
@@ -998,6 +1123,12 @@ impl MonitorService {
                     "check_failed".into()
                 };
                 self.store.put("monitor", &m.id, m)?;
+            } else if let Some(record) = records.get_mut(&m.id) {
+                record.added = m
+                    .members
+                    .iter()
+                    .filter(|mid| !previous.contains(*mid))
+                    .count();
             }
         }
         let active: HashSet<String> = monitors
@@ -1043,6 +1174,16 @@ impl MonitorService {
                 {
                     continue;
                 }
+                if entry.state == State::Matched {
+                    for m in monitors
+                        .iter()
+                        .filter(|m| m.members.iter().any(|mid| mid == entry.mid()))
+                    {
+                        if let Some(record) = records.get_mut(&m.id) {
+                            record.linked += 1;
+                        }
+                    }
+                }
             }
             if eligible(&entry) && dispatched < BATCH_SIZE {
                 if auth.is_none() {
@@ -1056,13 +1197,66 @@ impl MonitorService {
                         .and_then(|r| r),
                     );
                 }
-                self.dispatch(runtime, entry, auth.as_ref().unwrap())
+                let mid = entry.mid().to_string();
+                let enqueued = self
+                    .dispatch(runtime, entry, auth.as_ref().unwrap())
                     .await?;
+                let failed = self.store.get::<Entry>("entry", &mid)?.is_some_and(|e| {
+                    matches!(
+                        e.state,
+                        State::NoQuality | State::DownloadFailed | State::CredentialInvalid
+                    )
+                });
+                for m in monitors.iter().filter(|m| m.members.contains(&mid)) {
+                    if let Some(record) = records.get_mut(&m.id) {
+                        record.enqueued += usize::from(enqueued);
+                        record.failed += usize::from(!enqueued && failed);
+                    }
+                }
                 dispatched += 1;
             }
         }
         Ok(())
     }
+}
+
+fn initial_progress(monitor: &Monitor, entries: &[Entry]) -> Value {
+    let Some(members) = &monitor.initial_members else {
+        return json!({"initialized":false});
+    };
+    let current: HashSet<_> = monitor.members.iter().map(String::as_str).collect();
+    let states: HashMap<_, _> = entries.iter().map(|e| (e.mid(), e)).collect();
+    let mut completed: usize = 0;
+    let mut removed = 0;
+    let mut confirmation = 0;
+    let mut failed = 0;
+    let mut active = 0;
+    for mid in members {
+        if !current.contains(mid.as_str()) {
+            removed += 1;
+            continue;
+        }
+        if let Some(e) = states.get(mid.as_str()) {
+            if e.terminal() {
+                completed += 1;
+            } else if e.state == State::PendingConfirmation {
+                confirmation += 1;
+            } else if matches!(
+                e.state,
+                State::NoQuality | State::DownloadFailed | State::CredentialInvalid
+            ) {
+                failed += 1;
+            } else {
+                active += 1;
+            }
+        } else {
+            active += 1;
+        }
+    }
+    let total = members.len();
+    json!({"initialized":true, "total":total, "completed":completed, "removed":removed,
+        "confirmation":confirmation, "failed":failed, "active":active,
+        "percent": ((completed + removed) * 100).checked_div(total).unwrap_or(100)})
 }
 
 fn eligible(entry: &Entry) -> bool {

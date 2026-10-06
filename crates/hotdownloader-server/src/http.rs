@@ -273,6 +273,8 @@ pub async fn handle(
                 .collect();
             if parts.len() == 2 && parts[1] == "songs" {
                 monitor_result(runtime.monitors.songs(parts[0]))
+            } else if parts.len() == 2 && parts[1] == "history" {
+                monitor_result(runtime.monitors.history(parts[0]))
             } else {
                 error_response(StatusCode::NOT_FOUND, "未知监控接口")
             }

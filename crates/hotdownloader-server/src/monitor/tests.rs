@@ -126,6 +126,203 @@ fn entry(service: &MonitorService, mid: &str) -> Entry {
     service.store.get("entry", mid).unwrap().unwrap()
 }
 
+#[test]
+fn directory_status_counts_nested_roots_and_preserves_index_on_failure() {
+    let dir = Fixture::new();
+    let child = dir.0.join("nested");
+    std::fs::create_dir(&child).unwrap();
+    let store = Store::open(&dir.0.join("library.sqlite3")).unwrap();
+    wave(&dir.0.join("甲 - 乙.wav"), None, None);
+    wave(&child.join("丙 - 丁.wav"), None, None);
+    let roots = vec![root(&dir.0), root(&child)];
+    let report = library::scan(&store, roots.clone(), HashSet::new()).unwrap();
+    assert_eq!(report.file_count, 2);
+    assert!(report
+        .directories
+        .iter()
+        .all(|d| d.file_count == 1 && d.state == "healthy" && d.indexed_at > 0));
+    std::fs::write(child.join("unknown.mp3"), b"synthetic invalid audio").unwrap();
+    let mut failed_roots = roots.clone();
+    failed_roots.push(root(&dir.0.join("missing")));
+    assert!(library::scan(&store, failed_roots, HashSet::new()).is_err());
+    let failed = store.get::<ScanReport>("config", "scan").unwrap().unwrap();
+    assert_eq!(failed.file_count, 2);
+    assert_eq!(store.all::<LocalFile>("file").unwrap().len(), 2);
+    let nested = failed
+        .directories
+        .iter()
+        .find(|d| d.path == child.to_string_lossy())
+        .unwrap();
+    assert_eq!(nested.file_count, 1);
+    assert_eq!(nested.observed_count, Some(2));
+    assert_eq!(nested.warning_count, 1);
+    assert_eq!(nested.state, "warning");
+    let missing = failed
+        .directories
+        .iter()
+        .find(|d| d.state == "unavailable")
+        .unwrap();
+    assert!(missing.error.is_some());
+    assert_eq!(missing.observed_count, None);
+    assert_eq!(missing.indexed_at, 0);
+    let restored = library::scan(&store, roots, HashSet::new()).unwrap();
+    assert_eq!(restored.file_count, 3);
+    assert!(restored.error.is_none());
+    assert_eq!(
+        restored
+            .directories
+            .iter()
+            .map(|d| d.file_count)
+            .sum::<usize>(),
+        3
+    );
+}
+
+#[tokio::test]
+async fn rounds_record_new_members_links_and_actual_queue_submissions() {
+    let dir = Fixture::new();
+    let remote = FakeRemote::new(
+        (0..25)
+            .map(|i| song(&format!("mid{i}"), &format!("曲{i}")))
+            .collect(),
+    );
+    let rt = runtime(&dir.0, remote.clone());
+    wave(
+        &Path::new(rt.environment.default_download_dir()).join("matched.wav"),
+        Some("曲0"),
+        Some("虚构甲、虚构乙"),
+    );
+    let m = rt.monitors.save(None, config("统计")).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    let history = rt.monitors.history(&m.id).unwrap();
+    assert_eq!(history[0]["added"], 25);
+    assert_eq!(history[0]["linked"], 1);
+    assert_eq!(history[0]["enqueued"], 20);
+    assert_eq!(history[0]["status"], "completed");
+    assert_eq!(
+        rt.monitors.list().unwrap()["monitors"][0]["initialProgress"]["completed"],
+        1
+    );
+    rt.monitors.tick(&rt).await.unwrap();
+    let history = rt.monitors.history(&m.id).unwrap();
+    assert_eq!(history[0]["trigger"], "backfill");
+    assert_eq!(history[0]["added"], 0);
+    assert_eq!(history[0]["linked"], 0);
+    assert_eq!(history[0]["enqueued"], 4);
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(
+        rt.monitors
+            .history(&m.id)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    remote.songs.lock().unwrap().push(song("new", "新曲"));
+    rt.monitors.request_check(&m.id).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    let history = rt.monitors.history(&m.id).unwrap();
+    assert_eq!(history[0]["trigger"], "manual");
+    assert_eq!(history[0]["added"], 1);
+    assert_eq!(history[0]["enqueued"], 1);
+    assert_eq!(
+        rt.monitors.list().unwrap()["monitors"][0]["initialProgress"]["total"],
+        25
+    );
+    drop(rt);
+    let rt = runtime(&dir.0, remote);
+    assert_eq!(rt.monitors.history(&m.id).unwrap(), history);
+}
+
+#[tokio::test]
+async fn history_records_failure_and_retains_bounded_restart_safe_rounds() {
+    let dir = Fixture::new();
+    let remote = FakeRemote::new(vec![json!({"mid":"invalid"})]);
+    let rt = runtime(&dir.0, remote.clone());
+    let m = rt.monitors.save(None, config("失败历史")).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(rt.monitors.history(&m.id).unwrap()[0]["status"], "failed");
+    assert_eq!(
+        rt.monitors.list().unwrap()["monitors"][0]["initialProgress"]["initialized"],
+        false
+    );
+    let seeded: Vec<_> = (0..100)
+        .map(|i| CheckRecord {
+            started_at: i,
+            status: "completed".into(),
+            ..Default::default()
+        })
+        .collect();
+    rt.monitors.store.put("history", &m.id, &seeded).unwrap();
+    remote.songs.lock().unwrap().clear();
+    rt.monitors.request_check(&m.id).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    let history = rt.monitors.history(&m.id).unwrap();
+    assert_eq!(history.as_array().unwrap().len(), 100);
+    assert_eq!(history[99]["startedAt"], 1);
+    assert_eq!(
+        rt.monitors.list().unwrap()["monitors"][0]["initialProgress"]["percent"],
+        100
+    );
+    rt.monitors
+        .store
+        .change::<Vec<CheckRecord>>("history", &m.id, |h| {
+            h.last_mut().unwrap().status = "running".into()
+        })
+        .unwrap();
+    drop(rt);
+    let rt = runtime(&dir.0, remote);
+    assert_eq!(
+        rt.monitors.history(&m.id).unwrap()[0]["status"],
+        "interrupted"
+    );
+    rt.monitors.delete(&m.id).await.unwrap();
+    assert!(rt
+        .monitors
+        .store
+        .get::<Vec<CheckRecord>>("history", &m.id)
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
+async fn initial_progress_tracks_decisions_errors_removals_and_legacy_records() {
+    let dir = Fixture::new();
+    let service = MonitorService::open(&dir.0).unwrap();
+    let mut m = service.save(None, config("进度")).await.unwrap();
+    let mut legacy = json!(m);
+    legacy.as_object_mut().unwrap().remove("initialMembers");
+    let legacy: Monitor = serde_json::from_value(legacy).unwrap();
+    assert_eq!(initial_progress(&legacy, &[])["initialized"], false);
+    service
+        .ingest(
+            &mut m,
+            (0..5).map(|i| song(&format!("mid{i}"), "曲")).collect(),
+            "、",
+        )
+        .unwrap();
+    for (mid, state) in [
+        ("mid0", State::Ignored),
+        ("mid1", State::Downloaded),
+        ("mid2", State::PendingConfirmation),
+        ("mid3", State::NoQuality),
+    ] {
+        service
+            .store
+            .change::<Entry>("entry", mid, |e| e.state = state)
+            .unwrap();
+    }
+    m.members.retain(|mid| mid != "mid4");
+    let progress = initial_progress(&m, &service.store.all::<Entry>("entry").unwrap());
+    assert_eq!(progress["total"], 5);
+    assert_eq!(progress["completed"], 2);
+    assert_eq!(progress["removed"], 1);
+    assert_eq!(progress["confirmation"], 1);
+    assert_eq!(progress["failed"], 1);
+    assert_eq!(progress["percent"], 60);
+}
+
 fn batch(mids: &[&str], action: &str) -> BatchDecision {
     BatchDecision {
         mids: mids.iter().map(|s| s.to_string()).collect(),
@@ -715,6 +912,19 @@ async fn errors_retry_same_task_with_backoff_and_stop_after_three_retries() {
             assert_eq!(e.next_retry, 0);
         }
     }
+    let m = rt
+        .monitors
+        .store
+        .all::<Monitor>("monitor")
+        .unwrap()
+        .remove(0);
+    let history = rt.monitors.history(&m.id).unwrap();
+    assert_eq!(history.as_array().unwrap().len(), 4);
+    assert!(history
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["enqueued"] == 1));
 }
 
 #[tokio::test]
@@ -737,6 +947,16 @@ async fn credentials_and_unavailable_quality_do_not_create_task_storms() {
     }
     assert!(rt.tasks.list().is_empty());
     assert_eq!(entry(&rt.monitors, "noauth").retries, 0);
+    let m = rt
+        .monitors
+        .store
+        .all::<Monitor>("monitor")
+        .unwrap()
+        .remove(0);
+    let history = rt.monitors.history(&m.id).unwrap();
+    assert_eq!(history[0]["enqueued"], 0);
+    assert_eq!(history[0]["failed"], 2);
+    assert_eq!(history[0]["status"], "warning");
 }
 
 #[tokio::test]
@@ -784,6 +1004,20 @@ async fn missing_directory_prevents_queue_and_keeps_playlist_snapshot() {
     assert!(rt.monitors.tick(&rt).await.is_err());
     assert!(rt.tasks.list().is_empty());
     assert_eq!(remote.calls.load(Ordering::Relaxed), 0);
+    let m = rt
+        .monitors
+        .store
+        .all::<Monitor>("monitor")
+        .unwrap()
+        .remove(0);
+    let history = rt.monitors.history(&m.id).unwrap();
+    assert_eq!(history[0]["status"], "failed");
+    assert_eq!(history[0]["added"], 0);
+    assert_eq!(history[0]["enqueued"], 0);
+    assert!(history[0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("目录不可访问"));
 }
 
 #[tokio::test]
