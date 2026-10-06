@@ -1,0 +1,29 @@
+.muted {
+    color: var(--color-text-secondary);
+    font-size: 13px;
+}
+.actions {
+    margin-top: 12px;
+}
+.song-row {
+    padding: 16px 0;
+    border-top: 1px solid var(--border-color);
+}
+.song-row p {
+    margin: 6px 0;
+}
+code,
+p,
+strong {
+    overflow-wrap: anywhere;
+}
+.monitor-modal {
+    width: min(640px, 94vw);
+    max-height: 90vh;
+    overflow: auto;
+}
+@media (max-width: 767px) {
+    .actions :deep(button) {
+        min-height: 44px;
+    }
+}
