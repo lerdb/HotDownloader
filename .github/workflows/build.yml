@@ -24,11 +24,31 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Test shared core
-        run: cargo test --locked --manifest-path crates/hotdownloader-core/Cargo.toml
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
 
-      - name: Test server
-        run: cargo test --locked --manifest-path crates/hotdownloader-server/Cargo.toml
+      - name: Install Linux dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Test all
+        run: npm run test:all
 
   # ---------- 桌面端构建 ----------
   build:
