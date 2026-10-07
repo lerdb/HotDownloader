@@ -21,6 +21,7 @@
     "format:css:check": "prettier --check \"src/**/*.{css,scss,less}\"",
     "test:storage-recovery": "node --test scripts/storage-recovery.test.mjs",
     "test:monitor-http": "node scripts/monitor-http.test.mjs",
+    "test:monitor-reliability": "cargo test --locked --manifest-path crates/hotdownloader-server/Cargo.toml monitor::tests::reliability",
     "test:monitor-view": "node --test scripts/monitor-view.test.mjs",
     "test:task-focus": "node --test scripts/task-focus.test.mjs",
     "generate:licenses": "node scripts/generate-licenses.mjs"

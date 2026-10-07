@@ -1,4 +1,6 @@
 use super::*;
+#[path = "reliability_tests.rs"]
+pub(crate) mod reliability;
 use lofty::{
     config::WriteOptions,
     tag::{ItemKey, Tag, TagExt, TagType},

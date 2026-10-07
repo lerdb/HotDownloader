@@ -328,6 +328,19 @@ impl ServerRuntime {
         data_dir: &Path,
         monitors: Arc<crate::monitor::MonitorService>,
     ) -> Arc<Self> {
+        Self::test_runtime_with_repository(
+            data_dir,
+            monitors,
+            Arc::new(JsonTaskRepository::new(data_dir.join("tasks.json"))),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_runtime_with_repository(
+        data_dir: &Path,
+        monitors: Arc<crate::monitor::MonitorService>,
+        repository: Arc<dyn hotdownloader_core::task::state::TaskRepository>,
+    ) -> Arc<Self> {
         struct NoNetworkRunner;
         impl DownloadTaskRunner for NoNetworkRunner {
             fn run(&self, _: TaskContext, _: TaskController) -> BoxFuture<'static, bool> {
@@ -339,13 +352,7 @@ impl ServerRuntime {
         let mut events = ServerEvents::new();
         events.monitors = Some(monitors.clone());
         let events = Arc::new(events);
-        let tasks = Arc::new(
-            TaskState::load(
-                Arc::new(JsonTaskRepository::new(data_dir.join("tasks.json"))),
-                events.clone(),
-            )
-            .unwrap(),
-        );
+        let tasks = Arc::new(TaskState::load(repository, events.clone()).unwrap());
         Arc::new(Self {
             monitors,
             tasks,

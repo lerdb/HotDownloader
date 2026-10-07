@@ -641,6 +641,7 @@ Vite 将浏览器的 `/api` 请求转发到本机 `8787` 端口。
 ### 验证
 
 ```bash
+cargo test --locked --manifest-path crates/hotdownloader-core/Cargo.toml
 cargo test --locked --manifest-path crates/hotdownloader-server/Cargo.toml
 cargo clippy --locked \
   --manifest-path crates/hotdownloader-server/Cargo.toml \
@@ -651,11 +652,36 @@ npm run test:monitor-http
 npm run test:task-focus
 ```
 
-监控测试使用合成静音 WAV、虚构歌单和禁止联网的下载执行器，覆盖：
+监控测试使用合成静音 WAV、MP3、FLAC、虚构歌单和禁止真实下载的执行器，覆盖：
 
 - 增量扫描与匹配冲突。
 - 批次入队与跨歌单去重。
 - 处理台账、有限重试与重启恢复。
+- MP3 ID3v2.4 和 FLAC Vorbis Comments 多值歌手标签、标签与文件名冲突及修改后的增量更新。
+- 任务文件的真实 OS 写入错误、SQLite 配额触发的 `SQLITE_FULL`，以及恢复存储后的对账。
+
+仅运行新增的监控可靠性测试：
+
+```bash
+npm run test:monitor-reliability
+```
+
+崩溃测试由父测试启动独立子进程，在以下持久化边界暂停并强制结束，再启动另一个独立进程恢复：
+
+| 崩溃位置 | 验证结果 |
+| --- | --- |
+| 任务文件写入前 | 不产生任务，派发中记录转为待确认 |
+| 任务文件写入后、入队台账更新前 | 复用已保存任务 ID，补齐台账并恢复入队 |
+| 入队台账提交后、引擎注册前 | 保留原任务，重复对账不重复创建 |
+| 批量决定事务写入中 | 强制刷新 SQLite 脏页后结束进程；恢复时整批回滚 |
+| 批量决定事务提交后 | 恢复时保留整批决定 |
+
+检查点和禁止联网的运行时仅编译进测试程序；发布版不包含这些测试入口。
+测试输出中的一个 `ignored` 项是由父测试显式启动的子进程入口，不是未执行的业务场景。
+这些测试验证上述明确边界的进程终止恢复，不模拟断电或存储硬件损坏。
+
+共享核心另用本地 HTTP 合成数据和只读文件句柄，验证流写入、缓冲区刷盘失败都不会上报下载完成。
+MP3/FLAC 样本已保存在仓库，日常测试无需 FFmpeg；重新生成方式见[音频样本说明](testdata/audio/README.md)。
 
 HTTP 冒烟测试需要 **Node.js 24 或更高版本**（内置 SQLite）。
 测试会启动独立的临时服务，并自动清理其合成数据。

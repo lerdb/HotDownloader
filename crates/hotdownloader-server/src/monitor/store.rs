@@ -154,5 +154,7 @@ pub fn write<T: Serialize>(db: &Connection, kind: &str, key: &str, value: &T) ->
     let data = serde_json::to_string(value).map_err(|e| e.to_string())?;
     db.execute("INSERT INTO records(kind,key,data) VALUES(?,?,?) ON CONFLICT(kind,key) DO UPDATE SET data=excluded.data WHERE records.data!=excluded.data",
         params![kind, key, data]).map_err(|e| e.to_string())?;
+    #[cfg(test)]
+    super::tests::reliability::after_ledger_write(db, kind, key, &data);
     Ok(())
 }

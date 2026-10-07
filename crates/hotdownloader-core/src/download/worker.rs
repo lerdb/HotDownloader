@@ -387,7 +387,7 @@ pub async fn download_task(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
 
     use futures_util::future::BoxFuture;
@@ -422,12 +422,18 @@ mod tests {
     #[derive(Default)]
     struct RecordingSink {
         errors: StdMutex<Vec<String>>,
+        file_completions: AtomicUsize,
+        completions: AtomicUsize,
     }
 
     impl DownloadProgressSink for RecordingSink {
         fn progress(&self, _task_id: &str, _downloaded: u64, _total: u64, _speed: u64) {}
-        fn file_complete(&self, _task_id: &str) {}
-        fn completed(&self, _task_id: &str, _final_path: &str, _saf_folder_uri: Option<String>) {}
+        fn file_complete(&self, _task_id: &str) {
+            self.file_completions.fetch_add(1, Ordering::Relaxed);
+        }
+        fn completed(&self, _task_id: &str, _final_path: &str, _saf_folder_uri: Option<String>) {
+            self.completions.fetch_add(1, Ordering::Relaxed);
+        }
         fn error(&self, _task_id: &str, message: &str) {
             self.errors.lock().unwrap().push(message.to_string());
         }
@@ -499,5 +505,167 @@ mod tests {
             sink.errors.lock().unwrap().as_slice(),
             ["获取下载链接失败: 平台拒绝"]
         );
+    }
+
+    struct LocalLink(String);
+    impl DownloadLinkProvider for LocalLink {
+        fn fetch<'a>(
+            &'a self,
+            _: Platform,
+            _: &'a str,
+            _: &'a str,
+        ) -> BoxFuture<'a, Result<(String, String), String>> {
+            Box::pin(async { Ok((self.0.clone(), String::new())) })
+        }
+    }
+
+    struct ReadOnlyFile {
+        capacity: usize,
+    }
+    impl crate::download::ports::DownloadFileOpener for ReadOnlyFile {
+        fn prepare_parent(&self, _: &str) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn open<'a>(
+            &'a self,
+            request: crate::download::ports::FileOpenRequest<'a>,
+            _: &'a dyn DownloadProgressSink,
+        ) -> BoxFuture<'a, Option<crate::download::ports::OpenedDownloadFile>> {
+            Box::pin(async move {
+                Some(crate::download::ports::OpenedDownloadFile {
+                    writer: std::io::BufWriter::with_capacity(
+                        self.capacity,
+                        std::fs::File::open(request.file_path).unwrap(),
+                    ),
+                    downloaded: 0,
+                    saf_file_uri: None,
+                })
+            })
+        }
+    }
+
+    async fn assert_disk_write_failure(capacity: usize, expected: &str) {
+        use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+        let path = std::env::temp_dir().join(format!(
+            "hotdownloader-readonly-{:x}.mp3",
+            rand::random::<u64>()
+        ));
+        std::fs::write(&path, b"original sentinel").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/synthetic.mp3", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5))
+                    }
+                    Err(error) => panic!("local HTTP accept failed: {error}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let mut bytes = [0u8; 1024];
+                let count = stream.read(&mut bytes).unwrap();
+                assert!(count > 0 && request.len() < 16 * 1024);
+                request.extend_from_slice(&bytes[..count]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest")
+                .unwrap();
+        });
+        let context = TaskContext {
+            task_id: "write-failure".into(),
+            platform: Platform::QqMusic,
+            song_mid: "syntheticMid".into(),
+            song_id: 1,
+            url: String::new(),
+            save_path: path.to_string_lossy().into(),
+            quality: "320kmp3".into(),
+            key: String::new(),
+            file_size: 4,
+            downloaded_offset: 0,
+            song_info: SongInfo {
+                title: "Synthetic".into(),
+                artist: "Fixture".into(),
+                album: String::new(),
+                quality: "320kmp3".into(),
+                cover_url: String::new(),
+            },
+            quality_filename: "synthetic.mp3".into(),
+            final_path: Arc::new(Mutex::new(None)),
+        };
+        let controller = TaskController {
+            cancel_token: CancellationToken::new(),
+            pause_flag: Arc::new(AtomicBool::new(false)),
+            resume_notify: Arc::new(Notify::new()),
+            url_ready: Arc::new(Notify::new()),
+            delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
+            final_path: Arc::new(Mutex::new(None)),
+            lrc_final_path: Arc::new(Mutex::new(None)),
+            started: Arc::new(AtomicBool::new(true)),
+            done: Arc::new(Notify::new()),
+        };
+        let sink = RecordingSink::default();
+        let completed = tokio::time::timeout(
+            Duration::from_secs(5),
+            download_task(
+                context,
+                controller,
+                DownloadConfig {
+                    download_dir: std::env::temp_dir().to_string_lossy().into(),
+                    naming_template: "{song}".into(),
+                    saf_folder_uri: None,
+                    write_metadata: false,
+                    download_lrc: false,
+                },
+                DownloadWorkerPorts {
+                    quality_fallback: None,
+                    link_provider: &LocalLink(url),
+                    progress_sink: &sink,
+                    file_opener: &ReadOnlyFile { capacity },
+                    file_deleter: &LocalFileDeleter,
+                    postprocessor: &NoopDownloadPostprocessor,
+                },
+            ),
+        )
+        .await
+        .unwrap();
+        server.join().unwrap();
+        let contents = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(!completed);
+        assert_eq!(contents, b"original sentinel");
+        assert_eq!(sink.file_completions.load(Ordering::Relaxed), 0);
+        assert_eq!(sink.completions.load(Ordering::Relaxed), 0);
+        let errors = sink.errors.lock().unwrap();
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].starts_with(expected),
+            "unexpected error: {}",
+            errors[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_does_not_complete_after_os_write_failure() {
+        assert_disk_write_failure(1, "写入文件失败").await;
+    }
+
+    #[tokio::test]
+    async fn worker_does_not_complete_after_buffer_flush_failure() {
+        assert_disk_write_failure(1024, "刷新文件缓冲区失败").await;
     }
 }

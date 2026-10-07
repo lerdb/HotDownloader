@@ -931,6 +931,8 @@ impl MonitorService {
             store::write(&tx, "entry", entry.mid(), entry)?;
         }
         tx.commit().map_err(|e| e.to_string())?;
+        #[cfg(test)]
+        tests::reliability::checkpoint("ledger_batch_committed", None);
         Ok(entries.len())
     }
 
