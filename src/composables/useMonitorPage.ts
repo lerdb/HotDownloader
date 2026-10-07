@@ -256,7 +256,8 @@ export function useMonitorPage() {
         e: api.MonitorSong,
         action: 'download' | 'ignore' | 'reset',
     ) {
-        await perform(() => api.decideSong(e.song.mid, action))
+        const id = selectedId.value
+        await perform(() => api.decideSong(id, e.song.mid, action))
     }
     function openLink(e: api.MonitorSong) {
         linking.value = e
@@ -268,7 +269,12 @@ export function useMonitorPage() {
         if (!linking.value) return
         busy.value = true
         try {
-            await api.decideSong(linking.value.song.mid, 'link', linkPath.value)
+            await api.decideSong(
+                selectedId.value,
+                linking.value.song.mid,
+                'link',
+                linkPath.value,
+            )
             showLink.value = false
             await refresh()
         } catch (e) {

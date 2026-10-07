@@ -69,6 +69,7 @@ fn wave(path: &Path, title: Option<&str>, artist: Option<&str>) {
 fn root(path: &Path) -> library::ScanRoot {
     library::ScanRoot {
         path: path.to_string_lossy().into(),
+        mount_marker: None,
         template: Some("{song} - {artist}".into()),
         artist_separator: "、".into(),
     }
@@ -124,6 +125,203 @@ fn runtime(dir: &Path, remote: Arc<FakeRemote>) -> Arc<ServerRuntime> {
 }
 fn entry(service: &MonitorService, mid: &str) -> Entry {
     service.store.get("entry", mid).unwrap().unwrap()
+}
+
+#[test]
+fn readable_empty_mount_preserves_index_until_marker_confirms_intentional_cleanup() {
+    let dir = Fixture::new();
+    let store = Store::open(&dir.0.join("library.sqlite3")).unwrap();
+    let audio = dir.0.join("曲 - 人.wav");
+    wave(&audio, None, None);
+    library::scan(&store, vec![root(&dir.0)], HashSet::new()).unwrap();
+    std::fs::remove_file(&audio).unwrap();
+    for _ in 0..2 {
+        assert!(library::scan(&store, vec![root(&dir.0)], HashSet::new()).is_err());
+        assert_eq!(store.all::<LocalFile>("file").unwrap().len(), 1);
+        let report = store.get::<ScanReport>("config", "scan").unwrap().unwrap();
+        assert_eq!(report.directories[0].observed_count, Some(0));
+        assert_eq!(report.directories[0].state, "unavailable");
+    }
+    let mut marked = root(&dir.0);
+    marked.mount_marker = Some(".mounted".into());
+    for marker in ["", "../outside", "."] {
+        let extra = json!([{"path":dir.0.join("extra"),"mountMarker":marker}]).to_string();
+        assert!(library::configured_roots(
+            dir.0.to_str().unwrap(),
+            "{song} - {artist}",
+            "、",
+            &extra
+        )
+        .is_err());
+    }
+    // 初次配置也必须实际存在标记，不能把可读的空挂载点当成正常目录。
+    assert!(library::scan(&store, vec![marked.clone()], HashSet::new()).is_err());
+    std::fs::write(dir.0.join(".mounted"), b"synthetic volume").unwrap();
+    assert_eq!(
+        library::scan(&store, vec![marked.clone()], HashSet::new())
+            .unwrap()
+            .file_count,
+        0
+    );
+    std::fs::remove_file(dir.0.join(".mounted")).unwrap();
+    assert!(library::scan(&store, vec![marked.clone()], HashSet::new()).is_err());
+    std::fs::create_dir(dir.0.join(".mounted")).unwrap();
+    assert!(library::scan(&store, vec![marked], HashSet::new()).is_err());
+}
+
+#[test]
+fn sharp_drop_keeps_baseline_and_recovers_when_files_return() {
+    let dir = Fixture::new();
+    let store = Store::open(&dir.0.join("library.sqlite3")).unwrap();
+    for i in 0..10 {
+        wave(&dir.0.join(format!("曲{i} - 人.wav")), None, None);
+    }
+    library::scan(&store, vec![root(&dir.0)], HashSet::new()).unwrap();
+    for i in 0..8 {
+        std::fs::remove_file(dir.0.join(format!("曲{i} - 人.wav"))).unwrap();
+    }
+    assert!(library::scan(&store, vec![root(&dir.0)], HashSet::new()).is_err());
+    assert_eq!(store.all::<LocalFile>("file").unwrap().len(), 10);
+    for i in 0..8 {
+        wave(&dir.0.join(format!("曲{i} - 人.wav")), None, None);
+    }
+    assert_eq!(
+        library::scan(&store, vec![root(&dir.0)], HashSet::new())
+            .unwrap()
+            .file_count,
+        10
+    );
+}
+
+#[tokio::test]
+async fn disappeared_or_changed_candidate_is_never_marked_matched() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+    let mut m = rt.monitors.save(None, config("候选检查")).await.unwrap();
+    rt.monitors
+        .ingest(&mut m, vec![song("a", "曲")], "、")
+        .unwrap();
+    let path = Path::new(rt.environment.default_download_dir()).join("曲 - 虚构甲、虚构乙.wav");
+    wave(&path, None, None);
+    rt.monitors.scan(&rt).await.unwrap();
+    let files = rt.monitors.store.all::<LocalFile>("file").unwrap();
+    for contents in [Some(b"changed".as_slice()), None] {
+        if let Some(bytes) = contents {
+            std::fs::write(&path, bytes).unwrap();
+        } else {
+            std::fs::remove_file(&path).unwrap();
+        }
+        assert!(matches!(
+            library::match_song(&entry(&rt.monitors, "a").identity, &files),
+            Match::Confirm(_, _)
+        ));
+        assert!(rt
+            .monitors
+            .decide(&rt, "a", "link", Some(files[0].path.clone()), Some(&m.id))
+            .await
+            .is_err());
+        assert_eq!(entry(&rt.monitors, "a").state, State::Pending);
+    }
+}
+
+#[tokio::test]
+async fn manual_and_automatic_creation_share_atomic_mid_reservation() {
+    for force in [false, true] {
+        let dir = Fixture::new();
+        let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+        let mut m = rt.monitors.save(None, config("并发")).await.unwrap();
+        rt.monitors
+            .ingest(&mut m, vec![song("a", "曲")], "、")
+            .unwrap();
+        rt.monitors
+            .store
+            .change::<Entry>("entry", "a", |e| {
+                e.state = State::Ready;
+                e.force_download = force;
+            })
+            .unwrap();
+        let guard = rt.tasks.creation_lock.lock().await;
+        let service = TaskService::new(&rt.tasks, &rt.engine, rt.environment.as_ref());
+        let manual = service.create_download_task(CreateTaskRequest {
+            song: serde_json::from_value(song("a", "曲")).unwrap(),
+            desired_quality: "320kmp3".into(),
+            duplicate_action: Some(DuplicateAction::Rename),
+        });
+        let auth = Ok(());
+        let automatic = rt.monitors.dispatch(&rt, entry(&rt.monitors, "a"), &auth);
+        tokio::pin!(manual, automatic);
+        assert!(futures_util::poll!(&mut manual).is_pending());
+        assert!(futures_util::poll!(&mut automatic).is_pending());
+        assert_eq!(entry(&rt.monitors, "a").state, State::Dispatching);
+        drop(guard);
+        let (manual, automatic) = tokio::join!(manual, automatic);
+        assert!(matches!(manual.unwrap(), CreateTaskResult::Created { .. }));
+        assert!(!automatic.unwrap());
+        assert_eq!(rt.tasks.list().len(), 1);
+        let e = entry(&rt.monitors, "a");
+        assert_eq!(e.task_id.as_deref(), Some(rt.tasks.list()[0].id.as_str()));
+        assert!(!e.owned);
+        assert_eq!(e.state, State::Queued);
+    }
+}
+
+#[tokio::test]
+async fn shared_song_quality_is_order_independent_and_manual_context_wins() {
+    for reverse in [false, true] {
+        let dir = Fixture::new();
+        let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+        let mut low = rt.monitors.save(None, config("低音质")).await.unwrap();
+        let mut high_config = config("高音质");
+        high_config.playlist_id = "98765".into();
+        high_config.quality = "flac".into();
+        let mut high = rt.monitors.save(None, high_config).await.unwrap();
+        let mut audio = song("a", "曲");
+        audio["qualities"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"quality":"flac","filename":"fixture.flac","size":52}));
+        let owners = if reverse {
+            [&mut high, &mut low]
+        } else {
+            [&mut low, &mut high]
+        };
+        for owner in owners {
+            rt.monitors
+                .ingest(owner, vec![audio.clone()], "、")
+                .unwrap();
+        }
+        rt.monitors.tick(&rt).await.unwrap();
+        assert_eq!(rt.tasks.list().len(), 1);
+        assert_eq!(rt.tasks.list()[0].quality, "flac");
+        let id = rt.tasks.list()[0].id.clone();
+        rt.tasks
+            .update(&id, true, |t| t.status = TaskStatus::Completed)
+            .unwrap();
+        assert!(rt
+            .monitors
+            .decide(&rt, "a", "reset", None, None)
+            .await
+            .is_err());
+        assert!(rt
+            .monitors
+            .decide(&rt, "a", "reset", None, Some("unknown"))
+            .await
+            .is_err());
+        rt.monitors
+            .decide(&rt, "a", "reset", None, Some(&low.id))
+            .await
+            .unwrap();
+        assert_eq!(entry(&rt.monitors, "a").quality, "320kmp3");
+        drop(rt);
+        let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+        rt.monitors.tick(&rt).await.unwrap();
+        let e = entry(&rt.monitors, "a");
+        assert_eq!(e.quality, "320kmp3");
+        assert_eq!(
+            rt.tasks.get(e.task_id.as_deref().unwrap()).unwrap().quality,
+            "320kmp3"
+        );
+    }
 }
 
 #[test]
@@ -459,7 +657,7 @@ async fn explicit_download_only_dispatches_selected_songs_after_restart() {
         .await
         .unwrap();
     rt.monitors
-        .decide(&rt, "b", "download", None)
+        .decide(&rt, "b", "download", None, None)
         .await
         .unwrap();
     assert!(
@@ -517,14 +715,14 @@ async fn delete_preserves_files_tasks_and_ledger_and_stops_future_dispatch() {
         .await
         .unwrap();
     rt.monitors
-        .decide(&rt, "a", "download", None)
+        .decide(&rt, "a", "download", None, None)
         .await
         .unwrap();
     rt.monitors.tick(&rt).await.unwrap();
     let file = dir.0.join("keep.wav");
     wave(&file, None, None);
     rt.monitors
-        .decide(&rt, "b", "download", None)
+        .decide(&rt, "b", "download", None, None)
         .await
         .unwrap();
     let mut other = config("共享歌单");
@@ -814,7 +1012,7 @@ async fn completed_decision_survives_task_removal_and_restart() {
     rt.monitors.tick(&rt).await.unwrap();
     assert!(rt.tasks.list().is_empty());
     rt.monitors
-        .decide(&rt, "mid1", "reset", None)
+        .decide(&rt, "mid1", "reset", None, None)
         .await
         .unwrap();
     rt.monitors.tick(&rt).await.unwrap();
@@ -975,18 +1173,24 @@ async fn ambiguous_song_supports_link_ignore_download_without_overwriting_files(
     );
     assert!(rt.tasks.list().is_empty());
     rt.monitors
-        .decide(&rt, "mid1", "link", Some(path.to_string_lossy().into()))
+        .decide(
+            &rt,
+            "mid1",
+            "link",
+            Some(path.to_string_lossy().into()),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(entry(&rt.monitors, "mid1").state, State::Matched);
     rt.monitors
-        .decide(&rt, "mid1", "ignore", None)
+        .decide(&rt, "mid1", "ignore", None, None)
         .await
         .unwrap();
     rt.monitors.tick(&rt).await.unwrap();
     assert!(rt.tasks.list().is_empty());
     rt.monitors
-        .decide(&rt, "mid1", "download", None)
+        .decide(&rt, "mid1", "download", None, None)
         .await
         .unwrap();
     rt.monitors.tick(&rt).await.unwrap();
@@ -1101,7 +1305,12 @@ async fn matched_file_can_disappear_without_redownload() {
     drop(rt);
     let rt = runtime(&dir.0, remote);
     rt.monitors.request_check(&m.id).await.unwrap();
-    rt.monitors.tick(&rt).await.unwrap();
+    assert!(rt
+        .monitors
+        .tick(&rt)
+        .await
+        .unwrap_err()
+        .contains("疑似挂载异常"));
     assert_eq!(entry(&rt.monitors, "mid1").state, State::Matched);
     assert!(rt.tasks.list().is_empty());
 }

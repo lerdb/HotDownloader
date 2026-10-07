@@ -102,6 +102,7 @@ pub struct CreateTaskRequest {
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum CreateTaskResult {
     Created { task: Box<TaskRecord> },
+    Existing { task: Box<TaskRecord> },
     NeedsConfirmation { song_title: String },
     Cancelled,
 }

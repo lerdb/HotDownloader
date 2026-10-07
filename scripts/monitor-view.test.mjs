@@ -273,7 +273,14 @@ test('batch decisions, file linking and deletion still use the selected monitor 
     p.openLink(entry('song-b'))
     p.linkPath.value = '/music/synthetic.wav'
     await p.confirmLink()
-    assert.deepEqual(calls[1], ['song-b', 'link', '/music/synthetic.wav'])
+    assert.deepEqual(calls[1], [
+        'monitor-a',
+        'song-b',
+        'link',
+        '/music/synthetic.wav',
+    ])
+    await p.decide(entry('song-b'), 'reset')
+    assert.deepEqual(calls[2], ['monitor-a', 'song-b', 'reset'])
     assert.equal(p.showLink.value, false)
     await p.remove(monitor())
     assert.equal(p.selectedId.value, '')

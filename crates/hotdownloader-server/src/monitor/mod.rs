@@ -704,16 +704,30 @@ impl MonitorService {
         mid: &str,
         action: &str,
         path: Option<String>,
+        monitor_id: Option<&str>,
     ) -> Result<()> {
         let _guard = self.operation.lock().await;
         let _task_guard = runtime.tasks.creation_lock.lock().await;
-        let monitor = self
-            .store
-            .all::<Monitor>("monitor")?
-            .into_iter()
-            .find(|m| m.members.iter().any(|s| s == mid));
+        let monitors = self.store.all::<Monitor>("monitor")?;
+        let monitor = if let Some(id) = monitor_id {
+            let monitor = monitors.iter().find(|m| m.id == id).ok_or("监控不存在")?;
+            if !monitor.members.iter().any(|s| s == mid) {
+                return Err("歌曲不属于当前监控，请刷新后重试".into());
+            }
+            Some(monitor)
+        } else {
+            // 兼容单一归属的旧客户端；共享歌曲必须明确操作来源。
+            let mut owners = monitors
+                .iter()
+                .filter(|m| m.members.iter().any(|s| s == mid));
+            let monitor = owners.next();
+            if owners.next().is_some() || monitor.is_none() {
+                return Err("请提供当前监控的 monitorId".into());
+            }
+            monitor
+        };
         let mut entry = self.store.get::<Entry>("entry", mid)?.ok_or("歌曲不存在")?;
-        self.prepare_decision(runtime, &mut entry, action, path, monitor.as_ref())?;
+        self.prepare_decision(runtime, &mut entry, action, path, monitor)?;
         self.store.put("entry", mid, &entry)
     }
 
@@ -798,9 +812,7 @@ impl MonitorService {
                     .store
                     .get::<LocalFile>("file", &path)?
                     .ok_or("文件不在当前索引中，请重新扫描")?;
-                if !std::path::Path::new(&file.path).is_file() {
-                    return Err("文件已不可访问，请重新扫描".into());
-                }
+                library::verify_file(&file)?;
                 entry.state = State::Matched;
                 entry.path = Some(path);
                 entry.message = "已手动关联本地文件".into();
@@ -903,7 +915,14 @@ impl MonitorService {
                 .tasks
                 .list()
                 .iter()
-                .find(|t| t.platform == "qqmusic" && t.song_mid == mid)
+                .filter(|t| t.platform == "qqmusic" && t.song_mid == mid)
+                .max_by_key(|t| {
+                    (
+                        !matches!(t.status, TaskStatus::Completed | TaskStatus::Error),
+                        t.added_at,
+                        t.id.clone(),
+                    )
+                })
             {
                 entry.task_id = Some(task.id.clone());
                 entry.owned = false;
@@ -975,20 +994,34 @@ impl MonitorService {
             let environment = AutomaticEnvironment(runtime.environment.as_ref());
             let service = TaskService::new(&runtime.tasks, &runtime.engine, &environment);
             match service
-                .create_download_task(CreateTaskRequest {
-                    song,
-                    desired_quality: entry.quality,
-                    duplicate_action: if entry.force_download {
-                        Some(DuplicateAction::Rename)
-                    } else {
-                        None
+                .create_automatic_task(
+                    CreateTaskRequest {
+                        song,
+                        desired_quality: entry.quality,
+                        duplicate_action: if entry.force_download {
+                            Some(DuplicateAction::Rename)
+                        } else {
+                            None
+                        },
                     },
-                })
+                    entry.force_download,
+                )
                 .await
             {
                 Ok(CreateTaskResult::Created { task }) => {
                     self.observe_task(&task)?;
                     return Ok(true);
+                }
+                Ok(CreateTaskResult::Existing { task }) => {
+                    self.store.change::<Entry>("entry", &mid, |e| {
+                        e.task_id = Some(task.id.clone());
+                        e.owned = false;
+                    })?;
+                    // 复用后重新读取，避免覆盖等待创建锁期间已经到达的完成事件。
+                    if let Some(current) = runtime.tasks.get(&task.id) {
+                        self.observe_task(&current)?;
+                    }
+                    return Ok(false);
                 }
                 Ok(_) => self.store.change::<Entry>("entry", &mid, |e| {
                     e.state = State::PendingConfirmation;
@@ -1137,6 +1170,9 @@ impl MonitorService {
             .flat_map(|m| m.members.clone())
             .collect();
         let files = self.store.all::<LocalFile>("file")?;
+        // 固定品质优先表决定跨歌单目标，用户的降级顺序只负责目标不可用时的回退。
+        let quality_order =
+            hotdownloader_core::task::rules::TaskRules::from_settings(&json!({})).quality_order;
         let mut dispatched = 0;
         let mut auth = None;
         for mut entry in self.store.all::<Entry>("entry")? {
@@ -1147,6 +1183,32 @@ impl MonitorService {
             });
             if (!active.contains(entry.mid()) && !requested) || !eligible(&entry) {
                 continue;
+            }
+            if !entry.force_download && entry.task_id.is_none() {
+                if let Some(quality) = monitors
+                    .iter()
+                    .filter(|m| {
+                        (m.config.enabled || m.draining)
+                            && m.members.iter().any(|mid| mid == entry.mid())
+                    })
+                    .map(|m| &m.config.quality)
+                    .min_by_key(|quality| {
+                        quality_order
+                            .iter()
+                            .position(|q| q == *quality)
+                            .unwrap_or(usize::MAX)
+                    })
+                    .filter(|quality| **quality != entry.quality)
+                {
+                    let previous = entry.clone();
+                    entry.quality = quality.clone();
+                    if !self
+                        .store
+                        .compare_and_put("entry", entry.mid(), &previous, &entry)?
+                    {
+                        continue;
+                    }
+                }
             }
             if entry.state == State::Pending
                 || (entry.state == State::Ready && !entry.force_download)

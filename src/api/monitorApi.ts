@@ -44,7 +44,12 @@ export interface CheckRecord {
     message: string
 }
 export interface LibraryStatus {
-    roots: { path: string; template: string | null; artistSeparator: string }[]
+    roots: {
+        path: string
+        mountMarker: string | null
+        template: string | null
+        artistSeparator: string
+    }[]
     fileCount: number
     updatedCount: number
     lastScan: number
@@ -135,11 +140,12 @@ export function samePlaylist(a: MonitorInput, b: MonitorInput): boolean {
     )
 }
 export const decideSong = (
+    monitorId: string,
     mid: string,
     action: 'link' | 'download' | 'ignore' | 'reset',
     path?: string,
 ) =>
     webRequest(`/api/library/songs/${encodeURIComponent(mid)}`, {
         method: 'POST',
-        body: JSON.stringify({ action, path }),
+        body: JSON.stringify({ monitorId, action, path }),
     })

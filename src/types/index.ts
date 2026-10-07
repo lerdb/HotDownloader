@@ -263,6 +263,7 @@ export interface CreateTaskRequest {
 
 export type CreateTaskResult =
     | { outcome: 'created'; task: TaskRecord }
+    | { outcome: 'existing'; task: TaskRecord }
     | { outcome: 'needs_confirmation'; song_title: string }
     | { outcome: 'cancelled' }
 

@@ -23,6 +23,8 @@ services:
 
       # 容器内下载目录，要和下面 volumes 的挂载目标一致。
       HOTDOWNLOADER_DOWNLOAD_DIR: ${HOTDOWNLOADER_DOWNLOAD_DIR:-/downloads}
+      # 可选：在实际挂载盘内预先创建的标记文件，相对于下载目录。
+      HOTDOWNLOADER_DOWNLOAD_MOUNT_MARKER: ${HOTDOWNLOADER_DOWNLOAD_MOUNT_MARKER:-}
 
       # 额外扫描目录的 JSON 数组。目录必须另外挂载进容器。
       HOTDOWNLOADER_SCAN_DIRS: ${HOTDOWNLOADER_SCAN_DIRS:-[]}

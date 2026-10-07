@@ -227,6 +227,7 @@ try {
         (
             await request('/api/library/songs/fictionalIgnored', 'POST', {
                 action: 'ignore',
+                monitorId: 'fixture',
             })
         ).status,
         200,
@@ -241,6 +242,15 @@ try {
         400,
     )
     const indexedPath = fs.realpathSync.native(filePath)
+    assert.equal(
+        (
+            await request('/api/library/songs/fictionalMatched', 'POST', {
+                action: 'reset',
+                monitorId: created.id,
+            })
+        ).status,
+        400,
+    )
     // Rust canonicalizes Windows paths with an extended-length prefix.
     const rustPath =
         process.platform === 'win32' && !indexedPath.startsWith('\\\\?\\')
@@ -251,6 +261,7 @@ try {
             await request('/api/library/songs/fictionalMatched', 'POST', {
                 action: 'link',
                 path: rustPath,
+                monitorId: 'fixture',
             })
         ).status,
         200,

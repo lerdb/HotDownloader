@@ -10,6 +10,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
+    io::Read,
     path::{Path, PathBuf},
 };
 use unicode_normalization::UnicodeNormalization;
@@ -18,6 +19,9 @@ use unicode_normalization::UnicodeNormalization;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScanRoot {
     pub path: String,
+    /// 挂载盘内预先创建的标记文件，相对于扫描根目录。
+    #[serde(default)]
+    pub mount_marker: Option<String>,
     #[serde(default)]
     pub template: Option<String>,
     #[serde(default = "separator")]
@@ -109,7 +113,49 @@ pub struct DirectoryStatus {
 
 pub fn roots(download: &str, template: &str, artist_separator: &str) -> Result<Vec<ScanRoot>> {
     let extra = std::env::var("HOTDOWNLOADER_SCAN_DIRS").unwrap_or_else(|_| "[]".into());
-    configured_roots(download, template, artist_separator, &extra)
+    let mut roots = configured_roots(download, template, artist_separator, &extra)?;
+    if let Some(marker) = std::env::var("HOTDOWNLOADER_DOWNLOAD_MOUNT_MARKER")
+        .ok()
+        .filter(|value| !value.is_empty())
+    {
+        validate_marker(&marker)?;
+        roots[0].mount_marker = Some(marker);
+    }
+    Ok(roots)
+}
+
+fn validate_marker(marker: &str) -> Result<()> {
+    if marker.is_empty()
+        || Path::new(marker)
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+    {
+        return Err("挂载标记必须是扫描目录内的相对文件路径，不能包含 ..".into());
+    }
+    Ok(())
+}
+
+fn check_marker(base: &Path, marker: &str) -> Result<()> {
+    validate_marker(marker)?;
+    let path = base
+        .join(marker)
+        .canonicalize()
+        .map_err(|e| format!("挂载标记不可访问 {marker}: {e}"))?;
+    if !path.starts_with(base) {
+        return Err("挂载标记必须位于扫描目录内".into());
+    }
+    let mut file =
+        std::fs::File::open(&path).map_err(|e| format!("挂载标记不可读取 {marker}: {e}"))?;
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("挂载标记必须是普通文件".into());
+    }
+    let count = file
+        .read(&mut [0u8; 1])
+        .map_err(|e| format!("挂载标记不可读取 {marker}: {e}"))?;
+    if count == 0 && file.metadata().map_err(|e| e.to_string())?.len() > 0 {
+        return Err("挂载标记内容不可读取".into());
+    }
+    Ok(())
 }
 
 pub fn configured_roots(
@@ -120,6 +166,7 @@ pub fn configured_roots(
 ) -> Result<Vec<ScanRoot>> {
     let mut roots = vec![ScanRoot {
         path: download.into(),
+        mount_marker: None,
         template: template_regex(template).ok().map(|_| template.into()),
         artist_separator: artist_separator.into(),
     }];
@@ -129,6 +176,9 @@ pub fn configured_roots(
     );
     let mut seen = HashSet::new();
     for root in &roots {
+        if let Some(marker) = &root.mount_marker {
+            validate_marker(marker)?;
+        }
         if !Path::new(&root.path).is_absolute() {
             return Err("扫描目录必须是容器内绝对路径".into());
         }
@@ -315,6 +365,9 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
                 let base = Path::new(&root.path)
                     .canonicalize()
                     .map_err(|e| format!("目录不可访问 {}: {e}", root.path))?;
+                if let Some(marker) = &root.mount_marker {
+                    check_marker(&base, marker)?;
+                }
                 let mut paths = Vec::new();
                 walk(&base, &mut paths)?;
                 for path in paths {
@@ -342,6 +395,15 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
                         files.push(read_file(&path, root, info.len(), modified));
                         updated += 1;
                     }
+                }
+                directory.observed_count = Some(files.len() - start);
+                if let Some(marker) = &root.mount_marker {
+                    // 遍历期间也可能发生卸载，提交前再次检查。
+                    check_marker(&base, marker)?;
+                } else if directory.file_count > 0
+                    && (files.len() - start) <= directory.file_count / 5
+                {
+                    return Err(format!("目录 {} 音频数量从 {} 骤减至 {}，疑似挂载异常；保留索引并暂停本轮补齐。若为主动清理，请配置盘内挂载标记后重新扫描", root.path, directory.file_count, files.len() - start));
                 }
                 Ok(())
             })();
@@ -425,6 +487,29 @@ pub enum Match {
     Confirm(Vec<LocalFile>, String),
 }
 
+/// 关联前重新打开并核对索引快照，不能仅凭可读取的目录或过期标签认定文件存在。
+pub fn verify_file(file: &LocalFile) -> Result<()> {
+    let check = || -> std::io::Result<bool> {
+        let mut opened = std::fs::File::open(&file.path)?;
+        let count = opened.read(&mut [0u8; 1])?;
+        let info = opened.metadata()?;
+        let modified = info
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(std::io::Error::other)?
+            .as_nanos()
+            .to_string();
+        Ok(info.is_file()
+            && info.len() == file.size
+            && modified == file.modified
+            && (file.size == 0 || count == 1))
+    };
+    match check() {
+        Ok(true) => Ok(()),
+        _ => Err("候选文件已不可读取或发生变化，请重新扫描后确认".into()),
+    }
+}
+
 pub fn match_song(identity: &Identity, files: &[LocalFile]) -> Match {
     if !identity.complete() {
         return Match::Confirm(vec![], "在线歌曲缺少标题或歌手".into());
@@ -443,6 +528,9 @@ pub fn match_song(identity: &Identity, files: &[LocalFile]) -> Match {
         && !candidates[0].conflict
         && candidates[0].warning.is_none()
     {
+        if let Err(error) = verify_file(&candidates[0]) {
+            return Match::Confirm(candidates, error);
+        }
         return Match::Found(candidates[0].path.clone());
     }
     if !candidates.is_empty() {

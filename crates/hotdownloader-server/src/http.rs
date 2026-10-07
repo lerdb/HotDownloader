@@ -346,6 +346,7 @@ pub async fn handle(
                             mid,
                             value["action"].as_str().unwrap_or(""),
                             value["path"].as_str().map(str::to_string),
+                            value["monitorId"].as_str(),
                         )
                         .await
                         .map(|_| json!({"ok":true})),

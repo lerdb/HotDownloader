@@ -155,10 +155,54 @@ impl<'a> TaskService<'a> {
         &self,
         request: CreateTaskRequest,
     ) -> Result<CreateTaskResult, String> {
+        self.create_task(request, false).await
+    }
+
+    /// 自动补齐还复用历史任务；明确重下与普通下载仅复用尚未结束的任务。
+    pub async fn create_automatic_task(
+        &self,
+        request: CreateTaskRequest,
+        force_download: bool,
+    ) -> Result<CreateTaskResult, String> {
+        self.create_task(request, !force_download).await
+    }
+
+    async fn create_task(
+        &self,
+        request: CreateTaskRequest,
+        reuse_history: bool,
+    ) -> Result<CreateTaskResult, String> {
         request.song.platform.parse::<Platform>()?;
         let state = self.state;
         // 锁覆盖路径检查、占用和入队，防止并发创建时绕过重名判断。
         let _creation_guard = state.creation_lock.lock().await;
+        // MID 检查与持久化、引擎注册共用同一临界区，所有入口都无法并发创建副本。
+        // 空 MID 的平台歌曲回退到歌曲 ID，避免把不同歌曲当成同一首。
+        if let Some(task) = state
+            .list()
+            .into_iter()
+            .filter(|task| {
+                task.platform == request.song.platform
+                    && if request.song.mid.is_empty() {
+                        task.song_mid.is_empty() && task.song_id == request.song.id
+                    } else {
+                        task.song_mid == request.song.mid
+                    }
+                    && (reuse_history
+                        || !matches!(task.status, TaskStatus::Completed | TaskStatus::Error))
+            })
+            .max_by_key(|task| {
+                (
+                    !matches!(task.status, TaskStatus::Completed | TaskStatus::Error),
+                    task.added_at,
+                    task.id.clone(),
+                )
+            })
+        {
+            return Ok(CreateTaskResult::Existing {
+                task: Box::new(task),
+            });
+        }
         let rules = self.environment.task_rules();
         let selected = rules
             .initial_quality(&request.desired_quality, &request.song.qualities)
@@ -365,6 +409,18 @@ impl<'a> TaskService<'a> {
         let mut task = state.get(&task_id).ok_or("任务不存在")?;
         if task.status != TaskStatus::Error {
             return Ok(false);
+        }
+        if state.list().iter().any(|other| {
+            other.id != task.id
+                && other.platform == task.platform
+                && if task.song_mid.is_empty() {
+                    other.song_mid.is_empty() && other.song_id == task.song_id
+                } else {
+                    other.song_mid == task.song_mid
+                }
+                && !matches!(other.status, TaskStatus::Completed | TaskStatus::Error)
+        }) {
+            return Err("此歌曲已有未结束的下载任务".into());
         }
         let engine = self.engine;
         // 上一轮 worker 可能刚发出失败事件但尚未退出；先等待，避免新旧 worker 并发写入。
@@ -666,6 +722,92 @@ mod tests {
         };
         assert!(task.save_path.unwrap().ends_with("歌曲 - 歌手 (1).mp3"));
         assert_eq!(repository.load().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_creation_reuses_one_task_across_qualities_and_sources() {
+        let repository = Arc::new(MemoryRepository(Mutex::new(Vec::new())));
+        let state = TaskState::load(repository.clone(), Arc::new(QuietEvents)).unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+            file_length: None,
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+        let results = futures_util::future::join_all((0..32).map(|i| {
+            let service = &service;
+            async move {
+                let mut input = request(Some(DuplicateAction::Rename));
+                if i % 2 == 1 {
+                    input.desired_quality = "flac".into();
+                }
+                if i % 3 == 0 {
+                    service.create_automatic_task(input, false).await.unwrap()
+                } else {
+                    service.create_download_task(input).await.unwrap()
+                }
+            }
+        }))
+        .await;
+        assert_eq!(
+            results
+                .iter()
+                .filter(|r| matches!(r, CreateTaskResult::Created { .. }))
+                .count(),
+            1
+        );
+        let id = state.list()[0].id.clone();
+        for result in results {
+            let (CreateTaskResult::Created { task } | CreateTaskResult::Existing { task }) = result
+            else {
+                panic!("应创建或复用任务")
+            };
+            assert_eq!(task.id, id);
+        }
+        assert_eq!(repository.load().unwrap().len(), 1);
+        // 暂停、中断也占用 MID；历史完成任务允许明确重新下载。
+        for status in [
+            crate::task::contract::TaskStatus::Paused,
+            crate::task::contract::TaskStatus::Interrupted,
+        ] {
+            state.update(&id, true, |t| t.status = status).unwrap();
+            assert!(matches!(
+                service
+                    .create_download_task(request(Some(DuplicateAction::Rename)))
+                    .await
+                    .unwrap(),
+                CreateTaskResult::Existing { .. }
+            ));
+        }
+        state
+            .update(&id, true, |t| {
+                t.status = crate::task::contract::TaskStatus::Completed
+            })
+            .unwrap();
+        assert!(matches!(
+            service
+                .create_automatic_task(request(Some(DuplicateAction::Rename)), false)
+                .await
+                .unwrap(),
+            CreateTaskResult::Existing { .. }
+        ));
+        assert!(matches!(
+            service
+                .create_download_task(request(Some(DuplicateAction::Rename)))
+                .await
+                .unwrap(),
+            CreateTaskResult::Created { .. }
+        ));
+        state
+            .update(&id, true, |t| {
+                t.status = crate::task::contract::TaskStatus::Error
+            })
+            .unwrap();
+        assert!(service.retry_task(id).await.is_err());
     }
 
     #[tokio::test]
