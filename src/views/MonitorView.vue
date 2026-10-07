@@ -16,6 +16,7 @@
             :scanning="scanning"
             :busy="busy"
             @scan="scan"
+            @issues="showIssues = true"
         />
 
         <p class="muted">
@@ -45,7 +46,7 @@
             :selected-name="selectedName"
             :busy="busy"
             :batch-message="batchMessage"
-            :filtered-songs="filteredSongs"
+            :total-songs="totalSongs"
             :page-songs="pageSongs"
             :page-pending="pagePending"
             :all-page-pending-selected="allPagePendingSelected"
@@ -60,6 +61,8 @@
             @decide="decide"
             @link="openLink"
         />
+
+        <LibraryIssuesModal v-model:show="showIssues" />
 
         <MonitorHistoryModal
             v-model:show-history="showHistory"
@@ -99,6 +102,8 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { ref } from 'vue'
+import LibraryIssuesModal from '../components/monitor/LibraryIssuesModal.vue'
 import { NAlert, NButton, NEmpty } from 'naive-ui'
 import { useMonitorPage } from '../composables/useMonitorPage'
 import LibraryStatusCard from '../components/monitor/LibraryStatusCard.vue'
@@ -108,6 +113,7 @@ import MonitorHistoryModal from '../components/monitor/MonitorHistoryModal.vue'
 import MonitorEditorModal from '../components/monitor/MonitorEditorModal.vue'
 import MonitorLinkModal from '../components/monitor/MonitorLinkModal.vue'
 const router = useRouter()
+const showIssues = ref(false)
 const {
     library,
     monitors,
@@ -140,7 +146,7 @@ const {
     page,
     form,
     duplicateMonitor,
-    filteredSongs,
+    totalSongs,
     pageSongs,
     pagePending,
     allPagePendingSelected,

@@ -13,7 +13,7 @@ impl Store {
         let version: u64 = db
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 1 {
+        if version > 2 {
             return Err("音乐库数据库版本较新，请使用对应版本的服务".into());
         }
         db.busy_timeout(std::time::Duration::from_secs(5))
@@ -24,9 +24,44 @@ impl Store {
             CREATE TABLE IF NOT EXISTS records (
                 kind TEXT NOT NULL, key TEXT NOT NULL, data TEXT NOT NULL,
                 PRIMARY KEY(kind,key));
-            PRAGMA user_version=1;",
+            ",
         )
         .map_err(|e| e.to_string())?;
+        if version < 2 {
+            db.execute_batch("BEGIN;
+                CREATE INDEX IF NOT EXISTS entry_state ON records(kind, json_extract(data,'$.state'), key);
+                CREATE TABLE IF NOT EXISTS file_titles(title TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY(title,path));
+                CREATE TABLE IF NOT EXISTS file_issues(path TEXT PRIMARY KEY, blocks_matching INTEGER NOT NULL);
+                CREATE INDEX IF NOT EXISTS file_issues_blocking ON file_issues(blocks_matching);
+                CREATE TRIGGER IF NOT EXISTS file_delete AFTER DELETE ON records WHEN OLD.kind='file' BEGIN
+                    DELETE FROM file_titles WHERE path=OLD.key;
+                    DELETE FROM file_issues WHERE path=OLD.key;
+                END;
+                CREATE INDEX IF NOT EXISTS file_titles_path ON file_titles(path);
+                CREATE TRIGGER IF NOT EXISTS file_insert AFTER INSERT ON records WHEN NEW.kind='file' BEGIN
+                    INSERT INTO file_titles SELECT json_extract(NEW.data,'$.identity.title'),NEW.key
+                    UNION SELECT json_extract(NEW.data,'$.metadata.title'),NEW.key
+                    UNION SELECT json_extract(NEW.data,'$.filename.title'),NEW.key;
+                    INSERT OR IGNORE INTO file_issues SELECT NEW.key,
+                      (json_extract(NEW.data,'$.warning') IS NOT NULL OR json_extract(NEW.data,'$.identity.title')='' OR json_array_length(NEW.data,'$.identity.artists')=0) WHERE json_extract(NEW.data,'$.warning') IS NOT NULL
+                      OR json_extract(NEW.data,'$.conflict')=1 OR json_extract(NEW.data,'$.identity.title')=''
+                      OR json_array_length(NEW.data,'$.identity.artists')=0;
+                END;
+                CREATE TRIGGER IF NOT EXISTS file_update AFTER UPDATE OF data ON records WHEN NEW.kind='file' BEGIN
+                    DELETE FROM file_titles WHERE path=NEW.key;
+                    DELETE FROM file_issues WHERE path=NEW.key;
+                    INSERT INTO file_titles SELECT json_extract(NEW.data,'$.identity.title'),NEW.key
+                    UNION SELECT json_extract(NEW.data,'$.metadata.title'),NEW.key
+                    UNION SELECT json_extract(NEW.data,'$.filename.title'),NEW.key;
+                    INSERT OR IGNORE INTO file_issues SELECT NEW.key,
+                      (json_extract(NEW.data,'$.warning') IS NOT NULL OR json_extract(NEW.data,'$.identity.title')='' OR json_array_length(NEW.data,'$.identity.artists')=0) WHERE json_extract(NEW.data,'$.warning') IS NOT NULL
+                      OR json_extract(NEW.data,'$.conflict')=1 OR json_extract(NEW.data,'$.identity.title')=''
+                      OR json_array_length(NEW.data,'$.identity.artists')=0;
+                END;
+                UPDATE records SET data=data WHERE kind='file';
+                PRAGMA user_version=2;
+                COMMIT;").map_err(|e| e.to_string())?;
+        }
         Ok(Self(Mutex::new(db)))
     }
 
@@ -117,7 +152,7 @@ pub fn read<T: DeserializeOwned>(db: &Connection, kind: &str, key: &str) -> Resu
 
 pub fn write<T: Serialize>(db: &Connection, kind: &str, key: &str, value: &T) -> Result<()> {
     let data = serde_json::to_string(value).map_err(|e| e.to_string())?;
-    db.execute("INSERT INTO records(kind,key,data) VALUES(?,?,?) ON CONFLICT(kind,key) DO UPDATE SET data=excluded.data",
+    db.execute("INSERT INTO records(kind,key,data) VALUES(?,?,?) ON CONFLICT(kind,key) DO UPDATE SET data=excluded.data WHERE records.data!=excluded.data",
         params![kind, key, data]).map_err(|e| e.to_string())?;
     Ok(())
 }

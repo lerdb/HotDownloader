@@ -1,5 +1,7 @@
 //! NAS/Web 的音乐库与歌单监控。下载仍通过共享 TaskService 调度。
 pub mod library;
+pub mod queries;
+mod scheduler;
 pub mod store;
 #[cfg(test)]
 mod tests;
@@ -21,7 +23,7 @@ use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -91,6 +93,8 @@ pub struct Monitor {
     pub draining: bool,
     #[serde(default)]
     pub initial_members: Option<Vec<String>>,
+    #[serde(default)]
+    pub revision: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +114,7 @@ pub enum State {
     NoQuality,
     DownloadFailed,
     CredentialInvalid,
+    NetworkFailed,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -175,11 +180,51 @@ impl Entry {
     }
 }
 
+fn failure_state(message: &str) -> State {
+    let text = message.to_lowercase();
+    if [
+        "超时",
+        "网络",
+        "timeout",
+        "timed out",
+        "network",
+        "连接",
+        "dns",
+        "error sending request",
+        "请求失败",
+    ]
+    .iter()
+    .any(|part| text.contains(part))
+    {
+        State::NetworkFailed
+    } else if [
+        "凭据缺失",
+        "凭据失效",
+        "凭据无效",
+        "登录凭证",
+        "未登录",
+        "登录过期",
+        "重新登录",
+        "认证失败",
+    ]
+    .iter()
+    .any(|part| text.contains(part))
+    {
+        State::CredentialInvalid
+    } else {
+        State::DownloadFailed
+    }
+}
+
 pub struct MonitorService {
     pub store: Arc<Store>,
     pub operation: Mutex<()>,
-    pub scanning: AtomicBool,
-    pub running: AtomicBool,
+    pub scanning: Arc<AtomicBool>,
+    pub running: AtomicUsize,
+    scan_lock: Arc<Mutex<()>>,
+    scan_generation: Arc<AtomicUsize>,
+    monitor_locks: std::sync::Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
+    reconcile_lock: Mutex<()>,
     // 台账写入失败时停止继续派发；重启后的对账会从持久化任务恢复。
     pub persistence_failed: AtomicBool,
     remote: Arc<dyn MonitorRemote>,
@@ -211,12 +256,22 @@ impl MonitorRemote for QqRemote {
     }
     fn authenticate<'a>(&'a self, runtime: &'a ServerRuntime) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
-            let auth = login::download_auth(runtime.login_store.as_ref()).await;
-            if auth.auth.is_none() || auth.refresh_error.is_some() {
-                Err("QQ 凭据缺失或失效，请在设置中重新登录".into())
-            } else {
-                Ok(())
+            if !login::check_credential_expired(runtime.login_store.as_ref()).await? {
+                return Ok(());
             }
+            login::refresh_credential(runtime.login_store.as_ref())
+                .await
+                .map(|_| ())
+                .map_err(|error| {
+                    if login::is_credential_rejection(&error)
+                        || error.contains("登录凭证")
+                        || error.contains("缺少刷新令牌")
+                    {
+                        format!("QQ 凭据失效，请重新登录: {error}")
+                    } else {
+                        error
+                    }
+                })
         })
     }
 }
@@ -242,26 +297,27 @@ impl MonitorService {
         Ok(Arc::new(Self {
             store,
             operation: Mutex::new(()),
-            scanning: AtomicBool::new(false),
-            running: AtomicBool::new(false),
+            scanning: Arc::new(AtomicBool::new(false)),
+            running: AtomicUsize::new(0),
+            scan_lock: Arc::new(Mutex::new(())),
+            scan_generation: Arc::new(AtomicUsize::new(0)),
+            monitor_locks: std::sync::Mutex::new(HashMap::new()),
+            reconcile_lock: Mutex::new(()),
             persistence_failed: AtomicBool::new(false),
             remote,
         }))
     }
 
     pub fn list(&self) -> Result<Value> {
-        let entries = self.store.all::<Entry>("entry")?;
         let monitors = self
             .store
             .all::<Monitor>("monitor")?
             .into_iter()
             .map(|m| {
+                let states = self.store.member_states(&m.members)?;
                 let mut counts: HashMap<String, usize> = HashMap::new();
-                for entry in entries
-                    .iter()
-                    .filter(|e| m.members.iter().any(|mid| mid == e.mid()))
-                {
-                    let key = serde_json::to_value(&entry.state)
+                for (_, state) in &states {
+                    let key = serde_json::to_value(state)
                         .unwrap()
                         .as_str()
                         .unwrap()
@@ -269,8 +325,11 @@ impl MonitorService {
                     *counts.entry(key).or_default() += 1;
                 }
                 let mut value = json!(m);
+                value.as_object_mut().unwrap().remove("members");
+                value.as_object_mut().unwrap().remove("initialMembers");
+                value["memberCount"] = json!(m.members.len());
                 value["counts"] = json!(counts);
-                value["initialProgress"] = initial_progress(&m, &entries);
+                value["initialProgress"] = progress_from_states(&m, &states);
                 value["latestRound"] = json!(self
                     .store
                     .get::<Vec<CheckRecord>>("history", &m.id)?
@@ -279,7 +338,7 @@ impl MonitorService {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(
-            json!({"monitors": monitors, "running": self.running.load(Ordering::Relaxed), "persistenceFailed": self.persistence_failed.load(Ordering::Relaxed)}),
+            json!({"monitors": monitors, "running": self.running.load(Ordering::Relaxed) > 0, "persistenceFailed": self.persistence_failed.load(Ordering::Relaxed)}),
         )
     }
 
@@ -383,11 +442,13 @@ impl MonitorService {
                 requested: false,
                 draining: false,
                 initial_members: None,
+                revision: 0,
             }
         };
         let newly_enabled = input.enabled && (!monitor.config.enabled || monitor.last_check == 0);
         let interval_changed = monitor.config.interval_minutes != input.interval_minutes;
         monitor.config = input;
+        monitor.revision += 1;
         if interval_changed {
             monitor.next_check = monitor.last_check + monitor.config.interval_minutes * 60;
         }
@@ -426,11 +487,13 @@ impl MonitorService {
             .get::<Monitor>("monitor", id)?
             .ok_or("监控不存在")?;
         m.requested = true;
+        m.revision += 1;
         m.last_result = "已请求检查".into();
         m.last_state = "requested".into();
         self.store.put("monitor", id, &m)
     }
 
+    #[cfg(test)]
     pub fn songs(&self, id: &str) -> Result<Value> {
         let monitor = self
             .store
@@ -443,6 +506,14 @@ impl MonitorService {
             .filter(|e| monitor.members.iter().any(|m| m == e.mid()))
             .collect();
         Ok(json!(entries))
+    }
+
+    pub fn song_page(&self, id: &str, query: &queries::PageQuery) -> Result<Value> {
+        let monitor = self
+            .store
+            .get::<Monitor>("monitor", id)?
+            .ok_or("监控不存在")?;
+        self.store.song_page(&monitor.members, query)
     }
 
     pub fn history(&self, id: &str) -> Result<Value> {
@@ -529,19 +600,22 @@ impl MonitorService {
                     e.state = State::Interrupted;
                 }
                 TaskStatus::Error
-                    if e.state != State::DownloadFailed && e.state != State::CredentialInvalid =>
+                    if !matches!(
+                        e.state,
+                        State::DownloadFailed
+                            | State::CredentialInvalid
+                            | State::NetworkFailed
+                            | State::NoQuality
+                    ) =>
                 {
                     let message = task.error_msg.clone().unwrap_or_else(|| "下载失败".into());
-                    let state = if message.contains("凭据") || message.contains("登录") {
-                        State::CredentialInvalid
-                    } else {
-                        State::DownloadFailed
-                    };
+                    let state = failure_state(&message);
                     e.fail(state, message);
                     if task.error_msg.as_deref().is_some_and(|message| {
                         message
                             .starts_with(hotdownloader_core::download::fallback::QUALITY_EXHAUSTED)
                     }) {
+                        e.state = State::NoQuality;
                         e.next_retry = 0;
                     }
                 }
@@ -551,12 +625,54 @@ impl MonitorService {
     }
 
     pub async fn scan(&self, runtime: &ServerRuntime) -> Result<ScanReport> {
+        self.scan_cached(runtime, true).await
+    }
+
+    async fn scan_cached(&self, runtime: &ServerRuntime, force: bool) -> Result<ScanReport> {
+        let generation = self.scan_generation.load(Ordering::Relaxed);
+        let scan_guard = self.scan_lock.clone().lock_owned().await;
         let config = runtime.environment.download_config();
         let roots = library::roots(
             runtime.environment.default_download_dir(),
             &config.naming_template,
             &runtime.environment.artist_separator(),
         )?;
+        if let Some(report) = self.store.get::<ScanReport>("config", "scan")? {
+            if report.roots == roots
+                && report.last_scan.saturating_add(30) > now()
+                && (!force || generation != self.scan_generation.load(Ordering::Relaxed))
+            {
+                if let Some(error) = &report.error {
+                    return Err(error.clone());
+                }
+            }
+            if report.indexed_roots == roots
+                && report.error.is_none()
+                && report.last_success.saturating_add(300) > now()
+                && (!force || generation != self.scan_generation.load(Ordering::Relaxed))
+            {
+                let checked = report.clone();
+                if let Err(error) =
+                    tokio::task::spawn_blocking(move || library::check_cached_roots(&checked))
+                        .await
+                        .map_err(|e| e.to_string())?
+                {
+                    let mut failed = report;
+                    failed.error = Some(error.clone());
+                    failed.last_scan = now();
+                    for directory in &mut failed.directories {
+                        if error.contains(&directory.path) {
+                            directory.state = "unavailable".into();
+                            directory.error = Some(error.clone());
+                            directory.checked_at = now();
+                        }
+                    }
+                    self.store.put("config", "scan", &failed)?;
+                    return Err(error);
+                }
+                return Ok(report);
+            }
+        }
         let excluded = runtime
             .tasks
             .list()
@@ -573,12 +689,23 @@ impl MonitorService {
             .collect();
         self.scanning.store(true, Ordering::Relaxed);
         let store = self.store.clone();
-        let result = tokio::task::spawn_blocking(move || library::scan(&store, roots, excluded))
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(|r| r);
-        self.scanning.store(false, Ordering::Relaxed);
-        result
+        let scanning = self.scanning.clone();
+        let generation = self.scan_generation.clone();
+        tokio::task::spawn_blocking(move || {
+            let _guard = scan_guard;
+            struct Reset(Arc<AtomicBool>);
+            impl Drop for Reset {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::Relaxed);
+                }
+            }
+            let _reset = Reset(scanning);
+            let result = library::scan(&store, roots, excluded);
+            generation.fetch_add(1, Ordering::Relaxed);
+            result
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 
     /// 快照和所有新 MID 在同一事务写入；歌单移除只更新成员关系。
@@ -586,6 +713,7 @@ impl MonitorService {
         let mut db = self.store.0.lock().unwrap();
         let tx = db.transaction().map_err(|e| e.to_string())?;
         let mut members = Vec::new();
+        let mut seen_members = HashSet::new();
         for mut song in songs {
             if !song.is_object() {
                 return Err("歌单包含无效歌曲数据，保留上次快照".into());
@@ -596,7 +724,7 @@ impl MonitorService {
             if parsed.mid.is_empty() || !parsed.mid.bytes().all(|b| b.is_ascii_alphanumeric()) {
                 return Err("歌单包含无效 MID，保留上次快照".into());
             }
-            if members.contains(&parsed.mid) {
+            if !seen_members.insert(parsed.mid.clone()) {
                 continue;
             }
             members.push(parsed.mid.clone());
@@ -706,8 +834,35 @@ impl MonitorService {
         path: Option<String>,
         monitor_id: Option<&str>,
     ) -> Result<()> {
+        if action == "refresh" {
+            return self
+                .refresh_candidates(
+                    runtime,
+                    monitor_id.ok_or("请提供当前监控的 monitorId")?,
+                    mid,
+                )
+                .await;
+        }
+        let verified_file = if action == "link" {
+            let file = self
+                .store
+                .get::<LocalFile>("file", path.as_deref().ok_or("请选择现有文件")?)?
+                .ok_or("文件不在当前索引中，请重新扫描")?;
+            let candidate = file.clone();
+            tokio::task::spawn_blocking(move || library::verify_file(&candidate))
+                .await
+                .map_err(|e| e.to_string())??;
+            Some(file)
+        } else {
+            None
+        };
         let _guard = self.operation.lock().await;
         let _task_guard = runtime.tasks.creation_lock.lock().await;
+        if let Some(file) = verified_file {
+            if self.store.get::<LocalFile>("file", &file.path)?.as_ref() != Some(&file) {
+                return Err("文件索引已变化，请重新扫描后确认".into());
+            }
+        }
         let monitors = self.store.all::<Monitor>("monitor")?;
         let monitor = if let Some(id) = monitor_id {
             let monitor = monitors.iter().find(|m| m.id == id).ok_or("监控不存在")?;
@@ -806,13 +961,48 @@ impl MonitorService {
             return Err("请先在任务页结束现有任务，再修改处理决定".into());
         }
         match action {
+            "retry" => {
+                if !matches!(
+                    entry.state,
+                    State::NetworkFailed
+                        | State::DownloadFailed
+                        | State::CredentialInvalid
+                        | State::NoQuality
+                ) {
+                    return Err("仅失败歌曲可以重试".into());
+                }
+                if let Some(id) = &entry.task_id {
+                    if !entry.owned {
+                        return Err("此任务由任务页管理，请打开任务后重试".into());
+                    }
+                    let task = runtime
+                        .tasks
+                        .get(id)
+                        .ok_or("任务记录已移除，请清除决定并重新下载")?;
+                    if task.status != TaskStatus::Error {
+                        return Err("任务状态已变化，请刷新后重试".into());
+                    }
+                    runtime.tasks.update(id, true, |task| {
+                        task.retry_count = 0;
+                    })?;
+                }
+                entry.state = State::Ready;
+                entry.retries = 0;
+                entry.next_retry = 0;
+                entry.force_download = true;
+                entry.message = "已请求重试，本次仍最多自动重试 3 次".into();
+                if let Some(m) = monitor {
+                    entry.requested_by = Some(m.id.clone());
+                    if entry.task_id.is_none() {
+                        entry.quality = m.config.quality.clone();
+                    }
+                }
+            }
             "link" => {
                 let path = path.ok_or("请选择现有文件")?;
-                let file = self
-                    .store
-                    .get::<LocalFile>("file", &path)?
-                    .ok_or("文件不在当前索引中，请重新扫描")?;
-                library::verify_file(&file)?;
+                if runtime.tasks.path_reserved(&path) {
+                    return Err("文件正在被下载任务使用，请稍后再关联".into());
+                }
                 entry.state = State::Matched;
                 entry.path = Some(path);
                 entry.message = "已手动关联本地文件".into();
@@ -843,6 +1033,57 @@ impl MonitorService {
         Ok(())
     }
 
+    async fn refresh_candidates(&self, runtime: &ServerRuntime, id: &str, mid: &str) -> Result<()> {
+        let monitor = self
+            .store
+            .get::<Monitor>("monitor", id)?
+            .ok_or("监控不存在")?;
+        if !monitor.members.iter().any(|member| member == mid) {
+            return Err("歌曲不属于当前监控".into());
+        }
+        let previous = self.store.get::<Entry>("entry", mid)?.ok_or("歌曲不存在")?;
+        if previous.state != State::PendingConfirmation {
+            return Err("仅待确认歌曲可以刷新候选".into());
+        }
+        self.scan(runtime).await?;
+        let store = self.store.clone();
+        let identity = previous.identity.clone();
+        let matched = tokio::task::spawn_blocking(move || store.match_indexed(&identity))
+            .await
+            .map_err(|e| e.to_string())??;
+        let _guard = self.operation.lock().await;
+        let current = self
+            .store
+            .get::<Monitor>("monitor", id)?
+            .ok_or("监控已删除")?;
+        if !current.members.iter().any(|member| member == mid) {
+            return Err("歌曲已移出监控".into());
+        }
+        let mut entry = previous.clone();
+        entry.candidates = match matched {
+            Match::Found(path) => self
+                .store
+                .get::<LocalFile>("file", &path)?
+                .into_iter()
+                .collect(),
+            Match::Confirm(files, _) => files,
+            Match::Missing => vec![],
+        };
+        entry.message = if entry.candidates.is_empty() {
+            "候选已刷新，未找到可关联文件；请决定下载或忽略"
+        } else {
+            "候选已刷新，请选择文件关联，或决定下载、忽略"
+        }
+        .into();
+        if !self
+            .store
+            .compare_and_put("entry", mid, &previous, &entry)?
+        {
+            return Err("歌曲状态已变化，请刷新后重试".into());
+        }
+        Ok(())
+    }
+
     pub async fn reconcile(&self, runtime: &ServerRuntime) -> Result<()> {
         let tasks = runtime.tasks.list();
         for task in tasks.iter().filter(|t| t.status == TaskStatus::Completed) {
@@ -853,7 +1094,7 @@ impl MonitorService {
             &runtime.engine,
             runtime.environment.as_ref(),
         );
-        for mut entry in self.store.all::<Entry>("entry")? {
+        for mut entry in self.store.active_entries()? {
             if entry.terminal() {
                 continue;
             }
@@ -953,12 +1194,12 @@ impl MonitorService {
         }
         if matches!(
             entry.state,
-            State::DownloadFailed | State::CredentialInvalid
+            State::DownloadFailed | State::CredentialInvalid | State::NetworkFailed
         ) {
             entry.retries += 1;
         }
         if let Err(error) = auth {
-            entry.fail(State::CredentialInvalid, error.clone());
+            entry.fail(failure_state(error), error.clone());
             self.store
                 .compare_and_put("entry", &mid, &previous, &entry)?;
             return Ok(false);
@@ -987,7 +1228,7 @@ impl MonitorService {
                 })?,
                 Err(error) => self
                     .store
-                    .change::<Entry>("entry", &mid, |e| e.fail(State::DownloadFailed, error))?,
+                    .change::<Entry>("entry", &mid, |e| e.fail(failure_state(&error), error))?,
             }
         } else {
             // 自动模式强制 ask，防止浏览器的覆盖/跳过偏好替代逐曲确认。
@@ -1029,265 +1270,33 @@ impl MonitorService {
                 })?,
                 Err(error) => self
                     .store
-                    .change::<Entry>("entry", &mid, |e| e.fail(State::DownloadFailed, error))?,
+                    .change::<Entry>("entry", &mid, |e| e.fail(failure_state(&error), error))?,
             }
         }
         Ok(false)
     }
-
-    pub async fn tick(&self, runtime: &ServerRuntime) -> Result<()> {
-        let _guard = self.operation.lock().await;
-        if self.persistence_failed.load(Ordering::Relaxed) {
-            return Err("台账持久化失败，停止自动下载；修复存储后重启服务".into());
-        }
-        self.reconcile(runtime).await?;
-        let mut monitors = self.store.all::<Monitor>("monitor")?;
-        let entries = self.store.all::<Entry>("entry")?;
-        let mut records = HashMap::new();
-        for m in &monitors {
-            let due = m.requested || (m.config.enabled && m.next_check <= now());
-            let pending = entries.iter().any(|e| {
-                m.members.iter().any(|mid| mid == e.mid())
-                    && (m.config.enabled || m.draining || e.requested_by.as_deref() == Some(&m.id))
-                    && eligible(e)
-            });
-            if !due && !pending {
-                continue;
-            }
-            let record = CheckRecord {
-                started_at: now(),
-                status: "running".into(),
-                trigger: if m.requested {
-                    "manual"
-                } else if due {
-                    "scheduled"
-                } else {
-                    "backfill"
-                }
-                .into(),
-                message: "正在扫描、检查与派发".into(),
-                ..Default::default()
-            };
-            let mut history = self
-                .store
-                .get::<Vec<CheckRecord>>("history", &m.id)?
-                .unwrap_or_default();
-            history.push(record.clone());
-            if history.len() > HISTORY_LIMIT {
-                history.drain(..history.len() - HISTORY_LIMIT);
-            }
-            self.store.put("history", &m.id, &history)?;
-            records.insert(m.id.clone(), record);
-        }
-        if records.is_empty() {
-            return Ok(());
-        }
-        let result = self.run_round(runtime, &mut monitors, &mut records).await;
-        for (id, mut record) in records {
-            record.finished_at = now();
-            if let Err(error) = &result {
-                record.status = "failed".into();
-                record.message = error.clone();
-            } else if record.status == "running" {
-                record.status = if record.failed > 0 {
-                    "warning"
-                } else {
-                    "completed"
-                }
-                .into();
-                record.message = if record.failed > 0 {
-                    "本轮派发存在失败，请查看逐曲状态"
-                } else {
-                    "本轮处理完成，下载结果见逐曲状态"
-                }
-                .into();
-            }
-            self.store
-                .change::<Vec<CheckRecord>>("history", &id, |history| {
-                    if let Some(last) = history.last_mut() {
-                        *last = record;
-                    }
-                })?;
-        }
-        result
-    }
-
-    async fn run_round(
-        &self,
-        runtime: &ServerRuntime,
-        monitors: &mut [Monitor],
-        records: &mut HashMap<String, CheckRecord>,
-    ) -> Result<()> {
-        if let Err(error) = self.scan(runtime).await {
-            for m in monitors
-                .iter_mut()
-                .filter(|m| m.config.enabled || m.requested || m.draining)
-            {
-                m.last_result = format!("扫描失败，本轮补齐已跳过: {error}");
-                m.last_state = "scan_failed".into();
-                self.store.put("monitor", &m.id, m)?;
-            }
-            return Err(error);
-        }
-        for m in monitors.iter_mut() {
-            if !records.get(&m.id).is_some_and(|r| r.trigger != "backfill") {
-                continue;
-            }
-            let previous: HashSet<_> = m.members.iter().cloned().collect();
-            let result =
-                tokio::time::timeout(Duration::from_secs(120), self.remote.fetch(m, runtime))
-                    .await
-                    .map_err(|_| "读取歌单超时".to_string())
-                    .and_then(|r| r);
-            let result = result
-                .and_then(|songs| self.ingest(m, songs, &runtime.environment.artist_separator()));
-            if let Err(error) = result {
-                if let Some(record) = records.get_mut(&m.id) {
-                    record.status = "failed".into();
-                    record.message = error.clone();
-                }
-                m.last_check = now();
-                m.next_check = now() + m.config.interval_minutes * 60;
-                m.requested = false;
-                m.last_result = format!("歌单检查失败: {error}");
-                m.last_state = if error.contains("凭据") || error.contains("登录") {
-                    "credential_invalid".into()
-                } else {
-                    "check_failed".into()
-                };
-                self.store.put("monitor", &m.id, m)?;
-            } else if let Some(record) = records.get_mut(&m.id) {
-                record.added = m
-                    .members
-                    .iter()
-                    .filter(|mid| !previous.contains(*mid))
-                    .count();
-            }
-        }
-        let active: HashSet<String> = monitors
-            .iter()
-            .filter(|m| m.config.enabled || m.draining)
-            .flat_map(|m| m.members.clone())
-            .collect();
-        let files = self.store.all::<LocalFile>("file")?;
-        // 固定品质优先表决定跨歌单目标，用户的降级顺序只负责目标不可用时的回退。
-        let quality_order =
-            hotdownloader_core::task::rules::TaskRules::from_settings(&json!({})).quality_order;
-        let mut dispatched = 0;
-        let mut auth = None;
-        for mut entry in self.store.all::<Entry>("entry")? {
-            let requested = entry.requested_by.as_ref().is_some_and(|id| {
-                monitors
-                    .iter()
-                    .any(|m| &m.id == id && m.members.iter().any(|mid| mid == entry.mid()))
-            });
-            if (!active.contains(entry.mid()) && !requested) || !eligible(&entry) {
-                continue;
-            }
-            if !entry.force_download && entry.task_id.is_none() {
-                if let Some(quality) = monitors
-                    .iter()
-                    .filter(|m| {
-                        (m.config.enabled || m.draining)
-                            && m.members.iter().any(|mid| mid == entry.mid())
-                    })
-                    .map(|m| &m.config.quality)
-                    .min_by_key(|quality| {
-                        quality_order
-                            .iter()
-                            .position(|q| q == *quality)
-                            .unwrap_or(usize::MAX)
-                    })
-                    .filter(|quality| **quality != entry.quality)
-                {
-                    let previous = entry.clone();
-                    entry.quality = quality.clone();
-                    if !self
-                        .store
-                        .compare_and_put("entry", entry.mid(), &previous, &entry)?
-                    {
-                        continue;
-                    }
-                }
-            }
-            if entry.state == State::Pending
-                || (entry.state == State::Ready && !entry.force_download)
-            {
-                let previous = entry.clone();
-                match library::match_song(&entry.identity, &files) {
-                    Match::Found(path) => {
-                        entry.state = State::Matched;
-                        entry.path = Some(path);
-                        entry.message = "已匹配本地文件".into();
-                    }
-                    Match::Missing => {
-                        entry.state = State::Ready;
-                        entry.message = "等待分批入队".into();
-                    }
-                    Match::Confirm(candidates, reason) => {
-                        entry.state = State::PendingConfirmation;
-                        entry.candidates = candidates;
-                        entry.message = reason;
-                    }
-                }
-                if !self
-                    .store
-                    .compare_and_put("entry", entry.mid(), &previous, &entry)?
-                {
-                    continue;
-                }
-                if entry.state == State::Matched {
-                    for m in monitors
-                        .iter()
-                        .filter(|m| m.members.iter().any(|mid| mid == entry.mid()))
-                    {
-                        if let Some(record) = records.get_mut(&m.id) {
-                            record.linked += 1;
-                        }
-                    }
-                }
-            }
-            if eligible(&entry) && dispatched < BATCH_SIZE {
-                if auth.is_none() {
-                    auth = Some(
-                        tokio::time::timeout(
-                            Duration::from_secs(45),
-                            self.remote.authenticate(runtime),
-                        )
-                        .await
-                        .map_err(|_| "QQ 凭据校验超时".to_string())
-                        .and_then(|r| r),
-                    );
-                }
-                let mid = entry.mid().to_string();
-                let enqueued = self
-                    .dispatch(runtime, entry, auth.as_ref().unwrap())
-                    .await?;
-                let failed = self.store.get::<Entry>("entry", &mid)?.is_some_and(|e| {
-                    matches!(
-                        e.state,
-                        State::NoQuality | State::DownloadFailed | State::CredentialInvalid
-                    )
-                });
-                for m in monitors.iter().filter(|m| m.members.contains(&mid)) {
-                    if let Some(record) = records.get_mut(&m.id) {
-                        record.enqueued += usize::from(enqueued);
-                        record.failed += usize::from(!enqueued && failed);
-                    }
-                }
-                dispatched += 1;
-            }
-        }
-        Ok(())
-    }
 }
 
+#[cfg(test)]
 fn initial_progress(monitor: &Monitor, entries: &[Entry]) -> Value {
+    progress_from_states(
+        monitor,
+        &entries
+            .iter()
+            .map(|e| (e.mid().to_string(), e.state.clone()))
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn progress_from_states(monitor: &Monitor, entries: &[(String, State)]) -> Value {
     let Some(members) = &monitor.initial_members else {
         return json!({"initialized":false});
     };
     let current: HashSet<_> = monitor.members.iter().map(String::as_str).collect();
-    let states: HashMap<_, _> = entries.iter().map(|e| (e.mid(), e)).collect();
+    let states: HashMap<_, _> = entries
+        .iter()
+        .map(|(mid, state)| (mid.as_str(), state))
+        .collect();
     let mut completed: usize = 0;
     let mut removed = 0;
     let mut confirmation = 0;
@@ -1299,13 +1308,16 @@ fn initial_progress(monitor: &Monitor, entries: &[Entry]) -> Value {
             continue;
         }
         if let Some(e) = states.get(mid.as_str()) {
-            if e.terminal() {
+            if matches!(e, State::Matched | State::Downloaded | State::Ignored) {
                 completed += 1;
-            } else if e.state == State::PendingConfirmation {
+            } else if **e == State::PendingConfirmation {
                 confirmation += 1;
             } else if matches!(
-                e.state,
-                State::NoQuality | State::DownloadFailed | State::CredentialInvalid
+                e,
+                State::NoQuality
+                    | State::DownloadFailed
+                    | State::CredentialInvalid
+                    | State::NetworkFailed
             ) {
                 failed += 1;
             } else {
@@ -1326,7 +1338,7 @@ fn eligible(entry: &Entry) -> bool {
         || (entry.owned
             && matches!(
                 entry.state,
-                State::DownloadFailed | State::CredentialInvalid
+                State::DownloadFailed | State::CredentialInvalid | State::NetworkFailed
             )
             && entry.retries < RETRY_DELAYS.len()
             && entry.next_retry > 0
@@ -1359,11 +1371,11 @@ pub fn start(runtime: &Arc<ServerRuntime>) {
         loop {
             interval.tick().await;
             let Some(runtime) = weak.upgrade() else { break };
-            runtime.monitors.running.store(true, Ordering::Relaxed);
-            if let Err(error) = runtime.monitors.tick(&runtime).await {
-                log::warn!("歌单监控: {error}");
-            }
-            runtime.monitors.running.store(false, Ordering::Relaxed);
+            tokio::spawn(async move {
+                if let Err(error) = runtime.monitors.tick(&runtime).await {
+                    log::warn!("歌单监控: {error}");
+                }
+            });
         }
     });
 }

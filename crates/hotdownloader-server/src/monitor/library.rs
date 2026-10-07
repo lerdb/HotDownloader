@@ -68,7 +68,7 @@ impl Identity {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalFile {
     pub path: String,
@@ -154,6 +154,33 @@ fn check_marker(base: &Path, marker: &str) -> Result<()> {
         .map_err(|e| format!("挂载标记不可读取 {marker}: {e}"))?;
     if count == 0 && file.metadata().map_err(|e| e.to_string())?.len() > 0 {
         return Err("挂载标记内容不可读取".into());
+    }
+    Ok(())
+}
+
+/// 缓存命中时只探测根目录和挂载标记，不递归遍历整库。
+pub fn check_cached_roots(report: &ScanReport) -> Result<()> {
+    for root in &report.roots {
+        let base = Path::new(&root.path)
+            .canonicalize()
+            .map_err(|e| format!("目录不可访问 {}: {e}", root.path))?;
+        if let Some(marker) = &root.mount_marker {
+            check_marker(&base, marker)?;
+        }
+        let mut entries =
+            std::fs::read_dir(&base).map_err(|e| format!("目录不可访问 {}: {e}", root.path))?;
+        match entries.next() {
+            Some(Err(error)) => return Err(format!("目录不可访问 {}: {error}", root.path)),
+            None if root.mount_marker.is_none()
+                && report
+                    .directories
+                    .iter()
+                    .any(|d| d.path == root.path && d.file_count > 0) =>
+            {
+                return Err(format!("目录 {} 已变为空目录，疑似挂载异常", root.path));
+            }
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -449,7 +476,7 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
             report.updated_count = updated;
             report.unresolved_count = files
                 .iter()
-                .filter(|f| !f.identity.complete() || f.warning.is_some())
+                .filter(|f| !f.identity.complete() || f.warning.is_some() || f.conflict)
                 .count();
             report.error = None;
             let mut db = store.0.lock().unwrap();
@@ -461,11 +488,7 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
             }
             for file in &files {
                 // 标签只增量读取，数据库同样只更新实际改变的条目。
-                if old
-                    .get(&file.path)
-                    .map(|p| serde_json::to_string(p).unwrap())
-                    != Some(serde_json::to_string(file).unwrap())
-                {
+                if old.get(&file.path) != Some(file) {
                     store::write(&tx, "file", &file.path, file)?;
                 }
             }

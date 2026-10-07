@@ -12,7 +12,7 @@ export interface MonitorInput {
 }
 export interface Monitor extends MonitorInput {
     id: string
-    members: string[]
+    memberCount: number
     lastCheck: number
     nextCheck: number
     lastResult: string
@@ -70,6 +70,8 @@ export interface LibraryStatus {
 }
 export interface LocalFile {
     path: string
+    root: string
+    identity: { title: string; artists: string[] }
     metadata: { title: string; artists: string[] }
     filename: { title: string; artists: string[] }
     warning: string | null
@@ -96,8 +98,25 @@ export const getMonitors = () =>
         running: boolean
         persistenceFailed: boolean
     }>('/api/monitors')
-export const getMonitorSongs = (id: string) =>
-    webRequest<MonitorSong[]>(`/api/monitors/${encodeURIComponent(id)}/songs`)
+export interface PageResult<T> {
+    items: T[]
+    total: number
+    page: number
+    pageSize: number
+}
+export const getMonitorSongs = (
+    id: string,
+    page = 1,
+    filter = 'all',
+    query = '',
+) =>
+    webRequest<PageResult<MonitorSong>>(
+        `/api/monitors/${encodeURIComponent(id)}/songs?${new URLSearchParams({ page: String(page), pageSize: '30', filter, query })}`,
+    )
+export const getLibraryIssues = (page = 1, query = '') =>
+    webRequest<PageResult<LocalFile>>(
+        `/api/library/issues?${new URLSearchParams({ page: String(page), pageSize: '30', query })}`,
+    )
 export const getMonitorHistory = (id: string) =>
     webRequest<CheckRecord[]>(`/api/monitors/${encodeURIComponent(id)}/history`)
 export const saveMonitor = (input: MonitorInput, id?: string) =>
@@ -142,7 +161,7 @@ export function samePlaylist(a: MonitorInput, b: MonitorInput): boolean {
 export const decideSong = (
     monitorId: string,
     mid: string,
-    action: 'link' | 'download' | 'ignore' | 'reset',
+    action: 'link' | 'download' | 'ignore' | 'reset' | 'refresh' | 'retry',
     path?: string,
 ) =>
     webRequest(`/api/library/songs/${encodeURIComponent(mid)}`, {

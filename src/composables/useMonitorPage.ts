@@ -23,6 +23,7 @@ export function useMonitorPage() {
     const library = ref<api.LibraryStatus>()
     const monitors = ref<api.Monitor[]>([])
     const songs = ref<api.MonitorSong[]>([])
+    const totalSongs = ref(0)
     const batchMessage = ref('')
     const {
         showHistory,
@@ -69,7 +70,6 @@ export function useMonitorPage() {
         filter,
         query,
         page,
-        filteredSongs,
         pageSongs,
         pagePending,
         allPagePendingSelected,
@@ -99,15 +99,14 @@ export function useMonitorPage() {
             running.value = result.running
             persistenceFailed.value = result.persistenceFailed
             if (showHistory.value && !historyLoading.value) await loadHistory()
+            error.value = ''
             const id = selectedId.value
             if (id && !monitors.value.some((m) => m.id === id)) {
                 selectedId.value = ''
                 songs.value = []
             } else if (id) {
-                const entries = await api.getMonitorSongs(id)
-                if (selectedId.value === id) songs.value = entries
+                await loadSongs()
             }
-            error.value = ''
         } catch (e) {
             error.value = message(e)
         }
@@ -115,12 +114,52 @@ export function useMonitorPage() {
     async function poll(generation: number) {
         await refresh()
         if (active && generation === pollGeneration)
-            timer = setTimeout(() => void poll(generation), 5000)
+            timer = setTimeout(() => void poll(generation), 15000)
     }
+    let songRequest = 0
+    let queryTimer: ReturnType<typeof setTimeout> | undefined
+    async function loadSongs() {
+        const id = selectedId.value
+        if (!id) return
+        const request = ++songRequest
+        const requestedPage = page.value,
+            requestedFilter = filter.value,
+            requestedQuery = query.value
+        try {
+            const result = await api.getMonitorSongs(
+                id,
+                requestedPage,
+                requestedFilter,
+                requestedQuery,
+            )
+            if (
+                request !== songRequest ||
+                id !== selectedId.value ||
+                requestedPage !== page.value ||
+                requestedFilter !== filter.value ||
+                requestedQuery !== query.value
+            )
+                return
+            songs.value = result.items
+            totalSongs.value = result.total
+            page.value = result.page
+        } catch (e) {
+            if (request === songRequest && id === selectedId.value)
+                error.value = message(e)
+        }
+    }
+    watch([page, filter, query], (_value, previous) => {
+        clearTimeout(queryTimer)
+        if (query.value !== previous[2])
+            queryTimer = setTimeout(() => void loadSongs(), 300)
+        else void loadSongs()
+    })
     function stop() {
         active = false
         pollGeneration++
         clearTimeout(timer)
+        clearTimeout(queryTimer)
+        songRequest++
     }
     onActivated(() => {
         if (!active) {
@@ -133,6 +172,8 @@ export function useMonitorPage() {
     onUnmounted(stop)
     async function selectMonitor(id: string) {
         selectedId.value = id
+        songRequest++
+        totalSongs.value = 0
         songs.value = []
         await refreshPromise
         await refresh()
@@ -152,8 +193,14 @@ export function useMonitorPage() {
     }
     async function scan() {
         scanning.value = true
-        await perform(api.scanLibrary)
-        scanning.value = false
+        try {
+            await api.scanLibrary()
+            await refresh()
+        } catch (e) {
+            error.value = message(e)
+        } finally {
+            scanning.value = false
+        }
     }
     async function check(m: api.Monitor) {
         await perform(() => api.checkMonitor(m.id))
@@ -254,7 +301,7 @@ export function useMonitorPage() {
     }
     async function decide(
         e: api.MonitorSong,
-        action: 'download' | 'ignore' | 'reset',
+        action: 'download' | 'ignore' | 'reset' | 'refresh' | 'retry',
     ) {
         const id = selectedId.value
         await perform(() => api.decideSong(id, e.song.mid, action))
@@ -311,6 +358,7 @@ export function useMonitorPage() {
         library,
         monitors,
         songs,
+        totalSongs,
         selectedMids,
         batchMessage,
         showHistory,
@@ -340,7 +388,6 @@ export function useMonitorPage() {
         page,
         form,
         duplicateMonitor,
-        filteredSongs,
         pageSongs,
         pagePending,
         allPagePendingSelected,

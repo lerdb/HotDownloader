@@ -21,6 +21,11 @@
                 {{ library.unresolvedCount }}
                 个文件信息不完整，无法可靠匹配的歌曲会进入待确认。
             </p>
+            <n-button @click="emit('issues')">查看异常文件</n-button>
+            <p class="muted">
+                自动完整扫描最多每 5
+                分钟一次；修复标签或文件后可立即扫描，再逐曲刷新候选。
+            </p>
             <div
                 v-for="root in library.roots"
                 :key="root.path"
@@ -88,7 +93,7 @@ import { NAlert, NButton, NCard, NTag } from 'naive-ui'
 import type { LibraryStatus } from '../../api/monitorApi'
 import { time } from './presentation'
 defineProps<{ library?: LibraryStatus; scanning: boolean; busy: boolean }>()
-const emit = defineEmits<{ scan: [] }>()
+const emit = defineEmits<{ scan: []; issues: [] }>()
 </script>
 
 <style scoped src="./monitor-shared.css"></style>

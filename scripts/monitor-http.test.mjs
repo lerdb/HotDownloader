@@ -220,8 +220,49 @@ try {
         200,
     )
     assert.equal(
-        (await (await request('/api/monitors/fixture/songs')).json()).length,
+        (await (await request('/api/monitors/fixture/songs')).json()).total,
         5,
+    )
+    const paged = await (
+        await request('/api/monitors/fixture/songs?page=2&pageSize=2')
+    ).json()
+    assert.equal(paged.total, 5)
+    assert.equal(paged.items.length, 2)
+    assert.equal(paged.page, 2)
+    const filtered = await (
+        await request(
+            '/api/monitors/fixture/songs?filter=pending_confirmation&pageSize=1',
+        )
+    ).json()
+    assert.equal(filtered.total, 1)
+    assert.equal(filtered.items[0].song.mid, 'fictionalConfirm')
+    assert.equal(
+        (await request('/api/monitors/fixture/songs?pageSize=1000')).status,
+        400,
+    )
+    assert.equal((await request('/api/library/issues?page=1')).status, 200)
+    assert.equal((await fetch(base + '/api/library/issues')).status, 401)
+    assert.equal(
+        (
+            await request('/api/library/songs/fictionalConfirm', 'POST', {
+                action: 'refresh',
+                monitorId: 'fixture',
+            })
+        ).status,
+        200,
+    )
+    const refreshed = await (
+        await request('/api/monitors/fixture/songs?filter=pending_confirmation')
+    ).json()
+    assert.equal(refreshed.items[0].state, 'pending_confirmation')
+    assert.equal(
+        (
+            await request('/api/library/songs/fictionalMatched', 'POST', {
+                action: 'retry',
+                monitorId: 'fixture',
+            })
+        ).status,
+        400,
     )
     assert.equal(
         (
@@ -284,7 +325,8 @@ try {
         ).status,
         400,
     )
-    let entries = await (await request('/api/monitors/fixture/songs')).json()
+    let entries = (await (await request('/api/monitors/fixture/songs')).json())
+        .items
     assert.equal(
         entries.find((e) => e.song.mid === 'fictionalConfirm').state,
         'pending_confirmation',
@@ -313,7 +355,8 @@ try {
     })
     assert.equal(batchResult.status, 200)
     assert.equal((await batchResult.json()).count, 1)
-    entries = await (await request('/api/monitors/fixture/songs')).json()
+    entries = (await (await request('/api/monitors/fixture/songs')).json())
+        .items
     assert.equal(
         entries.find((e) => e.song.mid === 'fictionalConfirm').state,
         'ignored',
@@ -331,7 +374,7 @@ try {
         400,
     )
     assert.deepEqual(
-        await (await request('/api/monitors/fixture/songs')).json(),
+        (await (await request('/api/monitors/fixture/songs')).json()).items,
         entries,
     )
     assert.deepEqual(fs.readFileSync(filePath), wav)

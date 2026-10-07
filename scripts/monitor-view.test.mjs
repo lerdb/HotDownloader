@@ -49,7 +49,12 @@ function harness(overrides = {}) {
             running: false,
             persistenceFailed: false,
         }),
-        getMonitorSongs: async () => [entry('song-a'), entry('song-b')],
+        getMonitorSongs: async () => ({
+            items: [entry('song-a'), entry('song-b')],
+            total: 2,
+            page: 1,
+            pageSize: 30,
+        }),
         getMonitorHistory: async () => [],
         samePlaylist: (a, b) =>
             a.source === b.source && a.playlistId === b.playlistId,
@@ -160,7 +165,7 @@ test('polling keeps its interval and stops while the cached page is inactive', a
     await settle()
     assert.equal(reads, 1)
     assert.equal(h.timers.size, 1)
-    assert.equal([...h.timers.values()][0].delay, 5000)
+    assert.equal([...h.timers.values()][0].delay, 15000)
     h.hooks.deactivate()
     assert.equal(h.timers.size, 0)
     h.hooks.activate()
@@ -174,23 +179,30 @@ test('pending selections span pages, cap at 200 and reset on search or monitor c
     const h = harness()
     t.after(() => h.scope.stop())
     const p = h.create()
-    p.songs.value = Array.from({ length: 220 }, (_, i) => entry(`song-${i}`))
+    p.songs.value = Array.from({ length: 30 }, (_, i) => entry(`song-${i}`))
     await vue.nextTick()
     p.selectPagePending(true)
     assert.equal(p.selectedMids.value.length, 30)
     p.page.value = 2
+    p.songs.value = Array.from({ length: 30 }, (_, i) =>
+        entry(`song-${i + 30}`),
+    )
+    await vue.nextTick()
     p.selectPagePending(true)
     assert.equal(p.selectedMids.value.length, 60)
     for (let i = 60; i < 220; i++) p.selectSong(`song-${i}`, true)
     assert.equal(p.selectedMids.value.length, 200)
     p.songs.value = [entry('song-0'), entry('song-1', 'ignored')]
     await vue.nextTick()
-    assert.deepEqual(plain(p.selectedMids.value), ['song-0'])
-    assert.equal(p.page.value, 1)
+    assert.equal(p.selectedMids.value.length, 199)
+    assert.ok(p.selectedMids.value.includes('song-0'))
+    assert.ok(!p.selectedMids.value.includes('song-1'))
+    assert.ok(p.selectedMids.value.includes('song-60'))
+    assert.equal(p.page.value, 2)
     p.query.value = '虚构歌手'
     await vue.nextTick()
     assert.equal(p.selectedMids.value.length, 0)
-    assert.equal(p.filteredSongs.value.length, 2)
+    assert.equal(p.pageSongs.value.length, 2)
     p.selectSong('song-0', true)
     p.selectedId.value = 'monitor-b'
     await vue.nextTick()
@@ -330,4 +342,64 @@ test('history for an older monitor cannot replace the newly opened history', asy
     assert.deepEqual(plain(p.history.value), [{ startedAt: 2 }])
     assert.equal(p.historyPage.value, 1)
     assert.equal(p.historyLoading.value, false)
+})
+
+test('server pages discard late responses and send filtering parameters', async (t) => {
+    const requests = []
+    const h = harness({
+        getMonitorSongs: (...args) =>
+            new Promise((resolve) => requests.push({ args, resolve })),
+    })
+    t.after(() => h.scope.stop())
+    const p = h.create()
+    const first = p.selectMonitor('monitor-a')
+    await settle()
+    assert.deepEqual(plain(requests[0].args), ['monitor-a', 1, 'all', ''])
+    p.page.value = 2
+    await vue.nextTick()
+    assert.deepEqual(plain(requests[1].args), ['monitor-a', 2, 'all', ''])
+    requests[1].resolve({
+        items: [entry('page-2')],
+        total: 60,
+        page: 2,
+        pageSize: 30,
+    })
+    await settle()
+    requests[0].resolve({
+        items: [entry('stale-page-1')],
+        total: 60,
+        page: 1,
+        pageSize: 30,
+    })
+    await first
+    assert.equal(p.page.value, 2)
+    assert.equal(p.totalSongs.value, 60)
+    assert.equal(p.songs.value[0].song.mid, 'page-2')
+    p.filter.value = 'failed'
+    await vue.nextTick()
+    assert.deepEqual(plain(requests.at(-1).args), [
+        'monitor-a',
+        1,
+        'failed',
+        '',
+    ])
+    requests.at(-1).resolve({ items: [], total: 0, page: 1, pageSize: 30 })
+    await settle()
+    assert.equal(p.totalSongs.value, 0)
+})
+
+test('candidate refresh and explicit retry carry the selected monitor context', async (t) => {
+    const calls = []
+    const h = harness({
+        decideSong: async (...args) => calls.push(plain(args)),
+    })
+    t.after(() => h.scope.stop())
+    const p = h.create()
+    await p.selectMonitor('monitor-a')
+    await p.decide(entry('song-a'), 'refresh')
+    await p.decide(entry('song-a', 'network_failed'), 'retry')
+    assert.deepEqual(calls, [
+        ['monitor-a', 'song-a', 'refresh'],
+        ['monitor-a', 'song-a', 'retry'],
+    ])
 })

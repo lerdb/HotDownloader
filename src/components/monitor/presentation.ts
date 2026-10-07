@@ -34,6 +34,7 @@ export const labels: Record<string, string> = {
     pending_confirmation: '待确认',
     no_quality: '无可用音质',
     download_failed: '下载失败',
+    network_failed: '网络异常',
     credential_invalid: '凭据失效',
 }
 export const stateLabel = (s: string) => labels[s] || s
@@ -46,6 +47,7 @@ export const canReset = (s: string) =>
         'ignored',
         'no_quality',
         'download_failed',
+        'network_failed',
         'credential_invalid',
     ].includes(s)
 export const stateType = (
@@ -55,7 +57,12 @@ export const stateType = (
         ? 'success'
         : s === 'pending_confirmation'
           ? 'warning'
-          : ['no_quality', 'download_failed', 'credential_invalid'].includes(s)
+          : [
+                  'no_quality',
+                  'network_failed',
+                  'download_failed',
+                  'credential_invalid',
+              ].includes(s)
             ? 'error'
             : 'default'
 export const time = (seconds: number, fallback = '尚未检查') =>

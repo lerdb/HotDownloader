@@ -241,6 +241,8 @@ pub async fn handle(
         return Ok(error_response(StatusCode::UNAUTHORIZED, "访问凭据无效"));
     }
     let method = request.method().clone();
+    let page_query =
+        crate::monitor::queries::PageQuery::from_query(request.uri().query().unwrap_or(""));
     let service = TaskService::new(
         &runtime.tasks,
         &runtime.engine,
@@ -252,8 +254,10 @@ pub async fn handle(
             monitor_result(runtime.monitors.library_status(&runtime.environment))
         }
         (Method::POST, "/api/library/scan") => {
-            let _guard = runtime.monitors.operation.lock().await;
             monitor_result(runtime.monitors.scan(&runtime).await.map(|r| json!(r)))
+        }
+        (Method::GET, "/api/library/issues") => {
+            monitor_result(page_query.and_then(|q| runtime.monitors.store.issue_page(&q)))
         }
         (Method::GET, "/api/monitors") => monitor_result(runtime.monitors.list()),
         (Method::POST, "/api/monitors") => {
@@ -272,7 +276,7 @@ pub async fn handle(
                 .split('/')
                 .collect();
             if parts.len() == 2 && parts[1] == "songs" {
-                monitor_result(runtime.monitors.songs(parts[0]))
+                monitor_result(page_query.and_then(|q| runtime.monitors.song_page(parts[0], &q)))
             } else if parts.len() == 2 && parts[1] == "history" {
                 monitor_result(runtime.monitors.history(parts[0]))
             } else {

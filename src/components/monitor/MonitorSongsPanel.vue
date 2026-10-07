@@ -13,7 +13,7 @@
         </div>
         <p class="muted">
             共
-            {{ filteredSongs.length }}
+            {{ totalSongs }}
             首。忽略或关联后，即使文件移动或任务记录清除，也不会自动重下。
         </p>
         <n-space class="batch-actions" align="center">
@@ -61,10 +61,7 @@
             </n-popconfirm>
         </n-space>
         <n-alert v-if="batchMessage" type="success">{{ batchMessage }}</n-alert>
-        <n-empty
-            v-if="!filteredSongs.length"
-            description="暂无符合条件的歌曲"
-        />
+        <n-empty v-if="!totalSongs" description="暂无符合条件的歌曲" />
         <article
             v-for="entry in pageSongs"
             :key="entry.song.mid"
@@ -97,9 +94,11 @@
             <code v-if="entry.path">{{ entry.path }}</code>
             <p
                 v-if="
-                    ['download_failed', 'credential_invalid'].includes(
-                        entry.state,
-                    )
+                    [
+                        'network_failed',
+                        'download_failed',
+                        'credential_invalid',
+                    ].includes(entry.state)
                 "
                 class="muted"
             >
@@ -112,6 +111,11 @@
             </p>
             <n-space class="actions">
                 <template v-if="entry.state === 'pending_confirmation'">
+                    <n-button
+                        :disabled="busy"
+                        @click="emit('decide', entry, 'refresh')"
+                        >重新扫描并刷新候选</n-button
+                    >
                     <n-button :disabled="busy" @click="emit('link', entry)"
                         >关联现有文件</n-button
                     >
@@ -126,6 +130,20 @@
                         >忽略</n-button
                     >
                 </template>
+                <n-button
+                    v-if="
+                        [
+                            'network_failed',
+                            'download_failed',
+                            'credential_invalid',
+                            'no_quality',
+                        ].includes(entry.state) &&
+                        (!entry.taskId || entry.owned)
+                    "
+                    :disabled="busy"
+                    @click="emit('decide', entry, 'retry')"
+                    >重试失败</n-button
+                >
                 <n-button
                     v-if="entry.taskId"
                     @click="
@@ -157,7 +175,7 @@
         <n-pagination
             v-model:page="page"
             :page-size="30"
-            :item-count="filteredSongs.length"
+            :item-count="totalSongs"
         />
     </n-card>
 </template>
@@ -195,7 +213,7 @@ defineProps<{
     selectedName: string
     busy: boolean
     batchMessage: string
-    filteredSongs: MonitorSong[]
+    totalSongs: number
     pageSongs: MonitorSong[]
     pagePending: MonitorSong[]
     allPagePendingSelected: boolean
@@ -206,7 +224,10 @@ const emit = defineEmits<{
     'select-song': [mid: string, checked: boolean]
     'batch-decide': [action: 'download' | 'ignore']
     link: [entry: MonitorSong]
-    decide: [entry: MonitorSong, action: 'download' | 'ignore' | 'reset']
+    decide: [
+        entry: MonitorSong,
+        action: 'download' | 'ignore' | 'reset' | 'refresh' | 'retry',
+    ]
 }>()
 </script>
 

@@ -127,6 +127,407 @@ fn entry(service: &MonitorService, mid: &str) -> Entry {
     service.store.get("entry", mid).unwrap().unwrap()
 }
 
+struct SlowRemote {
+    started: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+impl MonitorRemote for SlowRemote {
+    fn fetch<'a>(
+        &'a self,
+        monitor: &'a Monitor,
+        _: &'a ServerRuntime,
+    ) -> BoxFuture<'a, Result<Vec<Value>>> {
+        Box::pin(async move {
+            if monitor.config.name == "慢监控" {
+                self.started.notify_one();
+                self.release.notified().await;
+            }
+            Ok(vec![song(&format!("mid{}", monitor.id), "虚构曲")])
+        })
+    }
+    fn authenticate<'a>(&'a self, _: &'a ServerRuntime) -> BoxFuture<'a, Result<()>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[tokio::test]
+async fn slow_monitor_does_not_block_another_or_resurrect_deleted_configuration() {
+    let dir = Fixture::new();
+    let remote = Arc::new(SlowRemote {
+        started: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let service = MonitorService::with_remote(&dir.0, remote.clone()).unwrap();
+    let rt = ServerRuntime::test_runtime(&dir.0, service);
+    let slow = rt.monitors.save(None, config("慢监控")).await.unwrap();
+    let mut fast_input = config("快监控");
+    fast_input.playlist_id = "9988".into();
+    let fast = rt.monitors.save(None, fast_input).await.unwrap();
+    let work = {
+        let rt = rt.clone();
+        tokio::spawn(async move { rt.monitors.tick(&rt).await })
+    };
+    tokio::time::timeout(Duration::from_secs(2), remote.started.notified())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if rt
+                .tasks
+                .list()
+                .iter()
+                .any(|t| t.song_mid == format!("mid{}", fast.id))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("慢监控等待时其他监控应完成派发");
+    tokio::time::timeout(Duration::from_secs(2), rt.monitors.delete(&slow.id))
+        .await
+        .unwrap()
+        .unwrap();
+    remote.release.notify_one();
+    work.await.unwrap().unwrap();
+    assert!(rt
+        .monitors
+        .store
+        .get::<Monitor>("monitor", &slow.id)
+        .unwrap()
+        .is_none());
+    assert!(rt
+        .monitors
+        .store
+        .get::<Vec<CheckRecord>>("history", &slow.id)
+        .unwrap()
+        .is_none());
+    assert_eq!(rt.tasks.list().len(), 1);
+}
+
+#[tokio::test]
+async fn edits_and_decisions_do_not_wait_for_scan_and_old_work_cannot_reenable_monitor() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![song("new", "新歌")]));
+    let mut m = rt.monitors.save(None, config("编辑")).await.unwrap();
+    rt.monitors
+        .ingest(&mut m, vec![song("a", "甲")], "、")
+        .unwrap();
+    rt.monitors
+        .store
+        .change::<Entry>("entry", "a", |e| e.state = State::PendingConfirmation)
+        .unwrap();
+    rt.monitors.request_check(&m.id).await.unwrap();
+    let scan_guard = rt.monitors.scan_lock.lock().await;
+    let work = {
+        let rt = rt.clone();
+        tokio::spawn(async move { rt.monitors.tick(&rt).await })
+    };
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while rt.monitors.running.load(Ordering::Relaxed) == 0 {
+            tokio::task::yield_now().await;
+        }
+        m.config.enabled = false;
+        rt.monitors
+            .save(Some(&m.id), m.config.clone())
+            .await
+            .unwrap();
+        rt.monitors
+            .decide(&rt, "a", "ignore", None, Some(&m.id))
+            .await
+            .unwrap();
+    })
+    .await
+    .expect("扫描等待不应占用编辑锁");
+    drop(scan_guard);
+    work.await.unwrap().unwrap();
+    let saved = rt
+        .monitors
+        .store
+        .get::<Monitor>("monitor", &m.id)
+        .unwrap()
+        .unwrap();
+    assert!(!saved.config.enabled);
+    assert_eq!(saved.members, vec!["a"]);
+    assert_eq!(entry(&rt.monitors, "a").state, State::Ignored);
+    assert!(rt.tasks.list().is_empty());
+}
+
+#[tokio::test]
+async fn backfill_reuses_scan_and_manual_scan_refreshes_library() {
+    let dir = Fixture::new();
+    let rt = runtime(
+        &dir.0,
+        FakeRemote::new(
+            (0..45)
+                .map(|i| song(&format!("m{i}"), &format!("曲{i}")))
+                .collect(),
+        ),
+    );
+    rt.monitors.save(None, config("缓存")).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    let generation = rt.monitors.scan_generation.load(Ordering::Relaxed);
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(
+        rt.monitors.scan_generation.load(Ordering::Relaxed),
+        generation
+    );
+    wave(
+        &Path::new(rt.environment.default_download_dir()).join("后加 - 人.wav"),
+        None,
+        None,
+    );
+    rt.monitors.scan(&rt).await.unwrap();
+    assert_eq!(
+        rt.monitors.scan_generation.load(Ordering::Relaxed),
+        generation + 1
+    );
+    assert_eq!(
+        rt.monitors.library_status(&rt.environment).unwrap()["fileCount"],
+        1
+    );
+}
+
+#[tokio::test]
+async fn pagination_filters_before_slicing_and_does_not_send_full_membership() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+    let mut m = rt.monitors.save(None, config("分页")).await.unwrap();
+    rt.monitors
+        .ingest(
+            &mut m,
+            (0..135)
+                .map(|i| song(&format!("mid{i:03}"), &format!("曲{i}")))
+                .collect(),
+            "、",
+        )
+        .unwrap();
+    rt.monitors
+        .store
+        .change::<Entry>("entry", "mid134", |e| e.state = State::NetworkFailed)
+        .unwrap();
+    let q = queries::PageQuery {
+        page: 2,
+        ..Default::default()
+    };
+    let result = rt.monitors.song_page(&m.id, &q).unwrap();
+    assert_eq!(result["total"], 135);
+    assert_eq!(result["items"].as_array().unwrap().len(), 30);
+    assert_eq!(result["items"][0]["song"]["mid"], "mid030");
+    let filtered = rt
+        .monitors
+        .song_page(
+            &m.id,
+            &queries::PageQuery {
+                page: 99,
+                filter: "failed".into(),
+                query: "曲134".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(filtered["total"], 1);
+    assert_eq!(filtered["page"], 1);
+    assert_eq!(filtered["items"][0]["song"]["mid"], "mid134");
+    let summary = rt.monitors.list().unwrap();
+    assert!(summary["monitors"][0].get("members").is_none());
+    assert_eq!(summary["monitors"][0]["memberCount"], 135);
+    assert_eq!(summary["monitors"][0]["counts"]["network_failed"], 1);
+    assert!(queries::PageQuery::from_query("pageSize=100000").is_err());
+    assert_eq!(
+        queries::PageQuery::from_query("query=%E6%9B%B2&page=2")
+            .unwrap()
+            .query,
+        "曲"
+    );
+}
+
+#[tokio::test]
+async fn disabled_large_playlist_dispatches_explicit_song_beyond_first_query_batch() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+    let mut m = rt.monitors.save(None, config("大量歌曲")).await.unwrap();
+    rt.monitors
+        .ingest(
+            &mut m,
+            (0..250)
+                .map(|i| song(&format!("m{i:03}"), &format!("曲{i}")))
+                .collect(),
+            "、",
+        )
+        .unwrap();
+    m.config.enabled = false;
+    rt.monitors
+        .save(Some(&m.id), m.config.clone())
+        .await
+        .unwrap();
+    rt.monitors
+        .decide(&rt, "m249", "download", None, Some(&m.id))
+        .await
+        .unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(rt.tasks.list().len(), 1);
+    assert_eq!(rt.tasks.list()[0].song_mid, "m249");
+    assert_eq!(entry(&rt.monitors, "m000").state, State::Pending);
+}
+
+#[test]
+fn legacy_file_index_migrates_and_tracks_updates_and_deletes() {
+    let dir = Fixture::new();
+    let audio = dir.0.join("曲 - 人.wav");
+    wave(&audio, None, None);
+    let source = Store::open(&dir.0.join("source.sqlite3")).unwrap();
+    library::scan(&source, vec![root(&dir.0)], HashSet::new()).unwrap();
+    let file = source.all::<LocalFile>("file").unwrap().remove(0);
+    let path = dir.0.join("legacy.sqlite3");
+    {
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.execute_batch("CREATE TABLE records(kind TEXT NOT NULL,key TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(kind,key));PRAGMA user_version=1;").unwrap();
+        store::write(&db, "file", &file.path, &file).unwrap();
+    }
+    let store = Store::open(&path).unwrap();
+    assert!(matches!(
+        store
+            .match_indexed(&Identity::new("曲", ["人".into()]))
+            .unwrap(),
+        Match::Found(_)
+    ));
+    let mut changed = file.clone();
+    changed.warning = Some("synthetic parse failure".into());
+    store.put("file", &file.path, &changed).unwrap();
+    assert_eq!(
+        store.issue_page(&queries::PageQuery::default()).unwrap()["total"],
+        1
+    );
+    {
+        let db = store.0.lock().unwrap();
+        let plan: String = db
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT path FROM file_titles WHERE title='曲'",
+                [],
+                |r| r.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("SEARCH"));
+        db.execute(
+            "DELETE FROM records WHERE kind='file' AND key=?",
+            [&file.path],
+        )
+        .unwrap();
+    }
+    assert!(matches!(
+        store
+            .match_indexed(&Identity::new("曲", ["人".into()]))
+            .unwrap(),
+        Match::Missing
+    ));
+    assert_eq!(
+        store.issue_page(&queries::PageQuery::default()).unwrap()["total"],
+        0
+    );
+}
+
+#[tokio::test]
+async fn repaired_files_refresh_candidates_without_overwriting_user_decision() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![song("a", "曲")]));
+    let path = Path::new(rt.environment.default_download_dir()).join("unknown.wav");
+    std::fs::write(&path, b"broken synthetic audio").unwrap();
+    let m = rt.monitors.save(None, config("修复")).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(entry(&rt.monitors, "a").state, State::PendingConfirmation);
+    assert_eq!(
+        rt.monitors
+            .store
+            .issue_page(&queries::PageQuery::default())
+            .unwrap()["total"],
+        1
+    );
+    wave(&path, Some("曲"), Some("虚构甲、虚构乙"));
+    rt.monitors
+        .decide(&rt, "a", "refresh", None, Some(&m.id))
+        .await
+        .unwrap();
+    let e = entry(&rt.monitors, "a");
+    assert_eq!(e.state, State::PendingConfirmation);
+    assert_eq!(e.candidates.len(), 1);
+    assert!(rt.tasks.list().is_empty());
+    assert_eq!(
+        rt.monitors
+            .store
+            .issue_page(&queries::PageQuery::default())
+            .unwrap()["total"],
+        0
+    );
+    rt.monitors
+        .decide(
+            &rt,
+            "a",
+            "link",
+            Some(e.candidates[0].path.clone()),
+            Some(&m.id),
+        )
+        .await
+        .unwrap();
+    assert_eq!(entry(&rt.monitors, "a").state, State::Matched);
+    assert!(rt
+        .monitors
+        .decide(&rt, "a", "refresh", None, Some(&m.id))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn network_failures_are_distinct_and_explicit_retry_reuses_task() {
+    let dir = Fixture::new();
+    let remote = FakeRemote::new(vec![song("a", "曲")]);
+    *remote.auth_error.lock().unwrap() = Some("QQ 凭据校验超时".into());
+    let rt = runtime(&dir.0, remote.clone());
+    let m = rt.monitors.save(None, config("网络")).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(entry(&rt.monitors, "a").state, State::NetworkFailed);
+    assert!(entry(&rt.monitors, "a").next_retry > now());
+    for retry in 1..=3 {
+        rt.monitors
+            .store
+            .change::<Entry>("entry", "a", |e| e.next_retry = now())
+            .unwrap();
+        rt.monitors.tick(&rt).await.unwrap();
+        assert_eq!(entry(&rt.monitors, "a").retries, retry);
+    }
+    assert_eq!(entry(&rt.monitors, "a").next_retry, 0);
+    rt.monitors.tick(&rt).await.unwrap();
+    assert!(rt.tasks.list().is_empty());
+    *remote.auth_error.lock().unwrap() = None;
+    rt.monitors
+        .decide(&rt, "a", "retry", None, Some(&m.id))
+        .await
+        .unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    let id = entry(&rt.monitors, "a").task_id.unwrap();
+    rt.tasks.failed(&id, "写入磁盘失败", None);
+    assert_eq!(entry(&rt.monitors, "a").state, State::DownloadFailed);
+    rt.monitors
+        .decide(&rt, "a", "retry", None, Some(&m.id))
+        .await
+        .unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(
+        entry(&rt.monitors, "a").task_id.as_deref(),
+        Some(id.as_str())
+    );
+    assert_eq!(rt.tasks.list().len(), 1);
+    assert_eq!(
+        failure_state("QQ 凭据失效，请重新登录"),
+        State::CredentialInvalid
+    );
+    assert_eq!(
+        failure_state("网络错误: connection reset"),
+        State::NetworkFailed
+    );
+}
+
 #[test]
 fn readable_empty_mount_preserves_index_until_marker_confirms_intentional_cleanup() {
     let dir = Fixture::new();
