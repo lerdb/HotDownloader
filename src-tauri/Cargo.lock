@@ -1689,7 +1689,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hotdownloader"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "dirs 6.0.0",
  "futures-util",
