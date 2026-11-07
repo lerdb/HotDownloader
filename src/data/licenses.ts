@@ -71,12 +71,12 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "async-compression",
-        "version": "0.4.51",
+        "version": "0.4.52",
         "license": "MIT OR Apache-2.0"
     },
     {
         "name": "async-executor",
-        "version": "1.14.0",
+        "version": "1.14.1",
         "license": "Apache-2.0 OR MIT"
     },
     {
@@ -86,7 +86,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "async-lock",
-        "version": "3.4.2",
+        "version": "3.5.0",
         "license": "Apache-2.0 OR MIT"
     },
     {
@@ -206,7 +206,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "brotli-decompressor",
-        "version": "6.2.0",
+        "version": "6.3.0",
         "license": "BSD-3-Clause OR MIT"
     },
     {
@@ -266,7 +266,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "cc",
-        "version": "1.10.0",
+        "version": "1.11.1",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -321,7 +321,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "compression-codecs",
-        "version": "0.4.46",
+        "version": "0.4.47",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -376,7 +376,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "crc32fast",
-        "version": "1.5.3",
+        "version": "1.5.4",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -551,7 +551,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "encoding_rs",
-        "version": "0.8.42",
+        "version": "0.8.44",
         "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause"
     },
     {
@@ -631,7 +631,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "flate2",
-        "version": "1.1.10",
+        "version": "1.1.11",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -1021,17 +1021,17 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "jiff",
-        "version": "0.2.38",
+        "version": "0.2.39",
         "license": "Unlicense OR MIT"
     },
     {
         "name": "jiff-core",
-        "version": "0.1.1",
+        "version": "0.1.2",
         "license": "Unlicense OR MIT"
     },
     {
         "name": "jiff-static",
-        "version": "0.2.38",
+        "version": "0.2.39",
         "license": "Unlicense OR MIT"
     },
     {
@@ -1071,7 +1071,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "js-sys",
-        "version": "0.3.106",
+        "version": "0.3.107",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -1151,7 +1151,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "log",
-        "version": "0.4.34",
+        "version": "0.4.35",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -1186,7 +1186,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "mime",
-        "version": "0.3.17",
+        "version": "0.3.18",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -1831,7 +1831,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "serde_spanned",
-        "version": "1.1.2",
+        "version": "1.1.3",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -1911,7 +1911,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "smallvec",
-        "version": "1.16.4",
+        "version": "1.16.5",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -2216,7 +2216,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "toml",
-        "version": "1.1.8+spec-1.1.0",
+        "version": "1.2.1+spec-1.1.0",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -2226,7 +2226,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "toml_datetime",
-        "version": "1.1.2+spec-1.1.0",
+        "version": "1.1.3+spec-1.1.0",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -2241,7 +2241,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "toml_edit",
-        "version": "0.25.17+spec-1.1.0",
+        "version": "0.25.19+spec-1.1.0",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -2251,7 +2251,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "toml_writer",
-        "version": "1.1.3+spec-1.1.0",
+        "version": "1.2.0+spec-1.1.0",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -2355,18 +2355,23 @@ export const rustComponents: ComponentInfo[] = [
         "license": "MIT"
     },
     {
+        "name": "utf_types",
+        "version": "1.0.0",
+        "license": "Apache-2.0 OR MIT"
+    },
+    {
         "name": "utf-8",
         "version": "0.7.6",
         "license": "MIT OR Apache-2.0"
     },
     {
         "name": "utf8_iter",
-        "version": "1.0.4",
+        "version": "1.1.0",
         "license": "Apache-2.0 OR MIT"
     },
     {
         "name": "uuid",
-        "version": "1.29.0",
+        "version": "1.29.1",
         "license": "Apache-2.0 OR MIT"
     },
     {
@@ -2411,27 +2416,27 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "wasm-bindgen",
-        "version": "0.2.129",
+        "version": "0.2.130",
         "license": "MIT OR Apache-2.0"
     },
     {
         "name": "wasm-bindgen-futures",
-        "version": "0.4.79",
+        "version": "0.4.80",
         "license": "MIT OR Apache-2.0"
     },
     {
         "name": "wasm-bindgen-macro",
-        "version": "0.2.129",
+        "version": "0.2.130",
         "license": "MIT OR Apache-2.0"
     },
     {
         "name": "wasm-bindgen-macro-support",
-        "version": "0.2.129",
+        "version": "0.2.130",
         "license": "MIT OR Apache-2.0"
     },
     {
         "name": "wasm-bindgen-shared",
-        "version": "0.2.129",
+        "version": "0.2.130",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -2451,7 +2456,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "web-sys",
-        "version": "0.3.106",
+        "version": "0.3.107",
         "license": "MIT OR Apache-2.0"
     },
     {
@@ -2681,7 +2686,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "winnow",
-        "version": "1.0.4",
+        "version": "1.0.5",
         "license": "MIT"
     },
     {
@@ -2741,7 +2746,7 @@ export const rustComponents: ComponentInfo[] = [
     },
     {
         "name": "zcheapstr",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "license": "MIT"
     },
     {
@@ -2814,7 +2819,7 @@ export const rustComponents: ComponentInfo[] = [
 export const frontendComponents: ComponentInfo[] = [
     {
         "name": "@babel/helper-string-parser",
-        "version": "7.29.11",
+        "version": "7.29.13",
         "license": "MIT"
     },
     {
@@ -2834,12 +2839,12 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "@babel/parser",
-        "version": "7.29.11",
+        "version": "7.29.13",
         "license": "MIT"
     },
     {
         "name": "@babel/parser",
-        "version": "8.0.8",
+        "version": "8.1.0",
         "license": "MIT"
     },
     {
@@ -2849,7 +2854,7 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "@babel/types",
-        "version": "8.0.8",
+        "version": "8.1.0",
         "license": "MIT"
     },
     {
@@ -2974,22 +2979,22 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "@vue/compiler-core",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
         "name": "@vue/compiler-dom",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
         "name": "@vue/compiler-sfc",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
         "name": "@vue/compiler-ssr",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
@@ -3009,27 +3014,27 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "@vue/reactivity",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
         "name": "@vue/runtime-core",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
         "name": "@vue/runtime-dom",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
         "name": "@vue/server-renderer",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
         "name": "@vue/shared",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
@@ -3044,7 +3049,7 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "ast-kit",
-        "version": "3.0.0",
+        "version": "3.0.1",
         "license": "MIT"
     },
     {
@@ -3209,7 +3214,7 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "marked",
-        "version": "18.1.2",
+        "version": "18.1.3",
         "license": "MIT"
     },
     {
@@ -3309,7 +3314,7 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "semver",
-        "version": "7.8.5",
+        "version": "7.8.6",
         "license": "ISC"
     },
     {
@@ -3374,7 +3379,7 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "vite",
-        "version": "8.3.5",
+        "version": "8.3.6",
         "license": "MIT"
     },
     {
@@ -3384,7 +3389,7 @@ export const frontendComponents: ComponentInfo[] = [
     },
     {
         "name": "vue",
-        "version": "3.5.44",
+        "version": "3.5.45",
         "license": "MIT"
     },
     {
