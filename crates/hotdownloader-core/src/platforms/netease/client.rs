@@ -45,9 +45,7 @@ pub(super) async fn request(
     encrypted_api: bool,
 ) -> Result<(Value, String), String> {
     let mut cookies = cookie.to_string();
-    let form;
-    let url;
-    if encrypted_api {
+    let (form, url) = if encrypted_api {
         let mut header = json!({
             "os": "android",
             "appver": "8.10.05",
@@ -71,19 +69,23 @@ pub(super) async fn request(
             .collect::<Vec<_>>()
             .join("; ");
         data["header"] = header;
-        form = vec![("params", eapi(path, &data))];
-        url = format!(
-            "https://interface.music.163.com/eapi{}",
-            path.strip_prefix("/api").ok_or("网易云接口路径无效")?
-        );
+        (
+            vec![("params", eapi(path, &data))],
+            format!(
+                "https://interface.music.163.com/eapi{}",
+                path.strip_prefix("/api").ok_or("网易云接口路径无效")?
+            ),
+        )
     } else {
         data["csrf_token"] = json!(cookie_value(cookie, "__csrf"));
-        form = weapi(&data);
-        url = format!(
-            "https://music.163.com/weapi{}",
-            path.strip_prefix("/api").ok_or("网易云接口路径无效")?
-        );
-    }
+        (
+            weapi(&data),
+            format!(
+                "https://music.163.com/weapi{}",
+                path.strip_prefix("/api").ok_or("网易云接口路径无效")?
+            ),
+        )
+    };
     let response = super::super::CLIENT
         .post(url)
         .header("Referer", "https://music.163.com/")

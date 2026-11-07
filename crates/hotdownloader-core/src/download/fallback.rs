@@ -14,7 +14,7 @@ mod tests;
 pub enum FallbackOutcome {
     Disabled,
     Exhausted,
-    Next(TaskContext),
+    Next(Box<TaskContext>),
 }
 
 pub trait DownloadQualityFallback: Send + Sync {
@@ -125,7 +125,7 @@ impl DownloadQualityFallback for TaskQualityFallback<'_> {
                 record.speed = None;
                 record.error_msg = None;
             })?;
-            Ok(FallbackOutcome::Next(next))
+            Ok(FallbackOutcome::Next(Box::new(next)))
         })
     }
 }

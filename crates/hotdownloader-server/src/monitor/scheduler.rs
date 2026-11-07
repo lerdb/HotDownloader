@@ -295,12 +295,11 @@ impl MonitorService {
             {
                 continue;
             }
-            if budget
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
-                .is_err()
-            {
+            // operation 锁已串行化派发，预算检查和扣减不会与其他监控交错。
+            if budget.load(Ordering::Relaxed) == 0 {
                 break;
             }
+            budget.fetch_sub(1, Ordering::Relaxed);
             let mid = entry.mid().to_string();
             let enqueued = self
                 .dispatch(runtime, entry, auth.as_ref().unwrap())

@@ -70,7 +70,7 @@ fn generation(state: &mut LoginState, path: &PathBuf) -> u64 {
 fn validate_cookie(cookie: &str) -> Result<(), String> {
     if cookie.len() > 16384
         || cookie_value(cookie, "MUSIC_U").is_empty()
-        || cookie.bytes().any(|b| b < 32 || b >= 127)
+        || cookie.bytes().any(|b| !(32..127).contains(&b))
     {
         return Err("请输入包含 MUSIC_U 的有效网易云 Cookie".into());
     }

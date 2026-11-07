@@ -116,10 +116,10 @@ pub async fn download_task(
                     log::info!("任务 {} 获取到新下载链接", ctx.task_id);
                 }
                 Err(e) => {
-                    if controller.pause_flag.load(Ordering::SeqCst) {
-                        if controller.wait_for_resume_or_cancel().await {
-                            break 'download;
-                        }
+                    if controller.pause_flag.load(Ordering::SeqCst)
+                        && controller.wait_for_resume_or_cancel().await
+                    {
+                        break 'download;
                     }
                     if let Some(fallback) = quality_fallback.filter(|_| {
                         !e.contains("凭据") && !e.contains("凭证") && !e.contains("登录")
@@ -144,7 +144,7 @@ pub async fn download_task(
                                     ctx.quality,
                                     next.quality
                                 );
-                                ctx = next;
+                                ctx = *next;
                                 download_dir = ctx.save_path.clone();
                                 downloaded = 0;
                                 stream_retries = 0;
