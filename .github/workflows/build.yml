@@ -103,6 +103,10 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
+      - name: Disable Spotlight indexing
+        if: runner.os == 'macOS'
+        run: sudo mdutil -a -i off
+
       - name: Install frontend dependencies
         run: npm ci
 
