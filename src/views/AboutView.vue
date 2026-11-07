@@ -89,15 +89,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import { NButton, NUl, NLi, NA, NModal, NScrollbar } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import {
-    rustComponents,
-    frontendComponents,
+    rustComponents as rustComponentData,
+    frontendComponents as frontendComponentData,
     licenseTexts,
     type ComponentInfo,
 } from '../data/licenses'
+
+const rustComponents = shallowRef(rustComponentData)
+const frontendComponents = shallowRef(frontendComponentData)
 
 const version = import.meta.env.VITE_APP_VERSION
 
