@@ -1,6 +1,6 @@
 use std::path::Path;
 
-/// 内嵌封面独立于列表缩略图；原图不可用时按平台支持的尺寸回退。
+/// 下载封面独立于列表缩略图；原图不可用时按平台支持的尺寸回退。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CoverQuality {
     Source,
@@ -31,6 +31,7 @@ pub struct DownloadConfig {
     pub write_metadata: bool,
     pub cover_quality: CoverQuality,
     pub download_lrc: bool,
+    pub download_cover: bool,
 }
 
 impl DownloadConfig {
@@ -74,6 +75,10 @@ impl DownloadConfig {
                 .get("downloadLrc")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
+            download_cover: settings
+                .get("downloadCover")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
             cover_quality: CoverQuality::from_settings(settings),
         }
     }
@@ -87,6 +92,18 @@ pub trait DownloadConfigProvider: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{CoverQuality, DownloadConfig};
+
+    #[test]
+    fn standalone_cover_defaults_off_and_is_independent_of_metadata() {
+        let config = DownloadConfig::from_settings(&serde_json::json!({}), "C:/Music");
+        assert!(!config.download_cover);
+        let config = DownloadConfig::from_settings(
+            &serde_json::json!({"downloadCover": true, "writeMetadata": false}),
+            "C:/Music",
+        );
+        assert!(config.download_cover);
+        assert!(!config.write_metadata);
+    }
 
     #[test]
     fn cover_quality_defaults_to_original_and_reads_saved_choices() {

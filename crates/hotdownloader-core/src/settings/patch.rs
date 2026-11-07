@@ -129,9 +129,11 @@ fn validate_field(
     scope: SettingsScope,
 ) -> Result<(), SettingsPatchError> {
     let valid = match field {
-        "autoDowngrade" | "writeMetadata" | "downloadLrc" | "autoRefreshLoginOnStartup" => {
-            value.is_boolean()
-        }
+        "autoDowngrade"
+        | "writeMetadata"
+        | "downloadLrc"
+        | "downloadCover"
+        | "autoRefreshLoginOnStartup" => value.is_boolean(),
         "coverQuality" => matches!(value.as_str(), Some("source" | "500" | "original")),
         "maxConcurrent" => matches!(value.as_u64(), Some(1..=32)),
         "defaultQuality" => value
@@ -236,6 +238,36 @@ mod tests {
                 ),
                 Err(SettingsPatchError::Invalid(_))
             ));
+        }
+    }
+
+    #[test]
+    fn standalone_cover_toggle_is_validated_and_persisted_for_both_runtimes() {
+        for scope in [SettingsScope::Tauri, SettingsScope::Web] {
+            let enabled = apply_patch(
+                &json!({}),
+                patch("downloadCover", json!(true), Value::Null),
+                scope,
+            )
+            .unwrap();
+            let disabled = apply_patch(
+                &enabled.stored,
+                patch("downloadCover", json!(false), json!(true)),
+                scope,
+            )
+            .unwrap();
+            assert_eq!(enabled.snapshot.settings["downloadCover"], true);
+            assert_eq!(disabled.snapshot.settings["downloadCover"], false);
+            for invalid in [json!("true"), json!(1), Value::Null] {
+                assert!(matches!(
+                    apply_patch(
+                        &json!({}),
+                        patch("downloadCover", invalid, Value::Null),
+                        scope
+                    ),
+                    Err(SettingsPatchError::Invalid(_))
+                ));
+            }
         }
     }
 

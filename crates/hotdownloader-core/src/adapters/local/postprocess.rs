@@ -1,4 +1,4 @@
-//! 普通文件系统的 LRC 与音频标签写入，以及完整下载收尾实现。
+//! 普通文件系统的歌词、封面与音频标签写入，以及完整下载收尾实现。
 
 use std::path::Path;
 
@@ -10,7 +10,9 @@ use lofty::tag::{ItemKey, Tag, TagType};
 
 use crate::download::context::TaskContext;
 use crate::download::ports::{DownloadPostprocessor, DownloadProgressSink, PostprocessRequest};
-use crate::download::postprocess::{lrc_file_name, prepare_assets, PostprocessAssets};
+use crate::download::postprocess::{
+    cover_file_name, lrc_file_name, prepare_assets, PostprocessAssets,
+};
 use crate::platforms::lyric::LyricData;
 
 /// 将普通 LRC 写在音频旁边；无歌词或写入失败都不改变音频下载结果。
@@ -19,17 +21,30 @@ pub fn write_local_lrc(audio_path: &str, lyric: &LyricData) -> Option<String> {
         .lrc
         .as_deref()
         .filter(|value| !value.trim().is_empty())?;
-    let audio = Path::new(audio_path);
-    let parent = audio.parent().unwrap_or_else(|| Path::new("."));
-    let lrc_path = parent.join(lrc_file_name(audio_path));
+    write_local_sidecar(audio_path, &lrc_file_name(audio_path), content.as_bytes())
+}
 
-    match std::fs::write(&lrc_path, content) {
+/// 将封面原始图片保存在音频旁边，使用实际图片格式的扩展名。
+pub fn write_local_cover(audio_path: &str, cover_bytes: &[u8]) -> Option<String> {
+    let Some(name) = cover_file_name(audio_path, cover_bytes) else {
+        log::warn!("封面图片格式无效，跳过封面文件创建");
+        return None;
+    };
+    write_local_sidecar(audio_path, &name, cover_bytes)
+}
+
+fn write_local_sidecar(audio_path: &str, file_name: &str, content: &[u8]) -> Option<String> {
+    let parent = Path::new(audio_path)
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let path = parent.join(file_name);
+    match std::fs::write(&path, content) {
         Ok(()) => {
-            log::info!("LRC 歌词文件已保存: {}", lrc_path.display());
-            Some(lrc_path.to_string_lossy().to_string())
+            log::info!("附属文件已保存: {}", path.display());
+            Some(path.to_string_lossy().to_string())
         }
         Err(error) => {
-            log::warn!("写入 LRC 歌词文件失败 {}: {error}", lrc_path.display());
+            log::warn!("写入附属文件失败 {}: {error}", path.display());
             None
         }
     }
@@ -114,17 +129,12 @@ impl DownloadPostprocessor for LocalDownloadPostprocessor {
         &'a self,
         request: PostprocessRequest<'a>,
         progress_sink: &'a dyn DownloadProgressSink,
-    ) -> BoxFuture<'a, Option<String>> {
+    ) -> BoxFuture<'a, Vec<String>> {
         Box::pin(async move {
-            let assets = prepare_assets(
-                request.context,
-                request.config.write_metadata,
-                request.config.download_lrc,
-                request.config.cover_quality,
-            )
-            .await;
+            let assets = prepare_assets(request.context, request.config).await;
+            let mut paths = Vec::new();
 
-            // 先写音频标签，再处理独立 LRC；标签失败只发警告，仍继续尝试歌词文件。
+            // 标签和附属文件分别处理，任一可选产物失败都不阻止其余产物保存。
             if request.config.write_metadata {
                 if let Err(error) =
                     write_audio_metadata(Path::new(request.audio_path), request.context, &assets)
@@ -134,22 +144,34 @@ impl DownloadPostprocessor for LocalDownloadPostprocessor {
                 }
             }
 
+            if request.config.download_cover {
+                if let Some(bytes) = assets.cover_bytes.as_deref() {
+                    paths.extend(write_local_cover(request.audio_path, bytes));
+                } else {
+                    log::info!("无可用封面，跳过封面文件创建");
+                }
+            }
+
             if request.config.download_lrc {
                 if let Some(lyric) = assets.lyric.as_ref() {
-                    // 独立歌词是可选产物，写入失败不会回退已经完成的音频下载。
-                    return write_local_lrc(request.audio_path, lyric);
+                    paths.extend(write_local_lrc(request.audio_path, lyric));
+                } else {
+                    log::info!("无普通歌词，跳过 LRC 文件创建");
                 }
-                log::info!("无普通歌词，跳过 LRC 文件创建");
             }
-            None
+            paths
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{write_audio_metadata, write_local_lrc};
+    use super::{
+        write_audio_metadata, write_local_cover, write_local_lrc, LocalDownloadPostprocessor,
+    };
+    use crate::download::config::DownloadConfig;
     use crate::download::context::{SongInfo, TaskContext};
+    use crate::download::ports::{DownloadPostprocessor, DownloadProgressSink, PostprocessRequest};
     use crate::download::postprocess::PostprocessAssets;
     use crate::platforms::kuwo::lyric_decoder;
     use crate::platforms::lyric::LyricData;
@@ -158,6 +180,150 @@ mod tests {
     use lofty::tag::ItemKey;
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    struct UnexpectedProgress;
+
+    impl DownloadProgressSink for UnexpectedProgress {
+        fn progress(&self, _: &str, _: u64, _: u64, _: u64) {
+            panic!("unexpected progress");
+        }
+        fn file_complete(&self, _: &str) {
+            panic!("unexpected file completion");
+        }
+        fn completed(&self, _: &str, _: &str, _: Option<String>) {
+            panic!("unexpected completion");
+        }
+        fn error(&self, _: &str, message: &str) {
+            panic!("unexpected error: {message}");
+        }
+        fn link_expired(&self, _: &str, _: u64) {
+            panic!("unexpected expired link");
+        }
+        fn metadata_error(&self, _: &str, message: &str) {
+            panic!("unexpected metadata error: {message}");
+        }
+    }
+
+    #[tokio::test]
+    async fn cover_download_respects_toggle_and_preserves_audio_without_metadata() {
+        use base64::Engine;
+        use std::io::{Read, Write};
+        use std::time::Duration;
+
+        let image = base64::engine::general_purpose::STANDARD.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII="
+        ).unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        // URL 故意使用 jpg，确认最终扩展名依据响应图片内容。
+        let cover_url = format!("http://{}/cover.jpg", listener.local_addr().unwrap());
+        let response_image = image.clone();
+        let server = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && std::time::Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("local HTTP accept failed: {error}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let mut bytes = [0; 1024];
+                let count = stream.read(&mut bytes).unwrap();
+                assert!(count > 0 && request.len() < 16 * 1024);
+                request.extend_from_slice(&bytes[..count]);
+            }
+            assert!(String::from_utf8_lossy(&request).starts_with("GET /cover.jpg "));
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                response_image.len()
+            )
+            .unwrap();
+            stream.write_all(&response_image).unwrap();
+        });
+        let directory =
+            std::env::temp_dir().join(format!("hotdownloader-cover-{:x}", rand::random::<u64>()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let audio = directory.join("歌曲.live - 歌手 (2).flac");
+        std::fs::write(&audio, b"audio sentinel").unwrap();
+        let context = TaskContext {
+            task_id: "cover-download".into(),
+            platform: Platform::QqMusic,
+            song_mid: "synthetic".into(),
+            song_id: 1,
+            url: String::new(),
+            save_path: audio.to_string_lossy().into(),
+            quality: "flac".into(),
+            key: String::new(),
+            file_size: 14,
+            downloaded_offset: 0,
+            quality_filename: String::new(),
+            final_path: Arc::new(Mutex::new(None)),
+            song_info: SongInfo {
+                title: "歌曲".into(),
+                artist: "歌手".into(),
+                album: String::new(),
+                quality: "flac".into(),
+                cover_url,
+            },
+        };
+        for enabled in [false, true] {
+            let config = DownloadConfig::from_settings(
+                &serde_json::json!({"downloadCover": enabled}),
+                directory.to_str().unwrap(),
+            );
+            let paths = LocalDownloadPostprocessor
+                .process(
+                    PostprocessRequest {
+                        context: &context,
+                        audio_path: audio.to_str().unwrap(),
+                        is_saf: false,
+                        saf_file_uri: None,
+                        saf_folder_uri: None,
+                        config: &config,
+                    },
+                    &UnexpectedProgress,
+                )
+                .await;
+            if enabled {
+                assert_eq!(
+                    paths,
+                    [directory.join("歌曲.live - 歌手 (2).png").to_string_lossy()]
+                );
+                assert_eq!(std::fs::read(&paths[0]).unwrap(), image);
+                // 覆盖同名文件时截断旧内容，不留下尾部字节。
+                std::fs::write(&paths[0], vec![0; image.len() + 100]).unwrap();
+                assert_eq!(
+                    write_local_cover(audio.to_str().unwrap(), &image),
+                    Some(paths[0].clone())
+                );
+                assert_eq!(std::fs::read(&paths[0]).unwrap(), image);
+                std::fs::remove_file(&paths[0]).unwrap();
+            } else {
+                assert!(paths.is_empty());
+                assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+            }
+            assert_eq!(std::fs::read(&audio).unwrap(), b"audio sentinel");
+        }
+        assert!(write_local_cover(audio.to_str().unwrap(), b"<html>error</html>").is_none());
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        server.join().unwrap();
+        std::fs::remove_file(audio).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
 
     #[test]
     fn bilingual_word_times_survive_mp3_and_flac_metadata_and_plain_sidecar() {

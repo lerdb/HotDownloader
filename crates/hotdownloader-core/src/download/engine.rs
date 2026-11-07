@@ -58,8 +58,8 @@ pub struct TaskController {
     pub delete_file_on_cancel: Arc<AtomicBool>,
     /// 下载线程确定的最终文件路径（供外部删除使用）
     pub final_path: Arc<Mutex<Option<String>>>,
-    /// 下载线程确定的最终 LRC 文件路径（供外部删除使用）
-    pub lrc_final_path: Arc<Mutex<Option<String>>>,
+    /// 下载线程保存的歌词与封面文件路径（供外部删除使用）
+    pub sidecar_final_paths: Arc<Mutex<Vec<String>>>,
     /// 任务是否已由调度器启动
     pub started: Arc<AtomicBool>,
     /// 任务完成或退出的通知（用于 remove 等待）
@@ -98,8 +98,8 @@ pub struct DownloadEngine {
     task_contexts: Arc<Mutex<HashMap<String, TaskContext>>>,
     /// 存储任务最终文件路径（普通路径或 SAF URI），用于删除文件
     final_paths: Arc<Mutex<HashMap<String, String>>>,
-    /// 存储任务对应的 LRC 歌词文件路径/URI，用于删除时一并清理
-    lrc_paths: Arc<Mutex<HashMap<String, String>>>,
+    /// 存储任务对应的歌词与封面文件路径/URI，用于删除时一并清理
+    sidecar_paths: Arc<Mutex<HashMap<String, Vec<String>>>>,
     /// 保护任务启动与移除的互斥锁，避免竞态
     start_lock: Arc<Mutex<()>>,
 }
@@ -113,10 +113,10 @@ impl DownloadEngine {
             .insert(task_id.to_string(), path.to_string());
     }
 
-    /// 品质降级后清除旧文件和歌词路径，避免沿用上一次尝试的目标。
+    /// 品质降级后清除旧文件和附属文件路径，避免沿用上一次尝试的目标。
     pub async fn forget_final_path(&self, task_id: &str) {
         self.final_paths.lock().await.remove(task_id);
-        self.lrc_paths.lock().await.remove(task_id);
+        self.sidecar_paths.lock().await.remove(task_id);
     }
 
     /// 等待上一轮 worker 完全退出，再以相同任务 ID 开始重试。
@@ -145,7 +145,7 @@ impl DownloadEngine {
             scheduler_notify: Arc::new(Notify::new()),
             task_contexts: Arc::new(Mutex::new(HashMap::new())),
             final_paths: Arc::new(Mutex::new(HashMap::new())),
-            lrc_paths: Arc::new(Mutex::new(HashMap::new())),
+            sidecar_paths: Arc::new(Mutex::new(HashMap::new())),
             start_lock: Arc::new(Mutex::new(())),
         }
     }
@@ -160,7 +160,7 @@ impl DownloadEngine {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path: ctx.final_path.clone(),
-            lrc_final_path: Arc::new(Mutex::new(None)),
+            sidecar_final_paths: Arc::new(Mutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(false)),
             done: Arc::new(Notify::new()),
         };
@@ -210,7 +210,7 @@ impl DownloadEngine {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path: ctx.final_path.clone(), // 共享同一个 final_path
-            lrc_final_path: Arc::new(Mutex::new(None)),
+            sidecar_final_paths: Arc::new(Mutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(false)),
             done: Arc::new(Notify::new()),
         };
@@ -372,10 +372,14 @@ impl DownloadEngine {
                         if let Some(p) = final_path {
                             engine.final_paths.lock().await.insert(task_id.clone(), p);
                         }
-                        // 保存 LRC 歌词文件路径（若存在）
-                        let lrc_path = ctrl_clone.lrc_final_path.lock().await.clone();
-                        if let Some(lp) = lrc_path {
-                            engine.lrc_paths.lock().await.insert(task_id.clone(), lp);
+                        // 保存本次下载生成的歌词与封面文件路径。
+                        let paths = ctrl_clone.sidecar_final_paths.lock().await.clone();
+                        if !paths.is_empty() {
+                            engine
+                                .sidecar_paths
+                                .lock()
+                                .await
+                                .insert(task_id.clone(), paths);
                         }
 
                         // 下载结束（完成/错误），仅移除控制器，保留任务上下文供删除文件使用
@@ -458,7 +462,7 @@ impl DownloadEngine {
             }
         };
 
-        // 用 delete_error 暂存主文件删除错误，继续执行 LRC 删除和 final_paths/task_contexts 清理，最后统一返回错误。
+        // 主文件删除失败时仍清理附属文件及路径映射，最后统一返回错误。
         let mut delete_error: Option<String> = None;
 
         // 6. 删除文件（如果要求）
@@ -466,7 +470,7 @@ impl DownloadEngine {
             if let Some(path) = &final_path {
                 if let Err(e) = self.file_deleter.remove(path).await {
                     log::error!("删除文件失败 {}: {}", path, e);
-                    // 删除主文件失败时不再提前返回，确保 LRC 文件删除与路径映射清理仍会执行。
+                    // 保证附属文件删除与路径映射清理仍会执行。
                     delete_error = Some(e);
                 } else {
                     log::info!("已删除文件: {}", path);
@@ -474,19 +478,21 @@ impl DownloadEngine {
             }
         }
 
-        // 删除对应的 LRC 歌词文件（如果存在且要求删除文件）
+        // 无论是否删除文件都清理路径映射；附属文件删除失败只记录日志。
+        let sidecar_paths = self
+            .sidecar_paths
+            .lock()
+            .await
+            .remove(task_id)
+            .unwrap_or_default();
         if delete_file {
-            if let Some(lrc) = self.lrc_paths.lock().await.remove(task_id) {
-                if let Err(e) = self.file_deleter.remove(&lrc).await {
-                    // LRC 删除失败不阻塞主流程，仅记录日志
-                    log::warn!("删除 LRC 文件失败 {}: {}", lrc, e);
+            for path in sidecar_paths {
+                if let Err(e) = self.file_deleter.remove(&path).await {
+                    log::warn!("删除附属文件失败 {path}: {e}");
                 } else {
-                    log::info!("已删除 LRC 文件: {}", lrc);
+                    log::info!("已删除附属文件: {path}");
                 }
             }
-        } else {
-            // 不删除文件时，也需要清理 LRC 路径映射，避免残留
-            self.lrc_paths.lock().await.remove(task_id);
         }
 
         // 7. 清除 final_paths 和 task_contexts
@@ -544,6 +550,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn remove_tracks_both_lyrics_and_cover_and_respects_keep_files() {
+        for delete_file in [false, true] {
+            let engine = DownloadEngine::new(
+                Arc::new(StubRunner(Arc::new(AtomicUsize::new(0)))),
+                Arc::new(LocalFileDeleter),
+                Arc::new(crate::download::ports::NoopCompletionNotifier),
+            );
+            let directory = std::env::temp_dir().join(format!(
+                "hotdownloader-sidecars-{:x}",
+                rand::random::<u64>()
+            ));
+            std::fs::create_dir_all(&directory).unwrap();
+            let paths = ["song.flac", "song.lrc", "song.png"].map(|name| directory.join(name));
+            for path in &paths {
+                std::fs::write(path, b"sentinel").unwrap();
+            }
+            engine
+                .final_paths
+                .lock()
+                .await
+                .insert("task".into(), paths[0].to_string_lossy().into());
+            engine.sidecar_paths.lock().await.insert(
+                "task".into(),
+                paths[1..]
+                    .iter()
+                    .map(|path| path.to_string_lossy().into())
+                    .collect(),
+            );
+            engine.remove("task", delete_file).await.unwrap();
+            assert!(engine.final_paths.lock().await.is_empty());
+            assert!(engine.sidecar_paths.lock().await.is_empty());
+            for path in paths {
+                assert_eq!(path.exists(), !delete_file);
+                if !delete_file {
+                    assert_eq!(std::fs::read(&path).unwrap(), b"sentinel");
+                    std::fs::remove_file(path).unwrap();
+                }
+            }
+            std::fs::remove_dir(directory).unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn paused_controller_exits_when_canceled() {
         let controller = TaskController {
             cancel_token: CancellationToken::new(),
@@ -552,7 +601,7 @@ mod tests {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path: Arc::new(Mutex::new(None)),
-            lrc_final_path: Arc::new(Mutex::new(None)),
+            sidecar_final_paths: Arc::new(Mutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(true)),
             done: Arc::new(Notify::new()),
         };

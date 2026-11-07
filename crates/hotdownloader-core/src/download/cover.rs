@@ -1,4 +1,4 @@
-//! 内嵌封面按平台选择原图或高清地址，不改变搜索列表使用的缩略图。
+//! 下载封面按平台选择原图或高清地址，供音频标签及独立图片文件共用。
 
 use lofty::picture::Picture;
 use once_cell::sync::Lazy;

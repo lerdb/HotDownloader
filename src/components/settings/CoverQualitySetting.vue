@@ -1,13 +1,16 @@
 <template>
-    <n-form-item label="内嵌封面清晰度">
+    <n-form-item label="封面清晰度">
         <div class="cover-quality-setting">
             <n-select
                 v-model:value="settingsStore.settings.coverQuality"
                 :options="options"
-                :disabled="!settingsStore.settings.writeMetadata"
+                :disabled="
+                    !settingsStore.settings.writeMetadata &&
+                    !settingsStore.settings.downloadCover
+                "
             />
             <p class="setting-hint">
-                开启写入歌曲标签后生效。超清优先获取音源原图，实际尺寸取决于音源；获取失败时自动回退。
+                用于歌曲标签和单独保存的封面。超清优先获取音源原图，实际尺寸取决于音源；获取失败时自动回退。
             </p>
         </div>
     </n-form-item>

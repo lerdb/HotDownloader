@@ -1,20 +1,18 @@
 use std::io::{Seek, Write};
 use std::path::Path;
 
-use hotdownloader_core::download::postprocess::lrc_file_name;
 use tauri::AppHandle;
 use tauri_plugin_android_fs::{AndroidFsExt, FileAccessMode, FsUri};
 
-/// 通过 Android SAF 在已授权目录中创建与歌曲同名的 `.lrc` 文件。
+/// 通过 Android SAF 保存歌词或封面，已有同名文件会被清空后重写。
 /// 普通文件路径由共享核心处理；此函数的失败只记录日志，不阻塞主下载流程。
-pub(crate) async fn write_saf_lrc_file(
+pub(crate) fn write_saf_sidecar_file(
     app_handle: &AppHandle,
-    lrc_content: &str,
-    song_file_path: &str,
-    saf_folder_uri: Option<String>,
+    file_name: &str,
+    content: &[u8],
+    saf_folder_uri: Option<&str>,
 ) -> Option<String> {
-    // SAF 模式：在已授权的 SAF 目录中创建同名 .lrc 文件
-    let parent_uri = match saf_folder_uri.as_deref() {
+    let parent_uri = match saf_folder_uri {
         Some(s) => match FsUri::from_json_str(s) {
             Ok(uri) => uri,
             Err(e) => {
@@ -23,16 +21,14 @@ pub(crate) async fn write_saf_lrc_file(
             }
         },
         None => {
-            log::warn!("SAF 文件夹 URI 缺失，无法创建 LRC 文件");
+            log::warn!("SAF 文件夹 URI 缺失，无法创建附属文件 {file_name}");
             return None;
         }
     };
 
-    let lrc_name = lrc_file_name(song_file_path);
     let api = app_handle.android_fs();
 
-    // 尝试解析已存在的 LRC 文件，若存在则打开可写并清空；否则创建新文件
-    let file_path = Path::new(&lrc_name);
+    let file_path = Path::new(file_name);
     let file_uri_opt = api.resolve_file_uri(&parent_uri, file_path).ok();
 
     match file_uri_opt {
@@ -41,22 +37,22 @@ pub(crate) async fn write_saf_lrc_file(
             match api.open_file(&existing_uri, FileAccessMode::ReadWrite) {
                 Ok(mut f) => {
                     if let Err(e) = f.set_len(0) {
-                        log::warn!("清空 LRC 文件失败: {}", e);
+                        log::warn!("清空附属文件 {file_name} 失败: {e}");
                         return None;
                     }
                     if let Err(e) = f.seek(std::io::SeekFrom::Start(0)) {
-                        log::warn!("LRC 文件 seek 失败: {}", e);
+                        log::warn!("附属文件 {file_name} seek 失败: {e}");
                         return None;
                     }
-                    if let Err(e) = f.write_all(lrc_content.as_bytes()) {
-                        log::warn!("写入 LRC 歌词内容失败: {}", e);
+                    if let Err(e) = f.write_all(content) {
+                        log::warn!("写入附属文件 {file_name} 失败: {e}");
                         return None;
                     }
-                    log::info!("SAF LRC 歌词文件已保存: {}", existing_uri.uri);
+                    log::info!("SAF 附属文件已保存: {}", existing_uri.uri);
                     Some(existing_uri.uri.clone())
                 }
                 Err(e) => {
-                    log::warn!("打开已有 LRC 文件失败: {}", e);
+                    log::warn!("打开已有附属文件 {file_name} 失败: {e}");
                     None
                 }
             }
@@ -66,20 +62,20 @@ pub(crate) async fn write_saf_lrc_file(
             match api.create_new_file(&parent_uri, file_path, None) {
                 Ok(new_uri) => match api.open_file_writable(&new_uri) {
                     Ok(mut f) => {
-                        if let Err(e) = f.write_all(lrc_content.as_bytes()) {
-                            log::warn!("写入 LRC 歌词内容失败: {}", e);
+                        if let Err(e) = f.write_all(content) {
+                            log::warn!("写入附属文件 {file_name} 失败: {e}");
                             return None;
                         }
-                        log::info!("SAF LRC 歌词文件已保存: {}", new_uri.uri);
+                        log::info!("SAF 附属文件已保存: {}", new_uri.uri);
                         Some(new_uri.uri.clone())
                     }
                     Err(e) => {
-                        log::warn!("打开新 LRC 文件失败: {}", e);
+                        log::warn!("打开新附属文件 {file_name} 失败: {e}");
                         None
                     }
                 },
                 Err(e) => {
-                    log::warn!("创建 LRC 文件失败: {}", e);
+                    log::warn!("创建附属文件 {file_name} 失败: {e}");
                     None
                 }
             }

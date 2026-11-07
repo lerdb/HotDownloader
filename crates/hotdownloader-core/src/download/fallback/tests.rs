@@ -207,7 +207,7 @@ impl Fixture {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path,
-            lrc_final_path: Arc::new(AsyncMutex::new(None)),
+            sidecar_final_paths: Arc::new(AsyncMutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(true)),
             done: Arc::new(Notify::new()),
         };

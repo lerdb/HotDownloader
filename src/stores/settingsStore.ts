@@ -18,6 +18,7 @@ const SHARED_KEYS: SettingKey[] = [
     'writeMetadata',
     'coverQuality',
     'downloadLrc',
+    'downloadCover',
     'duplicateStrategy',
 ]
 const NATIVE_KEYS: SettingKey[] = [

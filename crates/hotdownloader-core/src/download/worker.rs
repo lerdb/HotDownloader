@@ -345,12 +345,10 @@ pub async fn download_task(
             saf_folder_uri: saf_folder_uri.as_deref(),
             config: &config,
         };
-        if let Some(path) = postprocessor
+        let paths = postprocessor
             .process(postprocess_request, progress_sink)
-            .await
-        {
-            *controller.lrc_final_path.lock().await = Some(path);
-        }
+            .await;
+        *controller.sidecar_final_paths.lock().await = paths;
 
         // 全部处理完成，发送下载完成事件
         let final_display_path = if is_saf {
@@ -472,7 +470,7 @@ mod tests {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path: Arc::new(Mutex::new(None)),
-            lrc_final_path: Arc::new(Mutex::new(None)),
+            sidecar_final_paths: Arc::new(Mutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(true)),
             done: Arc::new(Notify::new()),
         };
@@ -483,6 +481,7 @@ mod tests {
             write_metadata: false,
             cover_quality: Default::default(),
             download_lrc: false,
+            download_cover: false,
         };
         let sink = RecordingSink::default();
 
@@ -615,7 +614,7 @@ mod tests {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path: Arc::new(Mutex::new(None)),
-            lrc_final_path: Arc::new(Mutex::new(None)),
+            sidecar_final_paths: Arc::new(Mutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(true)),
             done: Arc::new(Notify::new()),
         };
@@ -632,6 +631,7 @@ mod tests {
                     write_metadata: false,
                     cover_quality: Default::default(),
                     download_lrc: false,
+                    download_cover: false,
                 },
                 DownloadWorkerPorts {
                     quality_fallback: None,

@@ -63,6 +63,7 @@
                 <WriteMetadataSetting />
                 <CoverQualitySetting />
                 <DownloadLrcSetting />
+                <DownloadCoverSetting />
                 <ConcurrencySetting />
                 <JumpToTaskSetting />
                 <DuplicateStrategySetting />
@@ -108,6 +109,7 @@ import ClearHistoryButton from '../components/settings/ClearHistoryButton.vue'
 import WriteMetadataSetting from '../components/settings/WriteMetadataSetting.vue'
 import CoverQualitySetting from '../components/settings/CoverQualitySetting.vue'
 import DownloadLrcSetting from '../components/settings/DownloadLrcSetting.vue'
+import DownloadCoverSetting from '../components/settings/DownloadCoverSetting.vue'
 import AccountSettings from '../components/settings/AccountSettings.vue'
 import DuplicateStrategySetting from '../components/settings/DuplicateStrategySetting.vue'
 import NotifySetting from '../components/settings/NotifySetting.vue'
@@ -136,8 +138,9 @@ const settingLabels: Partial<Record<keyof Settings, string>> = {
     safFolderUri: 'Android 文件夹',
     safFolderName: 'Android 文件夹名称',
     writeMetadata: '写入元数据',
-    coverQuality: '内嵌封面清晰度',
+    coverQuality: '封面清晰度',
     downloadLrc: '下载歌词',
+    downloadCover: '保存封面文件',
     duplicateStrategy: '重复文件处理',
     notifyOnComplete: '完成通知',
 }
