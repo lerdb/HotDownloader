@@ -3,10 +3,17 @@
 //! 通过 QQ 音乐移动端搜索接口进行歌曲搜索，返回解析后的歌曲列表和分页信息。
 //! 歌曲解析复用 [`super::parser::parse_song`] 函数。
 
+use rand::Rng;
 use serde_json::{json, Value};
 
 use super::parser::parse_song;
 use crate::platforms::{get_guid, CLIENT};
+
+pub(crate) fn get_search_id() -> String {
+    let mut rng = rand::rng();
+    let suffix: u32 = rng.random_range(0..100_000);
+    format!("{}{:05}", get_guid(), suffix)
+}
 
 /// 搜索歌曲，返回 JSON 数组字符串（扩展 SongInfo，增加 `mediaMid` 和 `qualities`）。
 ///
@@ -70,13 +77,6 @@ async fn search_request(
     limit: u32,
     search_type: u32,
 ) -> Result<Value, String> {
-    // 生成搜索 ID（当前毫秒时间戳）
-    let searchid = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-        .to_string();
-
     // 构造请求体
     let request_body = json!({
         "comm": mobile_comm(),
@@ -84,13 +84,13 @@ async fn search_request(
             "module": "music.search.SearchCgiService",
             "method": "DoSearchForQQMusicLite",
             "param": {
-                "search_type": search_type,
                 // 0是搜索歌曲，1是搜索歌手，2是搜索专辑，不同type具体返回的响应不一样
-                "searchid": searchid,
+                "search_type": search_type,
+                // 使用参数控制每页数量
                 "query": keyword,
                 "page_num": page,
                 "num_per_page": limit,
-                // 使用参数控制每页数量
+                "searchid": get_search_id(),
                 "highlight": 0,
                 "nqc_flag": 0,
                 "multi_zhida": 0,
@@ -124,7 +124,11 @@ async fn search_request(
     }
     let req = &data["req"];
     if req["code"] != 0 {
-        return Err(format!("搜索错误: req.code={}", req["code"]));
+        if (req["code"] == 2001) {
+            return Err(format!("当前搜索被风控，请稍后再试"));
+        } else {
+            return Err(format!("搜索错误: req.code={}", req["code"]));
+        }
     }
 
     Ok(data)
