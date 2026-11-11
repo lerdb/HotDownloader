@@ -5,26 +5,20 @@ use std::path::{Path, PathBuf};
 
 use hotdownloader_core::adapters::local::postprocess::write_audio_metadata;
 use hotdownloader_core::download::context::TaskContext;
-use hotdownloader_core::download::ports::DownloadProgressSink;
 use hotdownloader_core::download::postprocess::PostprocessAssets;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_android_fs::{AndroidFsExt, FileAccessMode, FsUri};
 
 /// 将 SAF 文件复制到应用缓存目录，在普通路径上调用核心标签处理，然后写回。
-/// 各阶段的失败只发出元数据警告，不会把已下载的音频标记为失败。
+/// 任一阶段失败均交给 worker，任务不会被记为成功。
 pub(crate) fn write_saf_metadata(
     app: &AppHandle,
-    progress_sink: &dyn DownloadProgressSink,
     context: &TaskContext,
     audio_path: &str,
     saf_file_uri: Option<&str>,
     assets: &PostprocessAssets,
-) {
-    let result = write_saf_metadata_inner(app, context, audio_path, saf_file_uri, assets);
-    if let Err(error) = result {
-        log::warn!("任务 {} 写入 SAF metadata 失败: {error}", context.task_id);
-        progress_sink.metadata_error(&context.task_id, &error);
-    }
+) -> Result<(), String> {
+    write_saf_metadata_inner(app, context, audio_path, saf_file_uri, assets)
 }
 
 fn write_saf_metadata_inner(
@@ -76,10 +70,7 @@ fn write_and_copy_back(
     context: &TaskContext,
     assets: &PostprocessAssets,
 ) -> Result<(), String> {
-    // 无可写歌词和封面时，核心返回 false；此时无需重写整个 SAF 文件。
-    if !write_audio_metadata(temp_path, context, assets)? {
-        return Ok(());
-    }
+    write_audio_metadata(temp_path, context, assets)?;
     let data = std::fs::read(temp_path).map_err(|error| format!("读取临时文件失败: {error}"))?;
     let api = app.android_fs();
     let mut target = api

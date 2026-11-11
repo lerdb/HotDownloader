@@ -75,6 +75,42 @@ impl PageQuery {
 }
 
 impl Store {
+    pub fn task_entry_mids(&self, task_id: &str) -> Result<Vec<String>> {
+        let db = self.0.lock().unwrap();
+        let mut stmt = db
+            .prepare(
+                "SELECT key FROM records WHERE kind='entry' AND json_extract(data,'$.taskId')=?",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map([task_id], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        rows.map(|row| row.map_err(|error| error.to_string()))
+            .collect()
+    }
+
+    pub fn downloaded_paths(
+        &self,
+        song: &hotdownloader_core::task::contract::SongInput,
+    ) -> Result<Vec<String>> {
+        let db = self.0.lock().unwrap();
+        let mut stmt = db.prepare("SELECT json_extract(data,'$.path') FROM records
+            WHERE kind='entry' AND json_extract(data,'$.state')='downloaded'
+            AND json_extract(data,'$.song.platform')=?1 AND json_extract(data,'$.path') IS NOT NULL
+            AND ((?2<>'' AND json_extract(data,'$.song.mid')=?2)
+              OR (?3<>'' AND json_extract(data,'$.song.mediaMid')=?3)
+              OR (?2='' AND ?4<>0 AND json_extract(data,'$.song.mid')='' AND json_extract(data,'$.song.id')=?4))")
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(
+                params![song.platform, song.mid, song.media_mid, song.id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| error.to_string())?;
+        rows.map(|row| row.map_err(|error| error.to_string()))
+            .collect()
+    }
+
     pub fn active_entries(&self) -> Result<Vec<Entry>> {
         let db = self.0.lock().unwrap();
         let mut stmt = db.prepare("SELECT data FROM records WHERE kind='entry' AND json_extract(data,'$.state') IN ('dispatching','queued','downloading','paused','interrupted','download_failed','credential_invalid','network_failed')").map_err(|e| e.to_string())?;

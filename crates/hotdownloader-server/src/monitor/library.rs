@@ -85,6 +85,8 @@ pub struct LocalFile {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanReport {
+    #[serde(default)]
+    pub parser_version: u32,
     pub roots: Vec<ScanRoot>,
     #[serde(default)]
     pub indexed_roots: Vec<ScanRoot>,
@@ -97,6 +99,8 @@ pub struct ScanReport {
     #[serde(default)]
     pub directories: Vec<DirectoryStatus>,
 }
+
+pub const PARSER_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -223,6 +227,10 @@ pub fn configured_roots(
 }
 
 fn template_regex(template: &str) -> Result<Regex> {
+    template_regex_with_title(template, None)
+}
+
+fn template_regex_with_title(template: &str, title: Option<&str>) -> Result<Regex> {
     let token = Regex::new(r"\{([^{}]+)\}").unwrap();
     let mut pattern = String::from("^");
     let mut end = 0;
@@ -239,7 +247,12 @@ fn template_regex(template: &str) -> Result<Regex> {
             return Err("模板变量间必须有分隔文字".into());
         }
         pattern.push_str(&regex::escape(&template[end..part.start()]));
-        pattern.push_str(&format!("(?P<{name}>.+?)"));
+        let value = if name == "song" {
+            title.map(regex::escape).unwrap_or_else(|| ".+".into())
+        } else {
+            ".+?".into()
+        };
+        pattern.push_str(&format!("(?P<{name}>{value})"));
         end = part.end();
     }
     if !names.contains("song") || !names.contains("artist") {
@@ -250,17 +263,19 @@ fn template_regex(template: &str) -> Result<Regex> {
     Regex::new(&pattern).map_err(|e| e.to_string())
 }
 
-fn from_filename(path: &Path, root: &ScanRoot) -> Identity {
+fn from_filename(path: &Path, root: &ScanRoot, title: Option<&str>) -> Identity {
     let Some(template) = root.template.as_deref() else {
         return Identity::default();
     };
-    let Ok(regex) = template_regex(template) else {
+    let template = normalize(template);
+    let Ok(regex) = template_regex_with_title(&template, title) else {
         return Identity::default();
     };
     let Some(stem) = path.file_stem().and_then(|p| p.to_str()) else {
         return Identity::default();
     };
-    let Some(parts) = regex.captures(stem) else {
+    let stem = normalize(stem);
+    let Some(parts) = regex.captures(&stem) else {
         return Identity::default();
     };
     Identity::new(
@@ -272,7 +287,6 @@ fn from_filename(path: &Path, root: &ScanRoot) -> Identity {
 }
 
 fn read_file(path: &Path, root: &ScanRoot, size: u64, modified: String) -> LocalFile {
-    let filename = from_filename(path, root);
     let mut metadata = Identity::default();
     let mut warning = None;
     match lofty::read_from_path(path) {
@@ -288,6 +302,13 @@ fn read_file(path: &Path, root: &ScanRoot, size: u64, modified: String) -> Local
         }
         Err(e) => warning = Some(format!("无法读取音频标签: {e}")),
     }
+    // 标题标签可消除任意位置的分隔符歧义；无标签时优先保留完整歌名。
+    let constrained = from_filename(path, root, Some(&metadata.title));
+    let filename = if !metadata.title.is_empty() && constrained.complete() {
+        constrained
+    } else {
+        from_filename(path, root, None)
+    };
     let conflict = (!metadata.title.is_empty()
         && !filename.title.is_empty()
         && metadata.title != filename.title)
@@ -416,6 +437,7 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
                             && f.modified == modified
                             && f.root == root.path
                             && old_roots.contains(root)
+                            && report.parser_version == PARSER_VERSION
                     }) {
                         files.push(previous.clone());
                     } else {
@@ -430,7 +452,7 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
                 } else if directory.file_count > 0
                     && (files.len() - start) <= directory.file_count / 5
                 {
-                    return Err(format!("目录 {} 音频数量从 {} 骤减至 {}，疑似挂载异常；保留索引并暂停本轮补齐。若为主动清理，请配置盘内挂载标记后重新扫描", root.path, directory.file_count, files.len() - start));
+                    return Err(format!("目录 {} 音频数量从 {} 骤减至 {}（减少至少 80%），疑似挂载异常；保留索引并暂停本轮补齐。文件恢复后将自动重扫；若为主动清理，请配置盘内挂载标记后重新扫描", root.path, directory.file_count, files.len() - start));
                 }
                 Ok(())
             })();
@@ -471,6 +493,7 @@ pub fn scan(store: &Store, roots: Vec<ScanRoot>, excluded: HashSet<String>) -> R
                 directory.indexed_at = report.last_scan;
             }
             report.indexed_roots = roots;
+            report.parser_version = PARSER_VERSION;
             report.last_success = report.last_scan;
             report.file_count = files.len();
             report.updated_count = updated;

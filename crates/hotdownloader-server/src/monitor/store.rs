@@ -24,6 +24,7 @@ impl Store {
             CREATE TABLE IF NOT EXISTS records (
                 kind TEXT NOT NULL, key TEXT NOT NULL, data TEXT NOT NULL,
                 PRIMARY KEY(kind,key));
+            CREATE INDEX IF NOT EXISTS entry_task ON records(kind, json_extract(data,'$.taskId'));
             ",
         )
         .map_err(|e| e.to_string())?;

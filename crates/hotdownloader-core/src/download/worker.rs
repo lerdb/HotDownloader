@@ -336,7 +336,7 @@ pub async fn download_task(
         // 文件传输结束，先通知 Rust 任务状态进入 processing，再执行收尾处理。
         progress_sink.file_complete(&ctx.task_id);
 
-        // 歌词、封面和标签由运行时适配器处理；失败只产生警告，不影响音频完成状态。
+        // 只有资源获取、标签和附属文件均完成后才发布成功。
         let postprocess_request = PostprocessRequest {
             context: &ctx,
             audio_path: &download_dir,
@@ -345,10 +345,23 @@ pub async fn download_task(
             saf_folder_uri: saf_folder_uri.as_deref(),
             config: &config,
         };
-        let paths = postprocessor
-            .process(postprocess_request, progress_sink)
-            .await;
-        *controller.sidecar_final_paths.lock().await = paths;
+        let result = tokio::select! {
+            biased;
+            _ = controller.cancel_token.cancelled() => None,
+            result = postprocessor.process(postprocess_request, progress_sink) => Some(result),
+        };
+        match result {
+            Some(Ok(paths)) => *controller.sidecar_final_paths.lock().await = paths,
+            Some(Err(error)) => {
+                progress_sink.metadata_error(&ctx.task_id, &error);
+                progress_sink.error(
+                    &ctx.task_id,
+                    &format!("{}: {error}", super::postprocess::POSTPROCESS_FAILED),
+                );
+                completed_ok = false;
+            }
+            None => completed_ok = false,
+        }
 
         // 全部处理完成，发送下载完成事件
         let final_display_path = if is_saf {
@@ -356,7 +369,9 @@ pub async fn download_task(
         } else {
             download_dir.clone()
         };
-        progress_sink.completed(&ctx.task_id, &final_display_path, saf_folder_uri.clone());
+        if completed_ok {
+            progress_sink.completed(&ctx.task_id, &final_display_path, saf_folder_uri.clone());
+        }
     }
 
     // 如果任务被取消且用户要求删除文件，通过平台文件接口清理普通路径或 SAF URI。
@@ -400,7 +415,7 @@ mod tests {
     use crate::download::engine::TaskController;
     use crate::download::link::DownloadLinkProvider;
     use crate::download::ports::{
-        DownloadProgressSink, DownloadWorkerPorts, NoopDownloadPostprocessor,
+        DownloadProgressSink, DownloadWorkerPorts, NoopDownloadPostprocessor, PostprocessRequest,
     };
     use crate::platforms::Platform;
 
@@ -544,7 +559,18 @@ mod tests {
         }
     }
 
-    async fn assert_disk_write_failure(capacity: usize, expected: &str) {
+    struct FailedPostprocessor;
+    impl crate::download::ports::DownloadPostprocessor for FailedPostprocessor {
+        fn process<'a>(
+            &'a self,
+            _: PostprocessRequest<'a>,
+            _: &'a dyn DownloadProgressSink,
+        ) -> BoxFuture<'a, Result<Vec<String>, String>> {
+            Box::pin(async { Err("封面请求失败: HTTP 503".into()) })
+        }
+    }
+
+    async fn assert_worker_failure(capacity: Option<usize>, expected: &str) {
         use std::io::{Read, Write};
         use std::time::{Duration, Instant};
         let path = std::env::temp_dir().join(format!(
@@ -619,6 +645,9 @@ mod tests {
             done: Arc::new(Notify::new()),
         };
         let sink = RecordingSink::default();
+        let readonly = ReadOnlyFile {
+            capacity: capacity.unwrap_or(1),
+        };
         let completed = tokio::time::timeout(
             Duration::from_secs(5),
             download_task(
@@ -637,9 +666,13 @@ mod tests {
                     quality_fallback: None,
                     link_provider: &LocalLink(url),
                     progress_sink: &sink,
-                    file_opener: &ReadOnlyFile { capacity },
+                    file_opener: if capacity.is_some() {
+                        &readonly
+                    } else {
+                        &LocalDownloadFileOpener
+                    },
                     file_deleter: &LocalFileDeleter,
-                    postprocessor: &NoopDownloadPostprocessor,
+                    postprocessor: &FailedPostprocessor,
                 },
             ),
         )
@@ -649,8 +682,18 @@ mod tests {
         let contents = std::fs::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         assert!(!completed);
-        assert_eq!(contents, b"original sentinel");
-        assert_eq!(sink.file_completions.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            contents,
+            if capacity.is_some() {
+                b"original sentinel".as_slice()
+            } else {
+                b"test".as_slice()
+            }
+        );
+        assert_eq!(
+            sink.file_completions.load(Ordering::Relaxed),
+            usize::from(capacity.is_none())
+        );
         assert_eq!(sink.completions.load(Ordering::Relaxed), 0);
         let errors = sink.errors.lock().unwrap();
         assert_eq!(errors.len(), 1);
@@ -663,11 +706,16 @@ mod tests {
 
     #[tokio::test]
     async fn worker_does_not_complete_after_os_write_failure() {
-        assert_disk_write_failure(1, "写入文件失败").await;
+        assert_worker_failure(Some(1), "写入文件失败").await;
     }
 
     #[tokio::test]
     async fn worker_does_not_complete_after_buffer_flush_failure() {
-        assert_disk_write_failure(1024, "刷新文件缓冲区失败").await;
+        assert_worker_failure(Some(1024), "刷新文件缓冲区失败").await;
+    }
+
+    #[tokio::test]
+    async fn worker_keeps_audio_and_reports_error_when_postprocess_fails() {
+        assert_worker_failure(None, super::super::postprocess::POSTPROCESS_FAILED).await;
     }
 }

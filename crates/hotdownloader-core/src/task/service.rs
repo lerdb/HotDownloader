@@ -9,6 +9,7 @@ use crate::platforms::Platform;
 use crate::task::contract::{
     BatchResult, CreateTaskRequest, CreateTaskResult, DuplicateAction, TaskRecord, TaskStatus,
 };
+use crate::task::identity::RecordingIdentity;
 use crate::task::rules::TaskRules;
 use crate::task::state::TaskState;
 
@@ -19,6 +20,13 @@ pub trait TaskEnvironment: Send + Sync {
     fn download_config(&self) -> DownloadConfig;
     fn file_exists(&self, path: &str, is_saf: bool, saf_folder_uri: Option<&str>) -> bool;
     fn file_len(&self, path: &str, is_saf: bool) -> Option<u64>;
+    /// 运行时可查询独立于任务历史保存的下载记录；仅返回仍存在的完整文件。
+    fn existing_download(
+        &self,
+        _song: &crate::task::contract::SongInput,
+    ) -> Result<Option<String>, String> {
+        Ok(None)
+    }
 }
 
 /// 每个命令临时借用运行时管理的状态与引擎，不持有窗口或 IPC 句柄。
@@ -182,12 +190,7 @@ impl<'a> TaskService<'a> {
             .list()
             .into_iter()
             .filter(|task| {
-                task.platform == request.song.platform
-                    && if request.song.mid.is_empty() {
-                        task.song_mid.is_empty() && task.song_id == request.song.id
-                    } else {
-                        task.song_mid == request.song.mid
-                    }
+                RecordingIdentity::from(task).matches(RecordingIdentity::from(&request.song))
                     && (reuse_history
                         || !matches!(task.status, TaskStatus::Completed | TaskStatus::Error))
             })
@@ -204,6 +207,41 @@ impl<'a> TaskService<'a> {
             });
         }
         let rules = self.environment.task_rules();
+        let config = self.environment.download_config();
+        let action = request
+            .duplicate_action
+            .or(match rules.duplicate_strategy.as_str() {
+                "overwrite" => Some(DuplicateAction::Overwrite),
+                "rename" => Some(DuplicateAction::Rename),
+                "cancel" => Some(DuplicateAction::Cancel),
+                _ => None,
+            });
+        let completed = state.list().into_iter().any(|task| {
+            task.status == TaskStatus::Completed
+                && RecordingIdentity::from(&task).matches(RecordingIdentity::from(&request.song))
+                && task
+                    .file_path
+                    .as_deref()
+                    .or(task.save_path.as_deref())
+                    .is_some_and(|path| {
+                        self.environment.file_exists(
+                            path,
+                            config.download_dir == "saf://",
+                            config.saf_folder_uri.as_deref(),
+                        )
+                    })
+        });
+        if completed || self.environment.existing_download(&request.song)?.is_some() {
+            match action {
+                Some(DuplicateAction::Cancel) => return Ok(CreateTaskResult::Cancelled),
+                None => {
+                    return Ok(CreateTaskResult::NeedsConfirmation {
+                        song_title: request.song.title,
+                    })
+                }
+                _ => {}
+            }
+        }
         let selected = rules
             .initial_quality(&request.desired_quality, &request.song.qualities)
             .cloned();
@@ -412,12 +450,7 @@ impl<'a> TaskService<'a> {
         }
         if state.list().iter().any(|other| {
             other.id != task.id
-                && other.platform == task.platform
-                && if task.song_mid.is_empty() {
-                    other.song_mid.is_empty() && other.song_id == task.song_id
-                } else {
-                    other.song_mid == task.song_mid
-                }
+                && RecordingIdentity::from(other).matches(RecordingIdentity::from(&task))
                 && !matches!(other.status, TaskStatus::Completed | TaskStatus::Error)
         }) {
             return Err("此歌曲已有未结束的下载任务".into());
@@ -427,7 +460,10 @@ impl<'a> TaskService<'a> {
         engine.wait_for_task_exit(&task_id).await;
         let rules = self.environment.task_rules();
         let next_count = task.retry_count + 1;
-        if next_count > 3 {
+        let postprocess_failed = task.error_msg.as_deref().is_some_and(|error| {
+            error.starts_with(crate::download::postprocess::POSTPROCESS_FAILED)
+        });
+        if next_count > 3 && !postprocess_failed {
             // 次数耗尽后的行为完全由 Rust 决定；旧任务没有品质列表时不能凭空推断文件名。
             if !rules.auto_downgrade {
                 state.update(&task_id, true, |t| {
@@ -608,6 +644,7 @@ mod tests {
     use crate::download::ports::NoopCompletionNotifier;
     use crate::task::contract::{
         CreateTaskRequest, CreateTaskResult, DuplicateAction, QualityItem, SongInput, TaskRecord,
+        TaskStatus,
     };
     use crate::task::rules::TaskRules;
     use crate::task::state::{TaskEventSink, TaskRepository, TaskState};
@@ -690,6 +727,68 @@ mod tests {
             desired_quality: "320kmp3".into(),
             duplicate_action: action,
         }
+    }
+
+    #[tokio::test]
+    async fn recording_identity_deduplicates_aliases_and_completed_downloads() {
+        let repository = Arc::new(MemoryRepository(Mutex::new(Vec::new())));
+        let state = TaskState::load(repository, Arc::new(QuietEvents)).unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into(),
+            file_length: None,
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+        let mut original = request(Some(DuplicateAction::Rename));
+        original.song.media_mid = "same-recording".into();
+        let CreateTaskResult::Created { task } =
+            service.create_download_task(original).await.unwrap()
+        else {
+            panic!()
+        };
+        let mut alias = request(Some(DuplicateAction::Cancel));
+        alias.song.mid = "another-album-mid".into();
+        alias.song.media_mid = "same-recording".into();
+        alias.song.title = "歌曲（专辑注释）".into();
+        alias.song.album = "精选集".into();
+        assert!(matches!(
+            service.create_download_task(alias).await.unwrap(),
+            CreateTaskResult::Existing { .. }
+        ));
+        state
+            .update(&task.id, true, |task| {
+                task.status = TaskStatus::Completed;
+                task.file_path = Some(format!("{}/歌曲 - 歌手.mp3", environment.download_dir));
+            })
+            .unwrap();
+        let mut same = request(Some(DuplicateAction::Cancel));
+        same.song.title = "标题已变更".into();
+        assert!(matches!(
+            service.create_download_task(same).await.unwrap(),
+            CreateTaskResult::Cancelled
+        ));
+        let mut different = request(Some(DuplicateAction::Rename));
+        different.song.mid = "live-recording".into();
+        different.song.media_mid = "different-media".into();
+        assert!(matches!(
+            service.create_download_task(different).await.unwrap(),
+            CreateTaskResult::Created { .. }
+        ));
+        state
+            .update(&task.id, true, |task| {
+                task.file_path = Some("removed.mp3".into())
+            })
+            .unwrap();
+        let mut missing = request(Some(DuplicateAction::Cancel));
+        missing.song.title = "本地文件已删除".into();
+        assert!(matches!(
+            service.create_download_task(missing).await.unwrap(),
+            CreateTaskResult::Created { .. }
+        ));
     }
 
     #[tokio::test]

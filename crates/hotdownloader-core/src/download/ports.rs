@@ -57,7 +57,7 @@ pub trait DownloadFileOpener: Send + Sync {
 }
 
 /// 文件流完成后交给运行时处理歌词、封面和音频标签，返回已保存的附属文件路径。
-/// 元数据失败不会使音频下载失败，具体警告由 `DownloadProgressSink` 输出。
+/// 资源获取或写入失败必须返回错误，worker 仅在收尾成功后发出完成事件。
 pub struct PostprocessRequest<'a> {
     pub context: &'a TaskContext,
     pub audio_path: &'a str,
@@ -72,7 +72,7 @@ pub trait DownloadPostprocessor: Send + Sync {
         &'a self,
         request: PostprocessRequest<'a>,
         progress_sink: &'a dyn DownloadProgressSink,
-    ) -> BoxFuture<'a, Vec<String>>;
+    ) -> BoxFuture<'a, Result<Vec<String>, String>>;
 }
 
 /// 一次 worker 执行所需的运行时端口。运行时持有实现，worker 只借用它们。
@@ -93,8 +93,8 @@ impl DownloadPostprocessor for NoopDownloadPostprocessor {
         &'a self,
         _request: PostprocessRequest<'a>,
         _progress_sink: &'a dyn DownloadProgressSink,
-    ) -> BoxFuture<'a, Vec<String>> {
-        Box::pin(async { Vec::new() })
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 }
 

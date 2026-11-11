@@ -5,7 +5,7 @@ use tauri::AppHandle;
 use tauri_plugin_android_fs::{AndroidFsExt, FileAccessMode, FsUri};
 
 /// 通过 Android SAF 保存歌词或封面，已有同名文件会被清空后重写。
-/// 普通文件路径由共享核心处理；此函数的失败只记录日志，不阻塞主下载流程。
+/// 普通文件路径由共享核心处理；失败返回 None，由收尾适配器报告错误。
 pub(crate) fn write_saf_sidecar_file(
     app_handle: &AppHandle,
     file_name: &str,

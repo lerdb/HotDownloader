@@ -100,6 +100,7 @@ pub struct ServerEnvironment {
     settings: RwLock<Value>,
     settings_path: PathBuf,
     default_download_dir: String,
+    library_store: Option<Arc<crate::monitor::store::Store>>,
 }
 
 impl ServerEnvironment {
@@ -137,6 +138,7 @@ impl ServerEnvironment {
             settings: RwLock::new(settings),
             settings_path: path,
             default_download_dir,
+            library_store: None,
         })
     }
 
@@ -211,6 +213,18 @@ impl DownloadConfigProvider for ServerEnvironment {
 }
 
 impl TaskEnvironment for ServerEnvironment {
+    fn existing_download(
+        &self,
+        song: &hotdownloader_core::task::contract::SongInput,
+    ) -> Result<Option<String>, String> {
+        let Some(store) = &self.library_store else {
+            return Ok(None);
+        };
+        Ok(store
+            .downloaded_paths(song)?
+            .into_iter()
+            .find(|path| Path::new(path).is_file()))
+    }
     fn task_rules(&self) -> TaskRules {
         TaskRules::from_settings(&self.settings.read().unwrap())
     }
@@ -352,7 +366,9 @@ impl ServerRuntime {
             }
             fn report_error(&self, _: &str, _: &str) {}
         }
-        let environment = Arc::new(ServerEnvironment::load(data_dir).unwrap());
+        let mut environment = ServerEnvironment::load(data_dir).unwrap();
+        environment.library_store = Some(monitors.store.clone());
+        let environment = Arc::new(environment);
         let mut events = ServerEvents::new();
         events.monitors = Some(monitors.clone());
         let events = Arc::new(events);
@@ -389,8 +405,10 @@ impl ServerRuntime {
         let data_dir = data_dir
             .canonicalize()
             .map_err(|error| format!("解析数据目录失败: {error}"))?;
-        let environment = Arc::new(ServerEnvironment::load(&data_dir)?);
         let monitors = crate::monitor::MonitorService::open(&data_dir)?;
+        let mut environment = ServerEnvironment::load(&data_dir)?;
+        environment.library_store = Some(monitors.store.clone());
+        let environment = Arc::new(environment);
         // 提前校验环境配置，配置错误应在启动时明确报告。
         crate::monitor::library::roots(
             environment.default_download_dir(),

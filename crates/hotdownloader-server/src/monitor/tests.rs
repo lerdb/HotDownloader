@@ -1250,6 +1250,123 @@ fn scan_reads_tags_falls_back_and_is_incremental() {
 }
 
 #[test]
+fn delimiters_inside_titles_and_artists_do_not_create_false_conflicts() {
+    let dir = Fixture::new();
+    let store = Store::open(&dir.0.join("library.sqlite3")).unwrap();
+    for (name, title, artist) in [
+        ("歌名 - 注释 - 歌手.wav", Some("歌名 - 注释"), Some("歌手")),
+        ("无标签 - 注释 - 歌手.wav", None, None),
+        (
+            "另一歌 - 歌手 - 组合.wav",
+            Some("另一歌"),
+            Some("歌手 - 组合"),
+        ),
+    ] {
+        wave(&dir.0.join(name), title, artist);
+    }
+    let roots = vec![root(&dir.0)];
+    assert_eq!(
+        library::scan(&store, roots.clone(), HashSet::new())
+            .unwrap()
+            .unresolved_count,
+        0
+    );
+    for file in store.all::<LocalFile>("file").unwrap() {
+        assert!(!file.conflict, "{}", file.path);
+        if file.path.ends_with("无标签 - 注释 - 歌手.wav") {
+            assert_eq!(file.identity.title, "无标签 - 注释");
+        } else {
+            assert_eq!(file.filename, file.metadata);
+        }
+    }
+    // 旧索引的解析版本缺省为 0，即使文件未变也须重读，修复已缓存的错位字段。
+    store
+        .change::<ScanReport>("config", "scan", |report| report.parser_version = 0)
+        .unwrap();
+    assert_eq!(
+        library::scan(&store, roots, HashSet::new())
+            .unwrap()
+            .updated_count,
+        3
+    );
+}
+
+#[tokio::test]
+async fn shared_media_reuses_one_task_and_completed_ledger_after_task_removal() {
+    let dir = Fixture::new();
+    let mut first = song("first", "原曲");
+    first["mediaMid"] = json!("shared-recording");
+    let mut second = song("second", "原曲（精选集）");
+    second["mediaMid"] = json!("shared-recording");
+    let rt = runtime(&dir.0, FakeRemote::new(vec![first, second]));
+    let m = rt.monitors.save(None, config("媒体去重")).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(rt.tasks.list().len(), 1);
+    let id = rt.tasks.list()[0].id.clone();
+    assert_eq!(
+        entry(&rt.monitors, "first").task_id,
+        entry(&rt.monitors, "second").task_id
+    );
+    let path = Path::new(rt.environment.default_download_dir()).join("完成.mp3");
+    std::fs::write(&path, b"completed audio").unwrap();
+    rt.tasks.completed(&id, path.to_str().unwrap());
+    assert_eq!(entry(&rt.monitors, "first").state, State::Downloaded);
+    assert_eq!(entry(&rt.monitors, "second").state, State::Downloaded);
+    rt.tasks.remove(&id).unwrap();
+    let mut request = song("third", "原曲（另一专辑）");
+    request["mediaMid"] = json!("shared-recording");
+    let service = TaskService::new(&rt.tasks, &rt.engine, rt.environment.as_ref());
+    assert!(matches!(
+        service
+            .create_download_task(CreateTaskRequest {
+                song: serde_json::from_value(request).unwrap(),
+                desired_quality: "320kmp3".into(),
+                duplicate_action: Some(DuplicateAction::Cancel),
+            })
+            .await
+            .unwrap(),
+        CreateTaskResult::Cancelled
+    ));
+    assert_eq!(
+        rt.monitors.songs(&m.id).unwrap().as_array().unwrap().len(),
+        2
+    );
+}
+
+#[test]
+fn failure_classification_distinguishes_throttling_credentials_and_storage() {
+    assert_eq!(failure_state("服务器错误: HTTP 429"), State::NetworkFailed);
+    assert_eq!(failure_state("服务器错误: HTTP 503"), State::NetworkFailed);
+    assert_eq!(
+        failure_state("QQ 请求失败：凭据失效，请重新登录"),
+        State::CredentialInvalid
+    );
+    let dir = Fixture::new();
+    let service = MonitorService::with_remote(&dir.0, FakeRemote::new(vec![])).unwrap();
+    let mut m = Monitor {
+        id: "test".into(),
+        config: config("test"),
+        members: vec![],
+        last_check: 0,
+        next_check: 0,
+        last_result: String::new(),
+        last_state: String::new(),
+        requested: false,
+        draining: false,
+        initial_members: None,
+        revision: 0,
+    };
+    service.ingest(&mut m, vec![song("a", "曲")], "、").unwrap();
+    let mut e = entry(&service, "a");
+    e.fail(State::NetworkFailed, "HTTP 429".into());
+    assert!(e.next_retry > now());
+    e.fail(State::CredentialInvalid, "凭据失效".into());
+    assert_eq!(e.next_retry, 0);
+    e.fail(State::DownloadFailed, "写入磁盘失败".into());
+    assert_eq!(e.next_retry, 0);
+}
+
+#[test]
 fn scan_failure_preserves_previous_index() {
     let dir = Fixture::new();
     let store = Store::open(&dir.0.join("library.sqlite3")).unwrap();

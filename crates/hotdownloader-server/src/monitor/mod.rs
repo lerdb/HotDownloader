@@ -169,6 +169,19 @@ impl Entry {
         self.message = message;
         self.next_retry = RETRY_DELAYS
             .get(self.retries)
+            .filter(|_| self.state != State::CredentialInvalid)
+            .filter(|_| {
+                ![
+                    "磁盘",
+                    "空间不足",
+                    "只读",
+                    "权限",
+                    "目录无法访问",
+                    "平台拒绝",
+                ]
+                .iter()
+                .any(|part| self.message.contains(part))
+            })
             .map(|delay| now() + delay)
             .unwrap_or(0);
     }
@@ -183,6 +196,22 @@ impl Entry {
 fn failure_state(message: &str) -> State {
     let text = message.to_lowercase();
     if [
+        "凭据缺失",
+        "凭据失效",
+        "凭据无效",
+        "登录凭证",
+        "未登录",
+        "请先登录",
+        "登录过期",
+        "重新登录",
+        "认证失败",
+    ]
+    .iter()
+    .any(|part| text.contains(part))
+    {
+        return State::CredentialInvalid;
+    }
+    if [
         "超时",
         "网络",
         "timeout",
@@ -192,25 +221,20 @@ fn failure_state(message: &str) -> State {
         "dns",
         "error sending request",
         "请求失败",
+        "限流",
+        "频繁",
+        "链接过期",
+        "http 408",
+        "http 429",
+        "http 500",
+        "http 502",
+        "http 503",
+        "http 504",
     ]
     .iter()
     .any(|part| text.contains(part))
     {
         State::NetworkFailed
-    } else if [
-        "凭据缺失",
-        "凭据失效",
-        "凭据无效",
-        "登录凭证",
-        "未登录",
-        "登录过期",
-        "重新登录",
-        "认证失败",
-    ]
-    .iter()
-    .any(|part| text.contains(part))
-    {
-        State::CredentialInvalid
     } else {
         State::DownloadFailed
     }
@@ -557,71 +581,83 @@ impl MonitorService {
             };
             self.store.insert("entry", &task.song_mid, &entry)?;
         }
-        self.store.change::<Entry>("entry", &task.song_mid, |e| {
-            if e.terminal() {
-                return;
-            }
-            // 歌曲等待匹配/确认期间的手动下载成功，也应抑制后续自动补齐。
-            if task.status == TaskStatus::Completed
-                && !e.force_download
-                && e.task_id.as_deref() != Some(&task.id)
-            {
-                e.task_id = Some(task.id.clone());
-                e.owned = false;
-            }
-            if e.task_id.as_deref() != Some(&task.id) {
-                if e.state != State::Dispatching
-                    || e.task_id.is_some()
-                    || task.added_at < e.dispatch_started_at
-                {
+        let mut mids = vec![task.song_mid.clone()];
+        // 不同 MID 可能共享同一个媒体文件，复用任务的条目同样接收完成/失败事件。
+        mids.extend(
+            self.store
+                .task_entry_mids(&task.id)?
+                .into_iter()
+                .filter(|mid| *mid != task.song_mid),
+        );
+        for mid in mids {
+            self.store.change::<Entry>("entry", &mid, |e| {
+                if e.terminal() {
                     return;
                 }
-                e.task_id = Some(task.id.clone());
-            }
-            e.quality = task.quality.clone();
-            match task.status {
-                TaskStatus::Completed => {
-                    e.state = State::Downloaded;
-                    e.path = task.file_path.clone();
-                    e.message = "下载成功，已记入处理台账".into();
-                    e.next_retry = 0;
-                }
-                TaskStatus::Waiting => {
-                    e.state = State::Queued;
-                    e.message = "已进入下载队列".into();
-                }
-                TaskStatus::Downloading | TaskStatus::Processing => {
-                    e.state = State::Downloading;
-                }
-                TaskStatus::Paused => {
-                    e.state = State::Paused;
-                }
-                TaskStatus::Interrupted if e.state != State::Paused => {
-                    e.state = State::Interrupted;
-                }
-                TaskStatus::Error
-                    if !matches!(
-                        e.state,
-                        State::DownloadFailed
-                            | State::CredentialInvalid
-                            | State::NetworkFailed
-                            | State::NoQuality
-                    ) =>
+                // 歌曲等待匹配/确认期间的手动下载成功，也应抑制后续自动补齐。
+                if task.status == TaskStatus::Completed
+                    && !e.force_download
+                    && e.task_id.as_deref() != Some(&task.id)
                 {
-                    let message = task.error_msg.clone().unwrap_or_else(|| "下载失败".into());
-                    let state = failure_state(&message);
-                    e.fail(state, message);
-                    if task.error_msg.as_deref().is_some_and(|message| {
-                        message
-                            .starts_with(hotdownloader_core::download::fallback::QUALITY_EXHAUSTED)
-                    }) {
-                        e.state = State::NoQuality;
+                    e.task_id = Some(task.id.clone());
+                    e.owned = false;
+                }
+                if e.task_id.as_deref() != Some(&task.id) {
+                    if e.state != State::Dispatching
+                        || e.task_id.is_some()
+                        || task.added_at < e.dispatch_started_at
+                    {
+                        return;
+                    }
+                    e.task_id = Some(task.id.clone());
+                }
+                e.quality = task.quality.clone();
+                match task.status {
+                    TaskStatus::Completed => {
+                        e.state = State::Downloaded;
+                        e.path = task.file_path.clone();
+                        e.message = "下载成功，已记入处理台账".into();
                         e.next_retry = 0;
                     }
+                    TaskStatus::Waiting => {
+                        e.state = State::Queued;
+                        e.message = "已进入下载队列".into();
+                    }
+                    TaskStatus::Downloading | TaskStatus::Processing => {
+                        e.state = State::Downloading;
+                    }
+                    TaskStatus::Paused => {
+                        e.state = State::Paused;
+                    }
+                    TaskStatus::Interrupted if e.state != State::Paused => {
+                        e.state = State::Interrupted;
+                    }
+                    TaskStatus::Error
+                        if !matches!(
+                            e.state,
+                            State::DownloadFailed
+                                | State::CredentialInvalid
+                                | State::NetworkFailed
+                                | State::NoQuality
+                        ) =>
+                    {
+                        let message = task.error_msg.clone().unwrap_or_else(|| "下载失败".into());
+                        let state = failure_state(&message);
+                        e.fail(state, message);
+                        if task.error_msg.as_deref().is_some_and(|message| {
+                            message.starts_with(
+                                hotdownloader_core::download::fallback::QUALITY_EXHAUSTED,
+                            )
+                        }) {
+                            e.state = State::NoQuality;
+                            e.next_retry = 0;
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-        })
+            })?;
+        }
+        Ok(())
     }
 
     pub async fn scan(&self, runtime: &ServerRuntime) -> Result<ScanReport> {
@@ -647,6 +683,7 @@ impl MonitorService {
                 }
             }
             if report.indexed_roots == roots
+                && report.parser_version == library::PARSER_VERSION
                 && report.error.is_none()
                 && report.last_success.saturating_add(300) > now()
                 && (!force || generation != self.scan_generation.load(Ordering::Relaxed))
@@ -816,10 +853,12 @@ impl MonitorService {
             .as_array()
             .ok_or("歌单响应缺少歌曲列表")?
             .clone();
-        // 不接受截断的歌单，防止缺失项被当成已移除。
+        // 核心已按过滤前条数验证完整性；可下载歌曲数允许小于接口总数。
         if value["playlist"]["songCount"]
             .as_u64()
-            .is_some_and(|count| count > songs.len() as u64)
+            .is_some_and(|count| {
+                count > value["rawSongCount"].as_u64().unwrap_or(songs.len() as u64)
+            })
         {
             return Err("歌单返回不完整，保留上次快照".into());
         }
@@ -1153,12 +1192,26 @@ impl MonitorService {
             &runtime.engine,
             runtime.environment.as_ref(),
         );
+        let song: SongInput =
+            serde_json::from_value(entry.song.clone()).map_err(|e| e.to_string())?;
         if !entry.force_download && entry.task_id.is_none() {
+            if let Some(path) = runtime.environment.existing_download(&song)? {
+                entry.state = State::Matched;
+                entry.path = Some(path);
+                entry.message = "已按歌曲或媒体标识关联下载文件".into();
+                self.store
+                    .compare_and_put("entry", &mid, &previous, &entry)?;
+                return Ok(false);
+            }
             if let Some(task) = runtime
                 .tasks
                 .list()
                 .iter()
-                .filter(|t| t.platform == "qqmusic" && t.song_mid == mid)
+                .filter(|t| {
+                    hotdownloader_core::task::identity::RecordingIdentity::from(*t).matches(
+                        hotdownloader_core::task::identity::RecordingIdentity::from(&song),
+                    )
+                })
                 .max_by_key(|t| {
                     (
                         !matches!(t.status, TaskStatus::Completed | TaskStatus::Error),
@@ -1169,6 +1222,7 @@ impl MonitorService {
             {
                 entry.task_id = Some(task.id.clone());
                 entry.owned = false;
+                entry.state = State::Dispatching;
                 if !self
                     .store
                     .compare_and_put("entry", &mid, &previous, &entry)?
@@ -1179,8 +1233,6 @@ impl MonitorService {
                 return Ok(false);
             }
         }
-        let song: SongInput =
-            serde_json::from_value(entry.song.clone()).map_err(|e| e.to_string())?;
         if runtime
             .environment
             .task_rules()
@@ -1349,6 +1401,9 @@ fn eligible(entry: &Entry) -> bool {
 
 struct AutomaticEnvironment<'a>(&'a ServerEnvironment);
 impl TaskEnvironment for AutomaticEnvironment<'_> {
+    fn existing_download(&self, song: &SongInput) -> Result<Option<String>> {
+        self.0.existing_download(song)
+    }
     fn task_rules(&self) -> hotdownloader_core::task::rules::TaskRules {
         let mut rules = self.0.task_rules();
         rules.duplicate_strategy = "ask".into();

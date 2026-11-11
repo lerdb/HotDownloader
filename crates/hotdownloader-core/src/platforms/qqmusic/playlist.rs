@@ -98,6 +98,20 @@ fn qq_cover_url(url: &str) -> String {
     }
 }
 
+// 完整性按过滤前的响应条数判断；下架或无媒体标识的条目仍计入接口总数。
+fn playlist_result(playlist: Value, songs: Vec<Value>, raw_count: u64) -> Result<String, String> {
+    if playlist["songCount"]
+        .as_u64()
+        .is_some_and(|total| total > raw_count)
+    {
+        return Err(format!(
+            "歌单响应条目不完整：声明 {} 条，实际收到 {raw_count} 条（过滤前），保留上次快照",
+            playlist["songCount"]
+        ));
+    }
+    Ok(json!({ "playlist": playlist, "songs": songs, "rawSongCount": raw_count }).to_string())
+}
+
 /// 读取当前登录账号创建的歌单；UIN 始终来自后端凭据存储。
 pub async fn fetch_created_playlists(store: &dyn LoginCredentialStore) -> Result<String, String> {
     let (uin, authst) = login_auth(store)?;
@@ -233,7 +247,7 @@ pub async fn fetch_created_playlist_songs(
             break;
         }
     }
-    Ok(json!({ "playlist": playlist, "songs": songs }).to_string())
+    playlist_result(playlist.ok_or("QQ 音乐响应缺少歌单信息")?, songs, offset)
 }
 
 /// 从用户输入中提取歌单 ID。
@@ -390,11 +404,7 @@ pub async fn fetch_playlist_songs(separator: &str, input: String) -> Result<Stri
         }
     }
 
-    Ok(json!({
-        "playlist": playlist,
-        "songs": songs
-    })
-    .to_string())
+    playlist_result(playlist, songs, songlist.len() as u64)
 }
 
 /// 搜索 QQ 音乐歌单。
@@ -519,6 +529,26 @@ pub async fn search_playlists(keyword: String, page: u32, limit: u32) -> Result<
 mod tests {
     use super::parse_created_playlists;
     use serde_json::json;
+
+    #[test]
+    fn completeness_uses_raw_rows_before_unavailable_tracks_are_filtered() {
+        let raw = [
+            json!({"id":1,"mid":"available","file":{"media_mid":"recording"}}),
+            json!({"id":2,"mid":"","file":{}}),
+            json!({"id":3,"mid":"no-media","file":{}}),
+        ];
+        let songs = raw
+            .iter()
+            .filter_map(|song| super::parse_song(song, "、"))
+            .collect::<Vec<_>>();
+        assert_eq!(songs.len(), 1);
+        let result = super::playlist_result(json!({"songCount":3}), songs.clone(), 3).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(saved["songs"].as_array().unwrap().len(), 1);
+        assert_eq!(saved["rawSongCount"], 3);
+        assert!(super::playlist_result(json!({"songCount":4}), songs, 3).is_err());
+        assert!(super::playlist_result(json!({"songCount":0}), vec![], 0).is_ok());
+    }
 
     #[test]
     fn created_playlists_parse_get_playlist_by_uin_fields() {

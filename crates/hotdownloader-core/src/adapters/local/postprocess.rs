@@ -15,7 +15,7 @@ use crate::download::postprocess::{
 };
 use crate::platforms::lyric::LyricData;
 
-/// 将普通 LRC 写在音频旁边；无歌词或写入失败都不改变音频下载结果。
+/// 将普通 LRC 写在音频旁边；写入失败返回 None，由收尾适配器报告错误。
 pub fn write_local_lrc(audio_path: &str, lyric: &LyricData) -> Option<String> {
     let content = lyric
         .lrc
@@ -50,8 +50,7 @@ fn write_local_sidecar(audio_path: &str, file_name: &str, content: &[u8]) -> Opt
     }
 }
 
-/// 写入本地音频标签。返回值表示是否有歌词或封面需要写入。
-/// 保持已有行为：无歌词和封面时不覆盖音频原有标题、歌手及专辑。
+/// 在同目录临时副本中写标签，重新读取核对后替换原文件。
 pub fn write_audio_metadata(
     path: &Path,
     context: &TaskContext,
@@ -69,11 +68,6 @@ pub fn write_audio_metadata(
                     .filter(|value| !value.trim().is_empty())
             })
     });
-    if lyric_text.is_none() && assets.cover_bytes.is_none() {
-        log::info!("无可用歌词或封面，跳过 metadata 写入");
-        return Ok(false);
-    }
-
     let mut tagged_file =
         lofty::read_from_path(path).map_err(|error| format!("读取音频文件失败: {error}"))?;
 
@@ -114,9 +108,48 @@ pub fn write_audio_metadata(
         tag.push_picture(picture);
     }
 
-    tagged_file
-        .save_to_path(path, WriteOptions::default())
-        .map_err(|error| format!("保存 metadata 失败: {error}"))?;
+    let temporary = path.with_file_name(format!(
+        ".hotdownloader-tags-{:x}.tmp",
+        rand::random::<u64>()
+    ));
+    let result = (|| {
+        std::fs::copy(path, &temporary)
+            .map_err(|error| format!("创建标签临时文件失败: {error}"))?;
+        tagged_file
+            .save_to_path(&temporary, WriteOptions::default())
+            .map_err(|error| format!("保存 metadata 失败: {error}"))?;
+        let saved = lofty::probe::Probe::open(&temporary)
+            .map_err(|error| format!("校验 metadata 失败: {error}"))?
+            .set_file_type(tagged_file.file_type())
+            .read()
+            .map_err(|error| format!("校验 metadata 失败: {error}"))?;
+        let tag = saved
+            .primary_tag()
+            .ok_or("校验 metadata 失败：主标签缺失")?;
+        for (key, value) in [
+            (ItemKey::TrackTitle, &context.song_info.title),
+            (ItemKey::TrackArtist, &context.song_info.artist),
+            (ItemKey::AlbumTitle, &context.song_info.album),
+        ] {
+            if !value.is_empty() && tag.get_string(&key) != Some(value.as_str()) {
+                return Err(format!("校验 metadata 失败：{key:?} 未正确保存"));
+            }
+        }
+        if lyric_text.is_some_and(|text| tag.get_string(&ItemKey::Lyrics) != Some(text)) {
+            return Err("校验 metadata 失败：歌词未正确保存".into());
+        }
+        if assets.cover_bytes.as_deref().is_some_and(|bytes| {
+            !tag.pictures().iter().any(|picture| {
+                picture.pic_type() == PictureType::CoverFront && picture.data() == bytes
+            })
+        }) {
+            return Err("校验 metadata 失败：封面未正确保存".into());
+        }
+        std::fs::rename(&temporary, path).map_err(|error| format!("替换标签文件失败: {error}"))?;
+        Ok::<_, String>(())
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    result?;
     log::info!("metadata 已写入: {}", path.display());
     Ok(true)
 }
@@ -129,24 +162,22 @@ impl DownloadPostprocessor for LocalDownloadPostprocessor {
         &'a self,
         request: PostprocessRequest<'a>,
         progress_sink: &'a dyn DownloadProgressSink,
-    ) -> BoxFuture<'a, Vec<String>> {
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
         Box::pin(async move {
-            let assets = prepare_assets(request.context, request.config).await;
+            let _ = progress_sink;
+            let assets = prepare_assets(request.context, request.config).await?;
             let mut paths = Vec::new();
 
-            // 标签和附属文件分别处理，任一可选产物失败都不阻止其余产物保存。
+            // 获取完整资源后再写入；任何启用的产物写入失败均返回给 worker。
             if request.config.write_metadata {
-                if let Err(error) =
-                    write_audio_metadata(Path::new(request.audio_path), request.context, &assets)
-                {
-                    log::warn!("{}: {error}", request.context.task_id);
-                    progress_sink.metadata_error(&request.context.task_id, &error);
-                }
+                write_audio_metadata(Path::new(request.audio_path), request.context, &assets)?;
             }
 
             if request.config.download_cover {
                 if let Some(bytes) = assets.cover_bytes.as_deref() {
-                    paths.extend(write_local_cover(request.audio_path, bytes));
+                    paths.push(
+                        write_local_cover(request.audio_path, bytes).ok_or("保存封面文件失败")?,
+                    );
                 } else {
                     log::info!("无可用封面，跳过封面文件创建");
                 }
@@ -154,12 +185,20 @@ impl DownloadPostprocessor for LocalDownloadPostprocessor {
 
             if request.config.download_lrc {
                 if let Some(lyric) = assets.lyric.as_ref() {
-                    paths.extend(write_local_lrc(request.audio_path, lyric));
+                    if lyric
+                        .lrc
+                        .as_deref()
+                        .is_some_and(|text| !text.trim().is_empty())
+                    {
+                        paths.push(
+                            write_local_lrc(request.audio_path, lyric).ok_or("保存歌词文件失败")?,
+                        );
+                    }
                 } else {
                     log::info!("无普通歌词，跳过 LRC 文件创建");
                 }
             }
-            paths
+            Ok(paths)
         })
     }
 }
@@ -297,7 +336,8 @@ mod tests {
                     },
                     &UnexpectedProgress,
                 )
-                .await;
+                .await
+                .unwrap();
             if enabled {
                 assert_eq!(
                     paths,
@@ -327,6 +367,7 @@ mod tests {
 
     #[test]
     fn bilingual_word_times_survive_mp3_and_flac_metadata_and_plain_sidecar() {
+        use base64::Engine;
         // 使用现有的合成静音音频，验证实际落盘后的标签，避免只验证转换函数。
         let files: [(&str, &[u8]); 2] = [
             (
@@ -359,7 +400,7 @@ mod tests {
                 elrc: Some(elrc.clone()),
                 ..LyricData::default()
             }),
-            cover_bytes: None,
+            cover_bytes: Some(base64::engine::general_purpose::STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII=").unwrap()),
         };
         for (extension, bytes) in files {
             let audio = directory.join(format!("bilingual.{extension}"));
@@ -385,6 +426,35 @@ mod tests {
                     cover_url: String::new(),
                 },
             };
+            // 即使歌曲没有歌词和封面，标题、歌手和专辑仍必须写入。
+            write_audio_metadata(
+                &audio,
+                &context,
+                &PostprocessAssets {
+                    lyric: None,
+                    cover_bytes: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                lofty::read_from_path(&audio)
+                    .unwrap()
+                    .primary_tag()
+                    .unwrap()
+                    .get_string(&ItemKey::TrackTitle),
+                Some("测试歌曲")
+            );
+            let before = std::fs::read(&audio).unwrap();
+            assert!(write_audio_metadata(
+                &audio,
+                &context,
+                &PostprocessAssets {
+                    lyric: None,
+                    cover_bytes: Some(b"not an image".to_vec())
+                }
+            )
+            .is_err());
+            assert_eq!(std::fs::read(&audio).unwrap(), before);
             // Docker、本地 Tauri 和 Android SAF 临时文件都调用同一个标签写入函数。
             assert!(write_audio_metadata(&audio, &context, &assets).unwrap());
             assert!(write_audio_metadata(&audio, &context, &assets).unwrap());
@@ -392,6 +462,11 @@ mod tests {
             let tag = saved.primary_tag().unwrap();
             assert_eq!(tag.get_string(&ItemKey::Lyrics), Some(elrc.as_str()));
             assert_eq!(tag.get_strings(&ItemKey::Lyrics).count(), 1);
+            assert_eq!(tag.pictures().len(), 1);
+            assert_eq!(
+                tag.pictures()[0].data(),
+                assets.cover_bytes.as_deref().unwrap()
+            );
             let path =
                 write_local_lrc(audio.to_str().unwrap(), assets.lyric.as_ref().unwrap()).unwrap();
             assert_eq!(std::fs::read_to_string(&path).unwrap(), lrc);
