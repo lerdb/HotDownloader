@@ -73,6 +73,14 @@ impl DownloadTaskRunner for Runner {
 }
 struct Sink<'a>(&'a TaskState);
 impl DownloadProgressSink for Sink<'_> {
+    fn paused(&self, id: &str, reason: &str) {
+        self.0
+            .update(id, true, |task| {
+                task.status = TaskStatus::Paused;
+                task.error_msg = Some(reason.into());
+            })
+            .unwrap();
+    }
     fn progress(&self, id: &str, downloaded: u64, total: u64, speed: u64) {
         self.0.progress(id, downloaded, total, speed);
     }
@@ -310,6 +318,36 @@ async fn master_and_hires_rejected_then_flac_completes_same_task() {
         .load()
         .unwrap();
     assert_eq!(saved[0].quality, "flac");
+}
+
+#[tokio::test]
+async fn paused_queue_stops_fallback_and_preserves_the_task_for_resume() {
+    let f = Fixture::new(json!({})).await;
+    let links = Links {
+        error: format!("{}: 模拟连续取链失败", crate::download::queue::QUEUE_PAUSED),
+        ..Links::rejected()
+    };
+    assert!(!f.run(&links).await);
+    assert_eq!(f.task().status, TaskStatus::Paused);
+    assert_eq!(f.task().quality, "臻品母带");
+    assert_eq!(*links.calls.lock().unwrap(), ["master.mflac"]);
+}
+
+#[tokio::test]
+async fn exhausted_network_retries_do_not_walk_quality_candidates() {
+    let f = Fixture::new(json!({})).await;
+    let links = Links {
+        error: "网络错误: 模拟连接超时".into(),
+        ..Links::rejected()
+    };
+    assert!(!f.run(&links).await);
+    assert_eq!(
+        *links.calls.lock().unwrap(),
+        ["master.mflac", "master.mflac", "master.mflac"]
+    );
+    assert_eq!(f.task().quality, "臻品母带");
+    assert_eq!(f.task().status, TaskStatus::Error);
+    assert!(!f.task().error_msg.unwrap().starts_with(QUALITY_EXHAUSTED));
 }
 
 #[tokio::test]

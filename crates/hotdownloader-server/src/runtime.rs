@@ -253,6 +253,15 @@ struct ServerProgress {
 }
 
 impl DownloadProgressSink for ServerProgress {
+    fn paused(&self, task_id: &str, reason: &str) {
+        if let Err(error) = self.tasks.update(task_id, true, |task| {
+            task.status = TaskStatus::Paused;
+            task.error_msg = Some(reason.into());
+            task.speed = None;
+        }) {
+            log::error!("保存队列暂停状态失败: {error}");
+        }
+    }
     fn progress(&self, task_id: &str, downloaded: u64, total: u64, speed: u64) {
         self.tasks.progress(task_id, downloaded, total, speed);
     }
@@ -430,10 +439,12 @@ impl ServerRuntime {
         let kugou_store = Arc::new(hotdownloader_core::platforms::kugou::login::Store::new(
             data_dir.join("kugou-credentials.json"),
         ));
+        let queue = Arc::new(hotdownloader_core::download::queue::QueueControl::default());
         let links = Arc::new(
             PlatformDownloadLinkProvider::from_credentials_file(
                 data_dir.join("qq-credentials.json"),
             )
+            .with_queue_control(queue.clone())
             .with_kugou_store(kugou_store.clone())
             .with_netease_store(netease_store.clone()),
         );
@@ -447,7 +458,8 @@ impl ServerRuntime {
             runner,
             Arc::new(LocalFileDeleter),
             Arc::new(NoopCompletionNotifier),
-        );
+        )
+        .with_queue_control(queue);
         engine.set_concurrency(environment.max_concurrent());
         let runtime = Arc::new(Self {
             monitors,

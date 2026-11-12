@@ -11,5 +11,6 @@ pub mod link;
 pub(crate) mod path;
 pub mod ports;
 pub mod postprocess;
+pub mod queue;
 pub(crate) mod transfer;
 pub mod worker;

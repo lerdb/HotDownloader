@@ -82,7 +82,9 @@ pub async fn fetch_vkey_link(
         .json(&request_body)
         .send()
         .await
-        .map_err(|e| format!("网络错误: {}", e))?;
+        .map_err(|e| format!("网络错误: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("取链接口 HTTP 错误: {e}"))?;
 
     let text = resp
         .text()
@@ -95,6 +97,16 @@ pub async fn fetch_vkey_link(
 
 /// 单独解析响应，便于验证 CDN 选择、拒绝错误和明文/加密格式的密钥边界。
 fn parse_vkey_response(data: &Value, filename: &str) -> Result<(String, String), String> {
+    if data["code"].as_i64().is_some_and(|code| code != 0) {
+        return Err(format!(
+            "QQ 取链网关错误: code={}，{}",
+            data["code"],
+            data["message"]
+                .as_str()
+                .or_else(|| data["msg"].as_str())
+                .unwrap_or("")
+        ));
+    }
     // 提取 vkey.GetVkeyServer.CgiGetVkey 子响应
     let vkey_resp = &data["vkey.GetVkeyServer.CgiGetVkey"];
     if vkey_resp["code"].as_i64().unwrap_or(-1) != 0 {
@@ -115,7 +127,7 @@ fn parse_vkey_response(data: &Value, filename: &str) -> Result<(String, String),
     let result_code = item["result"].as_i64().unwrap_or(0);
     if purl.is_empty() || result_code != 0 {
         let err_msg = match result_code {
-            104003 => "无法获取下载链接".to_string(),
+            104003 => "无法获取下载链接（QQ result=104003）".to_string(),
             104004 => "该歌曲已下架或禁止下载".to_string(),
             _ => format!(
                 "获取下载链接失败，错误码: {}，详情: {:?}",

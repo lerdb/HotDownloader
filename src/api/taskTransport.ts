@@ -16,6 +16,19 @@ export interface BatchTaskResult {
     errors: string[]
 }
 
+export interface QueueStatus {
+    paused: boolean
+    reason: string | null
+    consecutiveLinkFailures: number
+}
+
+export interface BatchControlRequest {
+    action: 'pause' | 'resume' | 'remove'
+    taskIds?: string[]
+    statuses?: TaskRecord['status'][]
+    deleteFile?: boolean
+}
+
 /** 任务事件携带后端完整记录；前端不得在这里自行推导状态变化。 */
 export interface TaskEventHandlers {
     /** Web SSE 的连接状态；原生端建立监听后视为已连接。 */
@@ -40,7 +53,10 @@ export interface TaskTransport {
     resume(taskId: string): Promise<void>
     cancel(taskId: string, deleteFile: boolean): Promise<void>
     remove(taskIds: string[], deleteFile: boolean): Promise<BatchTaskResult>
-    retry(taskId: string): Promise<boolean>
+    retry(taskId: string, quality?: string): Promise<boolean>
+    queueStatus(): Promise<QueueStatus>
+    controlQueue(action: 'pause' | 'resume'): Promise<BatchTaskResult>
+    controlTasks(request: BatchControlRequest): Promise<BatchTaskResult>
     subscribe(handlers: TaskEventHandlers): Promise<() => void>
 }
 

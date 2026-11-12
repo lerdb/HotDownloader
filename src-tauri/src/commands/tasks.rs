@@ -59,8 +59,30 @@ pub async fn remove_tasks(
 }
 
 #[command]
-pub async fn retry_task(app: AppHandle, task_id: String) -> Result<bool, String> {
-    task_service::retry_task(app, task_id).await
+pub async fn retry_task(
+    app: AppHandle,
+    task_id: String,
+    quality: Option<String>,
+) -> Result<bool, String> {
+    task_service::retry_task(app, task_id, quality).await
+}
+
+#[command]
+pub fn queue_status(app: AppHandle) -> hotdownloader_core::download::queue::QueueStatus {
+    task_service::queue_status(app)
+}
+
+#[command]
+pub async fn control_queue(app: AppHandle, action: String) -> Result<BatchResult, String> {
+    task_service::control_queue(app, action).await
+}
+
+#[command]
+pub async fn control_tasks(
+    app: AppHandle,
+    request: hotdownloader_core::task::contract::BatchControlRequest,
+) -> Result<BatchResult, String> {
+    task_service::control_tasks(app, request).await
 }
 
 #[command]

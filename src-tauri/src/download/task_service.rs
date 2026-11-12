@@ -127,12 +127,41 @@ pub async fn remove_tasks(
         .await
 }
 
-pub async fn retry_task(app: AppHandle, task_id: String) -> Result<bool, String> {
+pub async fn retry_task(
+    app: AppHandle,
+    task_id: String,
+    quality: Option<String>,
+) -> Result<bool, String> {
     let state = app.state::<TaskState>();
     let engine = app.state::<DownloadEngine>();
     let environment = TauriTaskEnvironment::new(app.clone());
     TaskService::new(&state, &engine, &environment)
-        .retry_task(task_id)
+        .retry_task_with_quality(task_id, quality)
+        .await
+}
+
+pub fn queue_status(app: AppHandle) -> hotdownloader_core::download::queue::QueueStatus {
+    app.state::<DownloadEngine>().queue.status()
+}
+
+pub async fn control_queue(app: AppHandle, action: String) -> Result<BatchResult, String> {
+    let state = app.state::<TaskState>();
+    let engine = app.state::<DownloadEngine>();
+    let environment = TauriTaskEnvironment::new(app.clone());
+    TaskService::new(&state, &engine, &environment)
+        .control_queue(&action)
+        .await
+}
+
+pub async fn control_tasks(
+    app: AppHandle,
+    request: hotdownloader_core::task::contract::BatchControlRequest,
+) -> Result<BatchResult, String> {
+    let state = app.state::<TaskState>();
+    let engine = app.state::<DownloadEngine>();
+    let environment = TauriTaskEnvironment::new(app.clone());
+    TaskService::new(&state, &engine, &environment)
+        .control_tasks(request)
         .await
 }
 

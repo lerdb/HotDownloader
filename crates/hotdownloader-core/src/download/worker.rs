@@ -116,13 +116,24 @@ pub async fn download_task(
                     log::info!("任务 {} 获取到新下载链接", ctx.task_id);
                 }
                 Err(e) => {
+                    if e.starts_with(super::queue::QUEUE_PAUSED) {
+                        if let Some(queue) = link_provider.queue_control() {
+                            queue.remember_paused(&ctx.task_id);
+                        }
+                        progress_sink.paused(&ctx.task_id, &e);
+                        break 'download;
+                    }
                     if controller.pause_flag.load(Ordering::SeqCst)
                         && controller.wait_for_resume_or_cancel().await
                     {
                         break 'download;
                     }
                     if let Some(fallback) = quality_fallback.filter(|_| {
-                        !e.contains("凭据") && !e.contains("凭证") && !e.contains("登录")
+                        !e.contains("凭据")
+                            && !e.contains("凭证")
+                            && !e.contains("登录")
+                            && !crate::download::link::is_retryable_link_error(&e)
+                            && !e.starts_with("取链接口 HTTP 错误")
                     }) {
                         // 关闭旧文件后才能切换品质；旧片段保留，下一品质从零另存。
                         drop(file.take());

@@ -1,6 +1,8 @@
 <template>
     <div v-if="selectedCount > 0" class="batch-actions">
         <span>已选择 {{ selectedCount }} 个任务</span>
+        <n-button size="small" @click="emit('pause')">暂停所选</n-button>
+        <n-button size="small" @click="emit('resume')">恢复所选</n-button>
         <n-popconfirm
             :style="{ maxWidth: 'calc(100vw - 32px)' }"
             @positive-click="handleConfirm"
@@ -27,6 +29,8 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
+    (e: 'pause'): void
+    (e: 'resume'): void
     (e: 'clear', deleteFile: boolean): void
 }>()
 

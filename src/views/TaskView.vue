@@ -21,6 +21,43 @@
 
         <!-- 批量操作栏：按当前标签页显示可用的一键操作 -->
         <div v-if="showToolbar && !focusedId" class="task-toolbar">
+            <n-button
+                size="small"
+                :disabled="clearing"
+                @click="
+                    handleQueue(
+                        taskStore.queueStatus.paused ? 'resume' : 'pause',
+                    )
+                "
+            >
+                {{ taskStore.queueStatus.paused ? '恢复队列' : '暂停队列' }}
+            </n-button>
+            <n-popconfirm
+                v-if="unfinishedTaskCount > 0"
+                @positive-click="handleCancelQueue"
+            >
+                <template #trigger
+                    ><n-button size="small" type="warning" :disabled="clearing"
+                        >取消全部未完成任务（{{
+                            unfinishedTaskCount
+                        }}）</n-button
+                    ></template
+                >
+                停止当前批量提交，并取消全部等待、下载、处理、暂停及中断任务；保留磁盘文件。队列保持暂停。
+            </n-popconfirm>
+            <n-popconfirm
+                v-if="activeTab !== 'all' && filteredTasks.length"
+                @positive-click="handleClearStatus"
+            >
+                <template #trigger
+                    ><n-button size="small" type="warning" :disabled="clearing"
+                        >清除当前状态的全部任务（{{
+                            filteredTasks.length
+                        }}）</n-button
+                    ></template
+                >
+                停止当前批量提交，并清除当前状态的全部任务记录，范围包含所有分页；保留磁盘文件。取消等待任务后队列保持暂停。
+            </n-popconfirm>
             <!-- 中断恢复与错误重试按任务状态分别选择，实际规则交给 Rust。 -->
             <n-button
                 v-if="
@@ -130,6 +167,8 @@
         <TaskBatchActions
             :selectedCount="selectedRowKeys.length"
             @clear="handleBatchClear"
+            @pause="handleSelected('pause')"
+            @resume="handleSelected('resume')"
         />
     </div>
 </template>
@@ -161,7 +200,7 @@ import type {
 
 const taskStore = useTaskStore()
 const settingsStore = useSettingsStore()
-const { retryTask } = useDownloadActions()
+const { retryTask, retryTasksWithQuality } = useDownloadActions()
 const notification = useNotification()
 const route = useRoute()
 const router = useRouter()
@@ -240,6 +279,9 @@ const activeTaskCount = computed(
         taskStore.tasks.filter((t) => ACTIVE_STATUSES.includes(t.status))
             .length,
 )
+const unfinishedTaskCount = computed(
+    () => activeTaskCount.value + tabCounts.value.interrupted,
+)
 
 /** “全部 / 已完成”标签页提供批量清除入口 */
 const inClearableTab = computed(
@@ -254,12 +296,86 @@ const canClearAll = computed(
 
 const showToolbar = computed(
     () =>
+        tabCounts.value.total > 0 ||
+        taskStore.queueStatus.paused ||
         (activeTab.value === 'error' && tabCounts.value.error > 0) ||
         (activeTab.value === 'interrupted' &&
             tabCounts.value.interrupted > 0) ||
         canClearCompleted.value ||
         canClearAll.value,
 )
+
+async function handleQueue(action: 'pause' | 'resume') {
+    try {
+        const result = await taskStore.controlQueue(action)
+        if (result.failed) throw new Error(result.errors.join('；'))
+    } catch (error) {
+        notification.error({
+            title: '队列操作失败',
+            description: String(error),
+        })
+    }
+}
+
+async function handleClearStatus() {
+    await removeByStatus(
+        [activeTab.value as import('../types').TaskRecord['status']],
+        '按状态清除',
+    )
+}
+
+async function handleCancelQueue() {
+    await removeByStatus(
+        ['waiting', 'downloading', 'processing', 'paused', 'interrupted'],
+        '取消队列',
+    )
+}
+
+async function removeByStatus(
+    statuses: import('../types').TaskRecord['status'][],
+    title: string,
+) {
+    clearing.value = true
+    try {
+        const result = await taskStore.controlTasks({
+            action: 'remove',
+            statuses: [...statuses],
+        })
+        selectedRowKeys.value = []
+        notification[result.failed ? 'warning' : 'success']({
+            title,
+            description: `已清除 ${result.succeeded} 个任务记录，${result.failed} 个失败`,
+        })
+    } catch (error) {
+        notification.error({ title: '清除失败', description: String(error) })
+    } finally {
+        clearing.value = false
+    }
+}
+
+async function handleSelected(action: 'pause' | 'resume') {
+    try {
+        const statuses =
+            action === 'pause'
+                ? ['waiting', 'downloading']
+                : ['paused', 'interrupted']
+        const taskIds = taskStore.tasks
+            .filter(
+                (task) =>
+                    selectedRowKeys.value.includes(task.id) &&
+                    statuses.includes(task.status),
+            )
+            .map((task) => task.id)
+        const result = await taskStore.controlTasks({ action, taskIds })
+        selectedRowKeys.value = []
+        if (result.failed) throw new Error(result.errors.join('；'))
+    } catch (error) {
+        notification.error({
+            title: '批量操作失败',
+            description: String(error),
+        })
+    }
+}
 
 // 切换标签页时回到第一页
 watch(activeTab, () => {
@@ -377,10 +493,12 @@ async function handleRetryAll() {
     try {
         // 批量重试读取同一份当前设置，先完成防抖写盘。
         await settingsStore.flushSettings()
-        const { succeeded, failed } =
+        const result =
             targetStatus === 'interrupted'
                 ? await taskStore.resumeTasks(ids)
-                : await taskStore.retryTasks(ids)
+                : await retryTasksWithQuality(ids)
+        if (!result) return
+        const { succeeded, failed } = result
         notification.success({
             title: targetStatus === 'interrupted' ? '批量恢复' : '批量重试',
             description: `已重新入队 ${succeeded} 个任务${failed > 0 ? `，${failed} 个未能入队，请查看任务状态` : ''}`,

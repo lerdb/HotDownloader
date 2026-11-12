@@ -146,6 +146,55 @@ impl TaskState {
         Ok(())
     }
 
+    /// 批量状态变更只持久化一次，保存失败时恢复整批且不广播。
+    pub fn update_many(
+        &self,
+        ids: &[String],
+        mut change: impl FnMut(&mut TaskRecord) -> bool,
+    ) -> Result<Vec<TaskRecord>, String> {
+        let ids: std::collections::HashSet<_> = ids.iter().collect();
+        let mut tasks = self.tasks.lock().unwrap();
+        let old = tasks.clone();
+        let mut changed = Vec::new();
+        for task in tasks.iter_mut().filter(|task| ids.contains(&task.id)) {
+            if change(task) {
+                changed.push(task.clone());
+            }
+        }
+        if !changed.is_empty() {
+            if let Err(error) = self.persist(&tasks) {
+                *tasks = old;
+                return Err(error);
+            }
+            for task in &changed {
+                self.events.updated(task.clone());
+            }
+        }
+        Ok(changed)
+    }
+
+    pub fn remove_many(&self, ids: &[String]) -> Result<usize, String> {
+        let ids: std::collections::HashSet<_> = ids.iter().collect();
+        let mut tasks = self.tasks.lock().unwrap();
+        let old = tasks.clone();
+        let removed: Vec<_> = tasks
+            .iter()
+            .filter(|task| ids.contains(&task.id))
+            .map(|task| task.id.clone())
+            .collect();
+        if !removed.is_empty() {
+            tasks.retain(|task| !ids.contains(&task.id));
+            if let Err(error) = self.persist(&tasks) {
+                *tasks = old;
+                return Err(error);
+            }
+            for id in &removed {
+                self.events.removed(id);
+            }
+        }
+        Ok(removed.len())
+    }
+
     fn persist(&self, tasks: &[TaskRecord]) -> Result<(), String> {
         self.repository.save(tasks)
     }
@@ -289,6 +338,57 @@ mod tests {
         .unwrap();
         task.status = status;
         task
+    }
+
+    #[test]
+    fn bulk_mutations_save_once_and_roll_back_without_events_on_failure() {
+        let records = (0..50)
+            .map(|index| {
+                let mut record = task(TaskStatus::Error);
+                record.id = format!("bulk-{index}");
+                record
+            })
+            .collect::<Vec<_>>();
+        let ids = records
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<Vec<_>>();
+        let repository = Arc::new(MemoryRepository::new(records));
+        let events = Arc::new(RecordedEvents::default());
+        let state = TaskState::load(repository.clone(), events.clone()).unwrap();
+        repository.fail_save.store(true, Ordering::SeqCst);
+        assert!(state
+            .update_many(&ids, |task| {
+                task.status = TaskStatus::Paused;
+                true
+            })
+            .is_err());
+        assert!(state
+            .list()
+            .iter()
+            .all(|task| task.status == TaskStatus::Error));
+        assert!(events.0.lock().unwrap().is_empty());
+        repository.fail_save.store(false, Ordering::SeqCst);
+        assert_eq!(
+            state
+                .update_many(&ids, |task| {
+                    task.status = TaskStatus::Paused;
+                    true
+                })
+                .unwrap()
+                .len(),
+            50
+        );
+        assert_eq!(repository.saves.load(Ordering::SeqCst), 1);
+        repository.fail_save.store(true, Ordering::SeqCst);
+        assert!(state.remove_many(&ids).is_err());
+        assert_eq!(state.list().len(), 50);
+        assert_eq!(events.0.lock().unwrap().len(), 50);
+        repository.fail_save.store(false, Ordering::SeqCst);
+        assert_eq!(state.remove_many(&ids).unwrap(), 50);
+        assert_eq!(repository.saves.load(Ordering::SeqCst), 2);
+        assert_eq!(events.0.lock().unwrap().len(), 100);
+        assert!(state.list().is_empty());
     }
 
     #[test]

@@ -87,6 +87,7 @@ impl TaskController {
 
 #[derive(Clone)]
 pub struct DownloadEngine {
+    pub queue: Arc<super::queue::QueueControl>,
     runner: Arc<dyn DownloadTaskRunner>,
     file_deleter: Arc<dyn FileDeleter>,
     notifier: Arc<dyn CompletionNotifier>,
@@ -135,6 +136,7 @@ impl DownloadEngine {
         notifier: Arc<dyn CompletionNotifier>,
     ) -> Self {
         DownloadEngine {
+            queue: Arc::new(super::queue::QueueControl::default()),
             runner,
             file_deleter,
             notifier,
@@ -148,6 +150,11 @@ impl DownloadEngine {
             sidecar_paths: Arc::new(Mutex::new(HashMap::new())),
             start_lock: Arc::new(Mutex::new(())),
         }
+    }
+
+    pub fn with_queue_control(mut self, queue: Arc<super::queue::QueueControl>) -> Self {
+        self.queue = queue;
+        self
     }
 
     /// 注册已组装的任务上下文，并继承重试时可能保存的最终路径。
@@ -178,7 +185,10 @@ impl DownloadEngine {
             .lock()
             .await
             .insert(task_id, controller);
-        self.ready_tasks.lock().await.push_back(ctx);
+        let mut ready = self.ready_tasks.lock().await;
+        ready.retain(|queued| queued.task_id != ctx.task_id);
+        ready.push_back(ctx);
+        drop(ready);
         self.scheduler_notify.notify_one();
     }
 
@@ -244,11 +254,14 @@ impl DownloadEngine {
     }
 
     /// 异步恢复任务
-    pub async fn resume(&self, task_id: &str) {
+    pub async fn resume(&self, task_id: &str) -> Option<bool> {
         if let Some(ctrl) = self.active_controllers.lock().await.get(task_id) {
             ctrl.pause_flag.store(false, Ordering::SeqCst);
             ctrl.resume_notify.notify_one();
+            self.scheduler_notify.notify_one();
+            return Some(ctrl.started.load(Ordering::SeqCst));
         }
+        None
     }
 
     /// 设置并发数（同步，无需 Tokio 上下文）
@@ -261,10 +274,15 @@ impl DownloadEngine {
     pub async fn run_scheduler(&self) {
         loop {
             // 启动尽可能多的就绪任务
-            while let Some(ctx) = {
-                let mut ready = self.ready_tasks.lock().await;
-                ready.pop_front()
-            } {
+            let count = self.ready_tasks.lock().await.len();
+            for _ in 0..count {
+                let Some(ctx) = self.ready_tasks.lock().await.pop_front() else {
+                    break;
+                };
+                if self.queue.status().paused {
+                    self.ready_tasks.lock().await.push_front(ctx);
+                    break;
+                }
                 let current = self.active_downloads.load(Ordering::SeqCst);
                 let max = self.max_concurrent.load(Ordering::SeqCst);
                 if current >= max {
@@ -296,6 +314,8 @@ impl DownloadEngine {
                                 // 直接忽略，避免同一任务被并发下载两次（会互相覆盖文件）
                                 log::warn!("任务 {} 已在运行，忽略重复的就绪条目", ctx.task_id);
                                 None
+                            } else if ctrl.pause_flag.load(Ordering::SeqCst) {
+                                Some(ctrl)
                             } else {
                                 // 设置 started 并标记可以启动
                                 ctrl.started.store(true, Ordering::SeqCst);
@@ -321,6 +341,7 @@ impl DownloadEngine {
 
                 if let Some(ctrl) = ctrl {
                     if !should_start {
+                        self.ready_tasks.lock().await.push_back(ctx);
                         continue;
                     }
 
@@ -399,7 +420,10 @@ impl DownloadEngine {
                 // 如果 ctrl 不存在，跳过该任务（可能已被取消）
             }
 
-            self.scheduler_notify.notified().await;
+            tokio::select! {
+                _ = self.scheduler_notify.notified() => {},
+                _ = self.queue.changed.notified() => {},
+            }
         }
     }
 
@@ -611,7 +635,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scheduler_runs_a_task_without_tauri() {
+    async fn queue_pause_and_individual_pause_do_not_consume_waiting_slots() {
         let runs = Arc::new(AtomicUsize::new(0));
         let hits = Arc::new(AtomicUsize::new(0));
         let done = Arc::new(Notify::new());
@@ -623,7 +647,8 @@ mod tests {
                 done: done.clone(),
             }),
         );
-
+        engine.set_concurrency(1);
+        engine.queue.pause("test pause".into());
         let scheduler = tokio::spawn({
             let engine = engine.clone();
             async move { engine.run_scheduler().await }
@@ -651,12 +676,41 @@ mod tests {
                 final_path: Arc::new(Mutex::new(None)),
             })
             .await;
-
+        engine.pause("task-1").await;
+        let mut second = engine
+            .task_contexts
+            .lock()
+            .await
+            .get("task-1")
+            .unwrap()
+            .clone();
+        second.task_id = "task-2".into();
+        engine.add_task(second).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            0,
+            "全局暂停期间新增任务也不能启动"
+        );
+        engine.queue.resume();
         tokio::time::timeout(Duration::from_secs(2), done.notified())
             .await
             .expect("调度器未完成任务");
         assert_eq!(runs.load(Ordering::SeqCst), 1);
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert!(!engine
+            .active_controllers
+            .lock()
+            .await
+            .get("task-1")
+            .unwrap()
+            .started
+            .load(Ordering::SeqCst));
+        engine.resume("task-1").await;
+        tokio::time::timeout(Duration::from_secs(2), done.notified())
+            .await
+            .expect("恢复等待任务后应唤醒调度器");
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
         scheduler.abort();
     }
 }

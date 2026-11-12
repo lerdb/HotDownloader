@@ -15,11 +15,14 @@ export function useDownloadActions() {
     const taskStore = useTaskStore()
 
     /** 只收集用户选择的品质标签，不在页面上做降级或文件名推断。 */
-    function askQuality(qualities: QualityItem[]): Promise<string> {
+    function askQuality(
+        qualities: QualityItem[],
+        title = '选择下载音质',
+    ): Promise<string> {
         return new Promise((resolve, reject) => {
             const compRef = ref<InstanceType<typeof QualitySelector>>()
             const d = dialog.create({
-                title: '选择下载音质',
+                title,
                 content: () => h(QualitySelector, { qualities, ref: compRef }),
                 positiveText: '确定',
                 negativeText: '取消',
@@ -42,8 +45,20 @@ export function useDownloadActions() {
     }
 
     /** Rust 返回重名确认请求后，再向用户询问覆盖、保留两份或取消。 */
-    function askDuplicateAction(songTitle: string): Promise<DuplicateAction> {
+    function askDuplicateAction(
+        songTitle: string,
+        signal?: AbortSignal,
+    ): Promise<DuplicateAction> {
         return new Promise((resolve) => {
+            let settled = false
+            const finish = (choice: DuplicateAction) => {
+                if (settled) return
+                settled = true
+                signal?.removeEventListener('abort', abort)
+                resolve(choice)
+                d.destroy()
+            }
+            const abort = () => finish('cancel')
             const d = dialog.create({
                 title: '文件已存在',
                 content: `歌曲“${songTitle}”在下载目录中已存在同名文件，请选择处理方式：`,
@@ -53,8 +68,7 @@ export function useDownloadActions() {
                         {
                             size: 'small',
                             onClick: () => {
-                                resolve('overwrite')
-                                d.destroy()
+                                finish('overwrite')
                             },
                         },
                         { default: () => '覆盖' },
@@ -65,8 +79,7 @@ export function useDownloadActions() {
                             size: 'small',
                             type: 'primary',
                             onClick: () => {
-                                resolve('rename')
-                                d.destroy()
+                                finish('rename')
                             },
                         },
                         { default: () => '保留两份' },
@@ -77,26 +90,31 @@ export function useDownloadActions() {
                             size: 'small',
                             type: 'error',
                             onClick: () => {
-                                resolve('cancel')
-                                d.destroy()
+                                finish('cancel')
                             },
                         },
                         { default: () => '取消' },
                     ),
                 ],
-                onClose: () => resolve('cancel'),
+                onClose: () => finish('cancel'),
             })
+            signal?.addEventListener('abort', abort, { once: true })
+            if (signal?.aborted) abort()
         })
     }
 
     async function submitSong(
         song: SongInfo,
         quality: string,
+        signal?: AbortSignal,
     ): Promise<'created' | 'error' | 'cancelled'> {
+        if (signal?.aborted) return 'cancelled'
         let result = await taskStore.createTask(song, quality)
         if (result.outcome === 'needs_confirmation') {
             // Rust 发现实际路径冲突后才弹窗；选择结果交回同一命令重新校验。
-            const choice = await askDuplicateAction(result.song_title)
+            if (signal?.aborted) return 'cancelled'
+            const choice = await askDuplicateAction(result.song_title, signal)
+            if (signal?.aborted || choice === 'cancel') return 'cancelled'
             result = await taskStore.createTask(song, quality, choice)
         }
         if (result.outcome === 'cancelled') {
@@ -168,11 +186,20 @@ export function useDownloadActions() {
             }
             await settingsStore.flushSettings()
             let errors = 0
-            for (const song of songs) {
-                const outcome = await submitSong(song, quality)
-                if (outcome === 'error') {
-                    errors++
-                }
+            await taskStore.runSubmission(
+                songs.slice(),
+                async (song, signal) => {
+                    const outcome = await submitSong(song, quality, signal)
+                    if (outcome === 'error') {
+                        errors++
+                    }
+                },
+            )
+            if (taskStore.batchSubmission.processed < songs.length) {
+                notification.info({
+                    title: '已停止后续提交',
+                    description: `已处理 ${taskStore.batchSubmission.processed}/${songs.length} 首，已入队任务可在任务页暂停或取消。`,
+                })
             }
             if (errors > 0) {
                 notification.warning({
@@ -194,9 +221,21 @@ export function useDownloadActions() {
 
     async function retryTask(taskId: string): Promise<void> {
         try {
+            const task = taskStore.tasks.find((task) => task.id === taskId)
+            if (!task?.availableQualities?.length)
+                throw new Error('任务缺少音质信息，请重新添加下载')
+            let quality: string
+            try {
+                quality = await askQuality(
+                    task.availableQualities,
+                    '选择重试音质',
+                )
+            } catch {
+                return
+            }
             await settingsStore.flushSettings()
             // 错误重试由 Rust 决定计数、续传和降级；中断任务使用独立的 resume 命令。
-            if (!(await taskStore.retryTask(taskId))) {
+            if (!(await taskStore.retryTask(taskId, quality))) {
                 notification.warning({
                     title: '重试失败',
                     description: '任务未重新入队，请查看任务状态',
@@ -210,5 +249,24 @@ export function useDownloadActions() {
         }
     }
 
-    return { downloadSingle, batchDownload, retryTask }
+    async function retryTasksWithQuality(taskIds: string[]) {
+        const union = new Map<string, QualityItem>()
+        for (const task of taskStore.tasks.filter((task) =>
+            taskIds.includes(task.id),
+        )) {
+            for (const quality of task.availableQualities ?? [])
+                union.set(quality.quality, quality)
+        }
+        if (!union.size) throw new Error('任务缺少音质信息，请重新添加下载')
+        let quality: string
+        try {
+            quality = await askQuality([...union.values()], '选择批量重试音质')
+        } catch {
+            return
+        }
+        await settingsStore.flushSettings()
+        return taskStore.retryTasks(taskIds, quality)
+    }
+
+    return { downloadSingle, batchDownload, retryTask, retryTasksWithQuality }
 }

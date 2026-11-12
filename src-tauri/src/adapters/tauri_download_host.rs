@@ -110,6 +110,19 @@ impl TauriDownloadProgressSink {
 }
 
 impl DownloadProgressSink for TauriDownloadProgressSink {
+    fn paused(&self, task_id: &str, reason: &str) {
+        if let Err(error) = self
+            .app
+            .state::<hotdownloader_core::task::state::TaskState>()
+            .update(task_id, true, |task| {
+                task.status = hotdownloader_core::task::contract::TaskStatus::Paused;
+                task.error_msg = Some(reason.into());
+                task.speed = None;
+            })
+        {
+            log::error!("保存队列暂停状态失败: {error}");
+        }
+    }
     fn progress(&self, task_id: &str, downloaded: u64, total: u64, speed: u64) {
         progress::emit_progress(&self.app, task_id, downloaded, total, speed);
     }
@@ -193,6 +206,14 @@ impl QqCredentialSource for TauriQqCredentialSource {
 }
 
 impl DownloadLinkProvider for TauriDownloadLinkProvider {
+    fn queue_control(&self) -> Option<Arc<hotdownloader_core::download::queue::QueueControl>> {
+        Some(
+            self.app
+                .state::<hotdownloader_core::download::engine::DownloadEngine>()
+                .queue
+                .clone(),
+        )
+    }
     fn fetch<'a>(
         &'a self,
         platform: Platform,

@@ -30,6 +30,32 @@ wav.writeUInt16LE(16, 34)
 wav.write('data', 36)
 wav.writeUInt32LE(8, 40)
 fs.writeFileSync(filePath, wav)
+// 队列始终先暂停再重试；这些任务仅验证控制接口，不访问音乐平台。
+fs.writeFileSync(
+    path.join(fixture, 'tasks.json'),
+    JSON.stringify(
+        Array.from({ length: 130 }, (_, index) => ({
+            id: `batch-${index}`,
+            platform: 'qqmusic',
+            songId: index + 1,
+            songMid: `syntheticBatch${index}`,
+            songTitle: `Synthetic batch ${index}`,
+            artist: 'Fixture',
+            album: 'Fixture',
+            filename: 'lowest.aac',
+            quality: '48kaac',
+            status: 'error',
+            fileSize: 52,
+            downloaded: 0,
+            retryCount: 5,
+            addedAt: index + 1,
+            availableQualities: [
+                { quality: 'flac', filename: 'synthetic.flac', size: 800 },
+                { quality: '48kaac', filename: 'lowest.aac', size: 52 },
+            ],
+        })),
+    ),
+)
 const db = new DatabaseSync(path.join(fixture, 'library.sqlite3'))
 db.exec(
     'CREATE TABLE records(kind TEXT NOT NULL, key TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(kind,key)); PRAGMA user_version=1;',
@@ -225,6 +251,46 @@ try {
         assert.ok(!JSON.stringify(result).includes('client-supplied-token'))
     }
     assert.equal((await fetch(base + '/api/library')).status, 401)
+    assert.equal((await fetch(base + '/api/queue')).status, 401)
+    assert.equal((await request('/api/queue/pause', 'POST')).status, 200)
+    assert.equal((await (await request('/api/queue')).json()).paused, true)
+    const retry = await request('/api/tasks/batch-0/retry', 'POST', {
+        quality: 'flac',
+    })
+    assert.equal(retry.status, 200)
+    assert.equal((await retry.json()).retried, true)
+    let tasks = await (await request('/api/tasks')).json()
+    assert.equal(tasks.length, 130)
+    assert.equal(tasks.find((task) => task.id === 'batch-0').quality, 'flac')
+    assert.equal(tasks.find((task) => task.id === 'batch-0').retryCount, 0)
+    assert.equal(tasks.find((task) => task.id === 'batch-0').status, 'waiting')
+    const pauseWaiting = await request('/api/tasks/control', 'POST', {
+        action: 'pause',
+        statuses: ['waiting'],
+    })
+    assert.equal((await pauseWaiting.json()).succeeded, 1)
+    const clearErrors = await request('/api/tasks/control', 'POST', {
+        action: 'remove',
+        statuses: ['error'],
+    })
+    assert.equal((await clearErrors.json()).succeeded, 129)
+    tasks = await (await request('/api/tasks')).json()
+    assert.equal(tasks.length, 1)
+    assert.equal(tasks[0].status, 'paused')
+    assert.equal(
+        (
+            await (
+                await request('/api/tasks/control', 'POST', {
+                    action: 'remove',
+                    statuses: ['paused'],
+                })
+            ).json()
+        ).succeeded,
+        1,
+    )
+    assert.equal((await request('/api/queue/resume', 'POST')).status, 200)
+    assert.equal((await (await request('/api/queue')).json()).paused, false)
+    assert.deepEqual(await (await request('/api/tasks')).json(), [])
     assert.equal((await request('/api/library/scan', 'POST')).status, 200)
     const library = await (await request('/api/library')).json()
     assert.equal(library.fileCount, 1)

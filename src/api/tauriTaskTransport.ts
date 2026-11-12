@@ -34,8 +34,17 @@ export const tauriTaskTransport: TaskTransport = {
         return invoke<BatchTaskResult>('remove_tasks', { taskIds, deleteFile })
     },
 
-    retry(taskId) {
-        return invoke<boolean>('retry_task', { taskId })
+    queueStatus() {
+        return invoke('queue_status')
+    },
+    controlQueue(action) {
+        return invoke('control_queue', { action })
+    },
+    controlTasks(request) {
+        return invoke('control_tasks', { request })
+    },
+    retry(taskId, quality) {
+        return invoke<boolean>('retry_task', { taskId, quality })
     },
 
     async subscribe(handlers) {

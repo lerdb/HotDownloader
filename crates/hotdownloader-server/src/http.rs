@@ -35,6 +35,12 @@ struct DeleteRequest {
     delete_file: bool,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetryRequest {
+    quality: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ManualLoginRequest {
@@ -457,6 +463,9 @@ pub async fn handle(
             }
         }
         (Method::GET, "/api/tasks") => json_response(StatusCode::OK, json!(service.load_tasks())),
+        (Method::GET, "/api/queue") => {
+            json_response(StatusCode::OK, json!(runtime.engine.queue.status()))
+        }
         (Method::GET, "/api/events") => event_stream(runtime),
         (Method::GET, "/api/settings") => json_response(
             StatusCode::OK,
@@ -654,6 +663,30 @@ pub async fn handle(
             },
             Err(error) => error_response(StatusCode::BAD_REQUEST, error),
         },
+        (Method::POST, "/api/tasks/control") => {
+            let result = read_json(request).await.and_then(|value| {
+                serde_json::from_value::<hotdownloader_core::task::contract::BatchControlRequest>(
+                    value,
+                )
+                .map_err(|error| error.to_string())
+            });
+            match result {
+                Ok(input) => match service.control_tasks(input).await {
+                    Ok(value) => json_response(StatusCode::OK, json!(value)),
+                    Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+                },
+                Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+            }
+        }
+        (Method::POST, path) if path == "/api/queue/pause" || path == "/api/queue/resume" => {
+            match service
+                .control_queue(path.trim_start_matches("/api/queue/"))
+                .await
+            {
+                Ok(value) => json_response(StatusCode::OK, json!(value)),
+                Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+            }
+        }
         (Method::POST, path) if path.starts_with("/api/tasks/") => {
             let parts: Vec<_> = path.trim_start_matches("/api/tasks/").split('/').collect();
             if parts.len() != 2 || parts[0].is_empty() {
@@ -664,10 +697,18 @@ pub async fn handle(
                 let result = match action {
                     "pause" => service.pause_task(id).await.map(|_| json!({ "ok": true })),
                     "resume" => service.resume_task(id).await.map(|_| json!({ "ok": true })),
-                    "retry" => service
-                        .retry_task(id)
-                        .await
-                        .map(|retried| json!({ "retried": retried })),
+                    "retry" => {
+                        match read_optional_json(request).await.and_then(|value| {
+                            serde_json::from_value::<RetryRequest>(value)
+                                .map_err(|error| error.to_string())
+                        }) {
+                            Ok(input) => service
+                                .retry_task_with_quality(id, input.quality)
+                                .await
+                                .map(|retried| json!({ "retried": retried })),
+                            Err(error) => Err(error),
+                        }
+                    }
                     "cancel" | "remove" => {
                         let options = read_optional_json(request).await.and_then(|body| {
                             serde_json::from_value::<DeleteRequest>(body)

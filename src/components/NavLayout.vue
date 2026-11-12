@@ -23,6 +23,33 @@
                 >
             </div>
 
+            <n-alert
+                v-if="taskStore.batchSubmission.running"
+                type="info"
+                title="正在提交批量任务"
+            >
+                已处理 {{ taskStore.batchSubmission.processed }} /
+                {{ taskStore.batchSubmission.total }} 首
+                <n-button
+                    size="small"
+                    :disabled="taskStore.batchSubmission.stopping"
+                    @click="taskStore.stopSubmission()"
+                >
+                    {{
+                        taskStore.batchSubmission.stopping
+                            ? '正在停止…'
+                            : '停止后续提交'
+                    }}
+                </n-button>
+            </n-alert>
+            <n-alert
+                v-if="taskStore.queueStatus.paused"
+                type="warning"
+                title="下载队列已暂停"
+            >
+                {{ taskStore.queueStatus.reason }}
+                <n-button size="small" @click="resumeQueue">恢复队列</n-button>
+            </n-alert>
             <!-- 内容区域 -->
             <main
                 ref="mainContentRef"
@@ -65,7 +92,13 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { NMenu, useNotification, type MenuOption } from 'naive-ui'
+import {
+    NMenu,
+    NAlert,
+    NButton,
+    useNotification,
+    type MenuOption,
+} from 'naive-ui'
 import { useCloseGuard } from '../composables/useCloseGuard'
 import { useNarrowLayout } from '../composables/useNarrowLayout'
 import { isNativeRuntime } from '../api/runtimeApi'
@@ -84,6 +117,16 @@ const router = useRouter()
 const route = useRoute()
 const native = isNativeRuntime()
 const taskStore = useTaskStore()
+async function resumeQueue() {
+    try {
+        await taskStore.controlQueue('resume')
+    } catch (error) {
+        window.$notify?.error({
+            title: '恢复队列失败',
+            description: String(error),
+        })
+    }
+}
 const player = usePlayerStore()
 const connectionLabel = computed(
     () =>

@@ -10,6 +10,9 @@ use crate::platforms::Platform;
 
 /// 平台链接和凭据由运行时提供；核心只决定何时重新请求链接。
 pub trait DownloadLinkProvider: Send + Sync {
+    fn queue_control(&self) -> Option<Arc<super::queue::QueueControl>> {
+        None
+    }
     fn fetch<'a>(
         &'a self,
         platform: Platform,
@@ -20,6 +23,7 @@ pub trait DownloadLinkProvider: Send + Sync {
 
 /// 平台共用的 HTTP 链接提供器。运行时只注入凭据来源；下载任务不接触令牌。
 pub struct PlatformDownloadLinkProvider {
+    queue: Option<Arc<super::queue::QueueControl>>,
     client: Client,
     qq_credentials: Arc<dyn QqCredentialSource>,
     kugou_store: Option<Arc<crate::platforms::kugou::login::Store>>,
@@ -30,6 +34,7 @@ impl PlatformDownloadLinkProvider {
     pub fn new(qq_credentials: Arc<dyn QqCredentialSource>) -> Self {
         let client = link_client();
         Self {
+            queue: None,
             client,
             qq_credentials,
             kugou_store: None,
@@ -42,6 +47,7 @@ impl PlatformDownloadLinkProvider {
         let client = link_client();
         let qq_credentials = Arc::new(FileQqCredentialSource::new(path, client.clone()));
         Self {
+            queue: None,
             client,
             qq_credentials,
             kugou_store: None,
@@ -52,6 +58,7 @@ impl PlatformDownloadLinkProvider {
     /// 允许运行时复用已有 HTTP 客户端，也便于测试使用本地服务。
     pub fn with_client(client: Client, qq_credentials: Arc<dyn QqCredentialSource>) -> Self {
         Self {
+            queue: None,
             client,
             qq_credentials,
             kugou_store: None,
@@ -61,6 +68,11 @@ impl PlatformDownloadLinkProvider {
 
     pub fn with_kugou_store(mut self, store: Arc<crate::platforms::kugou::login::Store>) -> Self {
         self.kugou_store = Some(store);
+        self
+    }
+
+    pub fn with_queue_control(mut self, queue: Arc<super::queue::QueueControl>) -> Self {
+        self.queue = Some(queue);
         self
     }
 
@@ -83,6 +95,9 @@ fn link_client() -> Client {
 }
 
 impl DownloadLinkProvider for PlatformDownloadLinkProvider {
+    fn queue_control(&self) -> Option<Arc<super::queue::QueueControl>> {
+        self.queue.clone()
+    }
     fn fetch<'a>(
         &'a self,
         platform: Platform,
@@ -151,7 +166,17 @@ pub async fn fetch_download_link_with_retry(
     let mut last_error = String::new();
 
     for attempt in 0..3 {
-        match provider.fetch(platform, song_mid, filename).await {
+        let queue = provider
+            .queue_control()
+            .filter(|_| platform == Platform::QqMusic);
+        let result = if let Some(queue) = queue {
+            queue
+                .fetch(song_mid, || provider.fetch(platform, song_mid, filename))
+                .await
+        } else {
+            provider.fetch(platform, song_mid, filename).await
+        };
+        match result {
             Ok(link) => return Ok(link),
             Err(error) => {
                 if !is_retryable_link_error(&error) {
@@ -179,6 +204,10 @@ pub async fn fetch_download_link_with_retry(
 /// 错误分类沿用现有平台接口的中文错误前缀，保持客户端原有重试行为。
 pub fn is_retryable_link_error(error: &str) -> bool {
     error.starts_with("网络错误")
+        || error.starts_with("取链接口 HTTP 错误")
+            && ["408", "500", "502", "503", "504"]
+                .iter()
+                .any(|code| error.contains(code))
         || error.starts_with("读取响应失败")
         || error.starts_with("解析响应失败")
 }

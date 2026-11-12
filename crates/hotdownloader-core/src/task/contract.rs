@@ -114,6 +114,16 @@ pub struct BatchResult {
     pub errors: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BatchControlRequest {
+    pub action: String,
+    pub task_ids: Option<Vec<String>>,
+    pub statuses: Option<Vec<TaskStatus>>,
+    #[serde(default)]
+    pub delete_file: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

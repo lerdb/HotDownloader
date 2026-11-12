@@ -5,6 +5,11 @@ import { taskTransport } from '../api/taskTransport'
 import { useSettingsStore } from './settingsStore'
 import { reportAccountError } from '../api/accountEvents'
 import type { BatchTaskResult } from '../api/taskTransport'
+import type { QueueStatus, BatchControlRequest } from '../api/taskTransport'
+import {
+    createBatchSubmission,
+    type SubmissionProgress,
+} from '../utils/batchSubmission'
 import type {
     SongInfo,
     TaskRecord,
@@ -15,6 +20,42 @@ import type {
 /** Rust 持有任务和状态流转；此 store 仅保存页面展示用的投影。 */
 export const useTaskStore = defineStore('tasks', () => {
     const tasks = ref<TaskRecord[]>([])
+    const batchSubmission = ref<SubmissionProgress>({
+        running: false,
+        stopping: false,
+        processed: 0,
+        total: 0,
+    })
+    const submission = createBatchSubmission((value) => {
+        batchSubmission.value = value
+    })
+    const queueStatus = ref<QueueStatus>({
+        paused: false,
+        reason: null,
+        consecutiveLinkFailures: 0,
+    })
+    let queueRevision = 0
+    async function refreshQueue() {
+        const revision = ++queueRevision
+        const status = await taskTransport.queueStatus()
+        if (revision === queueRevision) {
+            const wasPaused = queueStatus.value.paused
+            queueStatus.value = status
+            if (status.paused && !wasPaused) void submission.stop()
+        }
+    }
+    async function controlQueue(action: 'pause' | 'resume') {
+        if (action === 'pause') void submission.stop()
+        const result = await taskTransport.controlQueue(action)
+        await refreshQueue()
+        return result
+    }
+    async function controlTasks(request: BatchControlRequest) {
+        if (request.action === 'remove') await submission.stop()
+        const result = await taskTransport.controlTasks(request)
+        await refreshQueue()
+        return result
+    }
     const connectionStatus = ref<
         'connecting' | 'connected' | 'reconnecting' | 'disconnected'
     >(isNativeRuntime() ? 'connected' : 'connecting')
@@ -99,7 +140,7 @@ export const useTaskStore = defineStore('tasks', () => {
     ): Promise<{ total: number; succeeded: number; failed: number }> {
         let succeeded = 0
         let failed = 0
-        for (const id of taskIds) {
+        await submission.run(taskIds, async (id) => {
             try {
                 await resumeTask(id)
                 succeeded++
@@ -107,24 +148,25 @@ export const useTaskStore = defineStore('tasks', () => {
                 console.error('恢复任务失败:', id, error)
                 failed++
             }
-        }
+        })
         return { total: taskIds.length, succeeded, failed }
     }
 
-    function retryTask(taskId: string): Promise<boolean> {
+    function retryTask(taskId: string, quality?: string): Promise<boolean> {
         // 后端统一处理重试次数、断点续传及音质降级；false 表示当前无法继续重试。
-        return taskTransport.retry(taskId)
+        return taskTransport.retry(taskId, quality)
     }
 
     /** 逐个发起重试命令，实际下载并发仍由 Rust 调度器控制。 */
     async function retryTasks(
         taskIds: string[],
+        quality?: string,
     ): Promise<{ total: number; succeeded: number; failed: number }> {
         let succeeded = 0
         let failed = 0
-        for (const id of taskIds) {
+        await submission.run(taskIds, async (id) => {
             try {
-                if (await retryTask(id)) {
+                if (await retryTask(id, quality)) {
                     succeeded++
                 } else {
                     failed++
@@ -133,14 +175,14 @@ export const useTaskStore = defineStore('tasks', () => {
                 console.error('重试任务失败:', id, error)
                 failed++
             }
-        }
+        })
         return { total: taskIds.length, succeeded, failed }
     }
 
     async function setupListeners(): Promise<() => void> {
         // 从开始订阅到快照加载完成都缓存事件，避免初始化期间的事件被快照覆盖。
         loading = true
-        return taskTransport.subscribe({
+        const unsubscribe = await taskTransport.subscribe({
             connection(status) {
                 connectionStatus.value = status
             },
@@ -206,10 +248,34 @@ export const useTaskStore = defineStore('tasks', () => {
                 })
             },
         })
+        let polling = false
+        const poll = async () => {
+            if (polling) return
+            polling = true
+            try {
+                await refreshQueue()
+            } catch {
+                /* 连接状态由任务事件流展示。 */
+            } finally {
+                polling = false
+            }
+        }
+        void poll()
+        const timer = setInterval(poll, 2000)
+        return () => {
+            clearInterval(timer)
+            unsubscribe()
+        }
     }
 
     return {
         tasks,
+        batchSubmission,
+        runSubmission: submission.run,
+        stopSubmission: submission.stop,
+        queueStatus,
+        controlQueue,
+        controlTasks,
         connectionStatus,
         lastServerActivityAt,
         loadTasks,

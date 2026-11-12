@@ -153,8 +153,16 @@ export const webTaskTransport: TaskTransport = {
             method: 'POST',
             body: JSON.stringify({ taskIds, deleteFile }),
         }),
-    async retry(taskId) {
-        const result = (await taskAction(taskId, 'retry')) as {
+    queueStatus: () => webRequest('/api/queue'),
+    controlQueue: (action) =>
+        webRequest(`/api/queue/${action}`, { method: 'POST' }),
+    controlTasks: (request) =>
+        webRequest('/api/tasks/control', {
+            method: 'POST',
+            body: JSON.stringify(request),
+        }),
+    async retry(taskId, quality) {
+        const result = (await taskAction(taskId, 'retry', { quality })) as {
             retried: boolean
         }
         return result.retried
