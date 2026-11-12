@@ -30,6 +30,7 @@ Android SAF、系统通知和窗口功能由 Tauri 运行时适配器实现。
 ## 下载流程
 
 - `download::worker` 完成目标选择、链接获取与刷新、文件打开、暂停与取消处理、HTTP 流写入及收尾。
+- `download::filename` 与 `download::path` 统一生成、截断和重命名目标。文件名单组件同时限制为最多 255 个 UTF-8 字节和 UTF-16 单元，Windows 还根据绝对目录计算 259 单元的完整路径预算；预留歌词、封面的扩展名长度。过长名称使用稳定标识和 `...` 结尾，重名序号继续计入预算；启用标签写入时保留完整歌曲信息。无法仅靠缩短文件名解决的目录会明确报错。
 - `download::transfer` 提供下载专用 HTTP 客户端、Range 请求与响应校验、流读取、速度采样和断流重试。
 - `download::decryption` 根据加密扩展名和 ekey，按绝对偏移处理 QMC 数据。
 - `DownloadFileOpener` 返回实际文件偏移及 SAF URI。核心提供 `LocalDownloadFileOpener`；Android SAF 由 Tauri 适配器接入。

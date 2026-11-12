@@ -288,6 +288,7 @@ fn from_filename(path: &Path, root: &ScanRoot, title: Option<&str>) -> Identity 
 
 fn read_file(path: &Path, root: &ScanRoot, size: u64, modified: String) -> LocalFile {
     let mut metadata = Identity::default();
+    let mut tagged_name = None;
     let mut warning = None;
     match lofty::read_from_path(path) {
         Ok(audio) => {
@@ -297,14 +298,58 @@ fn read_file(path: &Path, root: &ScanRoot, size: u64, modified: String) -> Local
                     .flat_map(|s| s.split(&root.artist_separator))
                     .map(str::to_string)
                     .collect::<Vec<_>>();
-                metadata = Identity::new(tag.title().as_deref().unwrap_or(""), artists);
+                let title = tag.title().unwrap_or_default().into_owned();
+                tagged_name = Some(hotdownloader_core::download::context::SongInfo {
+                    title: title.clone(),
+                    artist: artists.join(&root.artist_separator),
+                    album: tag.album().unwrap_or_default().into_owned(),
+                    quality: String::new(),
+                    cover_url: String::new(),
+                });
+                metadata = Identity::new(&title, artists);
             }
         }
         Err(e) => warning = Some(format!("无法读取音频标签: {e}")),
     }
     // 标题标签可消除任意位置的分隔符歧义；无标签时优先保留完整歌名。
     let constrained = from_filename(path, root, Some(&metadata.title));
-    let filename = if !metadata.title.is_empty() && constrained.complete() {
+    let represented_by_tags = root
+        .template
+        .as_deref()
+        .filter(|template| !template.contains("{quality}"))
+        .zip(tagged_name.as_ref())
+        .is_some_and(|(template, info)| {
+            use hotdownloader_core::download::filename::{
+                apply_template, build_filename, name_digest, truncated_digest,
+            };
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                return false;
+            };
+            let expected = build_filename(template, info);
+            let digest = truncated_digest(stem);
+            let altered = digest.is_some()
+                || expected
+                    != apply_template(
+                        template,
+                        &info.artist,
+                        &info.title,
+                        &info.album,
+                        &info.quality,
+                    );
+            altered
+                && (stem == expected
+                    || digest.is_some_and(|digest| digest == name_digest(&expected)))
+        });
+    let truncated_without_identity = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(hotdownloader_core::download::filename::truncated_digest)
+        .is_some()
+        && !metadata.complete();
+    let filename = if represented_by_tags || truncated_without_identity {
+        // 已验证的截断/字符替换不是标签冲突；截断文件名本身不提供完整身份。
+        Identity::default()
+    } else if !metadata.title.is_empty() && constrained.complete() {
         constrained
     } else {
         from_filename(path, root, None)

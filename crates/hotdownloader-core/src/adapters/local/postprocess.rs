@@ -1,6 +1,6 @@
 //! 普通文件系统的歌词、封面与音频标签写入，以及完整下载收尾实现。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use futures_util::future::BoxFuture;
 use lofty::config::WriteOptions;
@@ -48,6 +48,39 @@ fn write_local_sidecar(audio_path: &str, file_name: &str, content: &[u8]) -> Opt
             None
         }
     }
+}
+
+fn reserve_metadata_temporary_file(path: &Path) -> Result<PathBuf, String> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let budget = crate::download::path::filename_unit_budget(parent, false)?
+        .saturating_sub(2)
+        .min(16);
+    if budget == 0 {
+        return Err("下载目录路径过长，无法创建标签临时文件；请缩短下载目录路径".into());
+    }
+    for _ in 0..32 {
+        // 临时名也使用剩余路径预算；扩展名不参与音乐库扫描。
+        let token = format!("{:016x}", rand::random::<u64>());
+        let temporary = parent.join(format!("{}.t", &token[..budget]));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => {
+                drop(file);
+                return Ok(temporary);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(super::download_file::describe_io_error(
+                    &error,
+                    "创建标签临时文件失败",
+                ))
+            }
+        }
+    }
+    Err("无法创建唯一的标签临时文件，请缩短下载目录路径后重试".into())
 }
 
 /// 在同目录临时副本中写标签，重新读取核对后替换原文件。
@@ -108,10 +141,7 @@ pub fn write_audio_metadata(
         tag.push_picture(picture);
     }
 
-    let temporary = path.with_file_name(format!(
-        ".hotdownloader-tags-{:x}.tmp",
-        rand::random::<u64>()
-    ));
+    let temporary = reserve_metadata_temporary_file(path)?;
     let result = (|| {
         std::fs::copy(path, &temporary)
             .map_err(|error| format!("创建标签临时文件失败: {error}"))?;
@@ -400,6 +430,102 @@ mod tests {
         }
         server.join().unwrap();
         std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn long_names_create_real_audio_tags_and_sidecars_in_deep_directories() {
+        use base64::Engine;
+        let root = std::env::temp_dir().join(format!("hd-long-{:x}", rand::random::<u64>()));
+        let middle = root.join("a".repeat(65));
+        let directory = middle.join("b".repeat(65));
+        std::fs::create_dir_all(&directory).unwrap();
+        let info = SongInfo {
+            title: "很长的歌曲名🎵".repeat(80),
+            artist: "歌手甲、歌手乙、".repeat(80),
+            album: "完整专辑名".into(),
+            quality: "320kmp3".into(),
+            cover_url: String::new(),
+        };
+        let (_, audio, _) = crate::download::path::resolve_download_path(
+            directory.to_str().unwrap(),
+            "{song} - {artist}",
+            None,
+            &info,
+            "source.mp3",
+        )
+        .unwrap();
+        let audio = std::path::PathBuf::from(audio);
+        let mut writer = crate::adapters::local::download_file::open_local_download_file(
+            audio.to_str().unwrap(),
+            &mut 0,
+        )
+        .unwrap();
+        use std::io::Write;
+        writer
+            .write_all(include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../hotdownloader-server/testdata/audio/silence.mp3"
+            )))
+            .unwrap();
+        writer.flush().unwrap();
+        drop(writer);
+        let context = TaskContext {
+            task_id: "long-name".into(),
+            platform: Platform::QqMusic,
+            song_id: 1,
+            song_mid: "fixture".into(),
+            url: String::new(),
+            save_path: audio.to_string_lossy().into(),
+            quality: "320kmp3".into(),
+            quality_filename: "source.mp3".into(),
+            key: String::new(),
+            file_size: 0,
+            downloaded_offset: 0,
+            song_info: info.clone(),
+            final_path: Arc::new(Mutex::new(None)),
+        };
+        let assets = PostprocessAssets { lyric: Some(LyricData { lrc: Some("[00:00.00]测试歌词".into()), ..Default::default() }), cover_bytes: Some(base64::engine::general_purpose::STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII=").unwrap()) };
+        let config = DownloadConfig::from_settings(
+            &serde_json::json!({"writeMetadata":true,"downloadLrc":true,"downloadCover":true}),
+            directory.to_str().unwrap(),
+        );
+        let paths = super::write_local_assets(
+            &PostprocessRequest {
+                context: &context,
+                audio_path: audio.to_str().unwrap(),
+                is_saf: false,
+                saf_file_uri: None,
+                saf_folder_uri: None,
+                config: &config,
+            },
+            &assets,
+        )
+        .unwrap();
+        let saved = lofty::read_from_path(&audio).unwrap();
+        let tag = saved.primary_tag().unwrap();
+        assert_eq!(
+            tag.get_string(&ItemKey::TrackTitle),
+            Some(info.title.as_str())
+        );
+        assert_eq!(
+            tag.get_string(&ItemKey::TrackArtist),
+            Some(info.artist.as_str())
+        );
+        assert_eq!(tag.pictures().len(), 1);
+        assert_eq!(paths.len(), 2);
+        assert_eq!(
+            std::fs::read_dir(&directory).unwrap().count(),
+            3,
+            "收尾没有遗留临时文件"
+        );
+        for path in paths {
+            assert!(std::path::Path::new(&path).is_file());
+            std::fs::remove_file(path).unwrap();
+        }
+        std::fs::remove_file(audio).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+        std::fs::remove_dir(middle).unwrap();
+        std::fs::remove_dir(root).unwrap();
     }
 
     #[tokio::test]

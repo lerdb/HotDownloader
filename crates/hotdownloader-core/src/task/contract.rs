@@ -66,6 +66,8 @@ pub struct TaskRecord {
     // 目标路径在建任务时确定，保证排队任务也能参与重名冲突检查。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub save_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_warning: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

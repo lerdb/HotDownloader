@@ -65,6 +65,39 @@ impl<'a> TaskService<'a> {
     }
 
     async fn register_engine_task(&self, task: &TaskRecord) -> Result<(), String> {
+        let mut task = task.clone();
+        // 旧版失败任务可能已保存超长目标；仅修复尚未创建的文件，不移动已有片段。
+        if let Some(saved) = task.save_path.as_deref() {
+            let config = self.environment.download_config();
+            let is_saf = config.download_dir == "saf://" && cfg!(target_os = "android");
+            if !self
+                .environment
+                .file_exists(saved, is_saf, config.saf_folder_uri.as_deref())
+            {
+                let path = std::path::Path::new(saved);
+                let safe = crate::download::path::bounded_path(
+                    path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+                    path.file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .ok_or("无效文件名")?,
+                    path.extension()
+                        .and_then(|extension| extension.to_str())
+                        .unwrap_or(""),
+                    "",
+                    is_saf,
+                )?;
+                if safe != saved {
+                    let safe =
+                        self.unique_path(&safe, &safe, is_saf, config.saf_folder_uri.as_deref())?;
+                    task = self.state.update(&task.id, true, |task| {
+                        task.path_warning = crate::download::path::truncation_warning(&safe);
+                        task.save_path = Some(safe);
+                        task.downloaded = 0;
+                        task.file_path = None;
+                    })?;
+                }
+            }
+        }
         // 持久化记录是下载器上下文的来源。重试旧任务时可用同一记录重建上下文，
         // 无需依赖前端页面保留 URL、路径或下载参数。
         let platform = task.platform.parse::<Platform>()?;
@@ -127,27 +160,8 @@ impl<'a> TaskService<'a> {
         {
             return Ok(suggested.to_string());
         }
-        let path = std::path::Path::new(original);
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or("无效文件名")?;
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         for n in 1..10_000 {
-            let name = if ext.is_empty() {
-                format!("{stem} ({n})")
-            } else {
-                format!("{stem} ({n}).{ext}")
-            };
-            let candidate = if is_saf {
-                name
-            } else {
-                path.parent()
-                    .ok_or("无效下载目录")?
-                    .join(name)
-                    .to_string_lossy()
-                    .to_string()
-            };
+            let candidate = crate::download::path::numbered_path(original, n, is_saf)?;
             if !self.state.path_reserved(&candidate)
                 && !self
                     .environment
@@ -285,6 +299,7 @@ impl<'a> TaskService<'a> {
             available_qualities: Some(request.song.qualities),
             speed: None,
             save_path: None,
+            path_warning: None,
         };
 
         if selected.is_some() {
@@ -327,6 +342,10 @@ impl<'a> TaskService<'a> {
             }
         }
 
+        task.path_warning = task
+            .save_path
+            .as_deref()
+            .and_then(crate::download::path::truncation_warning);
         // 先持久化，再交给下载器；窗口关闭或注册失败时仍能看到任务及错误。
         state.insert(task.clone())?;
         if task.status == TaskStatus::Waiting {
@@ -627,6 +646,10 @@ impl<'a> TaskService<'a> {
             task.downloaded = self.resume_offset(&task).await;
         }
 
+        task.path_warning = task
+            .save_path
+            .as_deref()
+            .and_then(crate::download::path::truncation_warning);
         // 先提交等待状态及本次重试参数，前端随后只接收状态快照。
         state.update(&task_id, true, |record| {
             record.quality = task.quality.clone();
@@ -635,6 +658,7 @@ impl<'a> TaskService<'a> {
             record.downloaded = task.downloaded;
             record.retry_count = task.retry_count;
             record.save_path = task.save_path.clone();
+            record.path_warning = task.path_warning.clone();
             record.error_msg = None;
             record.status = TaskStatus::Waiting;
         })?;
@@ -803,7 +827,7 @@ impl<'a> TaskService<'a> {
             config.saf_folder_uri.as_deref(),
             &song_info,
             &task.filename,
-        );
+        )?;
 
         // 路径解析交给运行时。Android 传入相对文件名，普通文件系统传入完整路径。
         let exists = self
@@ -811,27 +835,9 @@ impl<'a> TaskService<'a> {
             .file_exists(&download_dir, is_saf, saf_folder_uri.as_deref());
         // 建议路径仅供冲突处理；排队任务的路径占用稍后由 unique_path 再次检查。
         if exists {
-            let path = std::path::Path::new(&download_dir);
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unnamed");
-            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
             for counter in 1..10_000 {
-                let new_name = if ext.is_empty() {
-                    format!("{} ({})", stem, counter)
-                } else {
-                    format!("{} ({}).{}", stem, counter, ext)
-                };
-                let new_path = if is_saf {
-                    new_name.clone()
-                } else {
-                    path.parent()
-                        .unwrap_or_else(|| std::path::Path::new("."))
-                        .join(&new_name)
-                        .to_string_lossy()
-                        .to_string()
-                };
+                let new_path =
+                    crate::download::path::numbered_path(&download_dir, counter, is_saf)?;
                 let new_exists =
                     self.environment
                         .file_exists(&new_path, is_saf, saf_folder_uri.as_deref());
@@ -957,6 +963,72 @@ mod tests {
             desired_quality: "320kmp3".into(),
             duplicate_action: action,
         }
+    }
+
+    #[tokio::test]
+    async fn long_name_conflicts_and_legacy_retry_share_the_bounded_path() {
+        let state = TaskState::load(
+            Arc::new(MemoryRepository(Mutex::new(vec![]))),
+            Arc::new(QuietEvents),
+        )
+        .unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into(),
+            file_length: None,
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+        let mut first = request(Some(DuplicateAction::Rename));
+        first.song.title = "长歌名🎵".repeat(100);
+        let first_title = first.song.title.clone();
+        let CreateTaskResult::Created { task: first } =
+            service.create_download_task(first).await.unwrap()
+        else {
+            panic!()
+        };
+        let mut second = request(Some(DuplicateAction::Rename));
+        second.song.mid = "another-recording".into();
+        second.song.title = first_title.clone();
+        let CreateTaskResult::Created { task: second } =
+            service.create_download_task(second).await.unwrap()
+        else {
+            panic!()
+        };
+        assert_ne!(first.save_path, second.save_path);
+        assert!(first.path_warning.is_some() && second.path_warning.is_some());
+        for task in [&first, &second] {
+            let path = std::path::Path::new(task.save_path.as_ref().unwrap());
+            assert!(path.file_name().unwrap().to_str().unwrap().len() <= 255);
+            assert_eq!(task.song_title, first_title);
+        }
+        state
+            .update(&first.id, true, |task| {
+                task.status = TaskStatus::Error;
+                task.save_path = Some(
+                    std::path::Path::new(&environment.download_dir)
+                        .join(format!("{}.mp3", "旧超长路径".repeat(100)))
+                        .to_string_lossy()
+                        .into(),
+                );
+                task.path_warning = None;
+            })
+            .unwrap();
+        assert!(service.retry_task(first.id.clone()).await.unwrap());
+        let repaired = state.get(&first.id).unwrap();
+        assert!(repaired.path_warning.is_some());
+        assert!(
+            std::path::Path::new(repaired.save_path.as_ref().unwrap())
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .len()
+                <= 255
+        );
     }
 
     #[tokio::test]

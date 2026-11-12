@@ -61,6 +61,7 @@ export const useTaskStore = defineStore('tasks', () => {
     >(isNativeRuntime() ? 'connected' : 'connecting')
     const lastServerActivityAt = ref<number | null>(null)
     let loading = false
+    let lastPathWarningAt = 0
     let pendingEvents: Array<() => void> = []
 
     function projectEvent(apply: () => void) {
@@ -202,6 +203,18 @@ export const useTaskStore = defineStore('tasks', () => {
                 projectEvent(() => {
                     const previous = tasks.value.find((t) => t.id === task.id)
                     upsert(task)
+                    if (
+                        task.pathWarning &&
+                        previous?.savePath !== task.savePath &&
+                        Date.now() - lastPathWarningAt >= 5000
+                    ) {
+                        lastPathWarningAt = Date.now()
+                        window.$notify?.warning({
+                            title: '文件名过长已做截断处理',
+                            description: task.pathWarning,
+                            duration: 5000,
+                        })
+                    }
 
                     // 只在状态变化时提醒，下载进度事件不会反复弹通知。
                     if (previous && previous.status !== task.status) {

@@ -44,13 +44,19 @@ pub async fn download_task(
             (false, ctx.save_path.clone(), None)
         }
     } else {
-        resolve_download_path(
+        match resolve_download_path(
             &config.download_dir,
             &config.naming_template,
             config.saf_folder_uri.as_deref(),
             &ctx.song_info,
             &ctx.quality_filename,
-        )
+        ) {
+            Ok(path) => path,
+            Err(error) => {
+                progress_sink.error(&ctx.task_id, &error);
+                return false;
+            }
+        }
     };
 
     log::info!("任务 {} 开始下载，文件路径: {}", ctx.task_id, download_dir);
@@ -59,7 +65,13 @@ pub async fn download_task(
     if !is_saf {
         if let Err(error) = file_opener.prepare_parent(&download_dir) {
             log::error!("创建下载目录失败: {}", error);
-            progress_sink.error(&ctx.task_id, "下载目录无法访问");
+            progress_sink.error(
+                &ctx.task_id,
+                &crate::adapters::local::download_file::describe_io_error(
+                    &error,
+                    "下载目录无法访问",
+                ),
+            );
             return false;
         }
     }

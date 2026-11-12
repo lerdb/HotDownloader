@@ -1333,6 +1333,45 @@ async fn shared_media_reuses_one_task_and_completed_ledger_after_task_removal() 
     );
 }
 
+#[tokio::test]
+async fn generated_truncation_is_not_reported_as_a_tag_conflict() {
+    let dir = Fixture::new();
+    let rt = runtime(&dir.0, FakeRemote::new(vec![]));
+    let title = "很长的歌曲名🎵".repeat(60);
+    let mut input: SongInput = serde_json::from_value(song("long-name", &title)).unwrap();
+    input.qualities[0].filename = "synthetic.wav".into();
+    let service = TaskService::new(&rt.tasks, &rt.engine, rt.environment.as_ref());
+    let CreateTaskResult::Created { task } = service
+        .create_download_task(CreateTaskRequest {
+            song: input,
+            desired_quality: "320kmp3".into(),
+            duplicate_action: None,
+        })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    let path = Path::new(task.save_path.as_ref().unwrap());
+    wave(path, Some(&title), Some("虚构乙、虚构甲"));
+    rt.tasks.completed(&task.id, path.to_str().unwrap());
+    let report = rt.monitors.scan(&rt).await.unwrap();
+    assert_eq!(report.unresolved_count, 0);
+    let file = rt
+        .monitors
+        .store
+        .all::<LocalFile>("file")
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(file.identity.title, library::normalize(&title));
+    assert!(!file.conflict);
+    assert!(matches!(
+        library::match_song(&file.identity, std::slice::from_ref(&file)),
+        Match::Found(_)
+    ));
+}
+
 #[test]
 fn failure_classification_distinguishes_throttling_credentials_and_storage() {
     assert_eq!(failure_state("服务器错误: HTTP 429"), State::NetworkFailed);

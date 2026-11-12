@@ -83,7 +83,7 @@ impl DownloadQualityFallback for TaskQualityFallback<'_> {
                 config.saf_folder_uri.as_deref(),
                 &next.song_info,
                 &next.quality_filename,
-            );
+            )?;
             let available_path = |path: &str| {
                 !self.state.path_reserved_except(path, &context.task_id)
                     && !self.environment.file_exists(path, is_saf, uri.as_deref())
@@ -91,27 +91,15 @@ impl DownloadQualityFallback for TaskQualityFallback<'_> {
             next.save_path = original.clone();
             if !available_path(&original) {
                 // 降级自动保留已有文件（包括其他品质的部分文件），不会覆盖或混写。
-                let path = std::path::Path::new(&original);
-                let stem = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .ok_or("无效下载文件名")?;
-                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-                next.save_path = (1..10_000)
-                    .find_map(|n| {
-                        let name = if ext.is_empty() {
-                            format!("{stem} ({n})")
-                        } else {
-                            format!("{stem} ({n}).{ext}")
-                        };
-                        let candidate = if is_saf {
-                            name
-                        } else {
-                            path.parent()?.join(name).to_string_lossy().into_owned()
-                        };
-                        available_path(&candidate).then_some(candidate)
-                    })
-                    .ok_or("无法生成不重复的降级文件名")?;
+                let mut selected = None;
+                for number in 1..10_000 {
+                    let candidate = super::path::numbered_path(&original, number, is_saf)?;
+                    if available_path(&candidate) {
+                        selected = Some(candidate);
+                        break;
+                    }
+                }
+                next.save_path = selected.ok_or("无法生成不重复的降级文件名")?;
             }
             // 先持久化再请求下一品质，重启、重试和 UI 都使用同一份真实参数。
             self.state.update(&context.task_id, true, |record| {
@@ -119,6 +107,7 @@ impl DownloadQualityFallback for TaskQualityFallback<'_> {
                 record.filename = next.quality_filename.clone();
                 record.file_size = next.file_size;
                 record.save_path = Some(next.save_path.clone());
+                record.path_warning = super::path::truncation_warning(&next.save_path);
                 record.downloaded = 0;
                 record.retry_count = 0;
                 record.file_path = None;

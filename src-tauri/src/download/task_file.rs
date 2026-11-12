@@ -219,7 +219,13 @@ fn open_normal_file(
         Ok(file) => Some(file),
         Err(error) => {
             log::error!("{error}");
-            progress_sink.error(task_id, error.user_message);
+            progress_sink.error(
+                task_id,
+                &hotdownloader_core::adapters::local::download_file::describe_io_error(
+                    &error.source,
+                    error.user_message,
+                ),
+            );
             None
         }
     }

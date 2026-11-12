@@ -11,6 +11,19 @@ use crate::download::ports::{
 /// 普通文件下载使用与 SAF 写入相同的 64 KB 缓冲区大小。
 const FILE_BUFFER_CAPACITY: usize = 64 * 1024;
 
+pub fn describe_io_error(error: &io::Error, fallback: &str) -> String {
+    let long_name = (cfg!(windows) && error.raw_os_error() == Some(206))
+        || (cfg!(any(target_os = "linux", target_os = "android"))
+            && error.raw_os_error() == Some(36))
+        || (cfg!(target_os = "macos") && error.raw_os_error() == Some(63));
+    let message = if long_name {
+        "文件名或路径过长，请缩短下载目录路径或调整命名模板"
+    } else {
+        fallback
+    };
+    format!("{message}（{error}）")
+}
+
 /// 打开失败时同时保留底层 I/O 错误和面向用户的原有提示文案。
 #[derive(Debug)]
 pub struct LocalFileOpenError {
@@ -116,7 +129,10 @@ impl DownloadFileOpener for LocalDownloadFileOpener {
                 }),
                 Err(error) => {
                     log::error!("{error}");
-                    progress_sink.error(request.task_id, error.user_message);
+                    progress_sink.error(
+                        request.task_id,
+                        &describe_io_error(&error.source, error.user_message),
+                    );
                     None
                 }
             }
@@ -129,6 +145,31 @@ mod tests {
     use std::io::Write;
 
     use super::open_local_download_file;
+
+    #[cfg(any(
+        windows,
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos"
+    ))]
+    #[test]
+    fn length_errors_are_not_reported_as_disk_or_permission_failures() {
+        let code = if cfg!(windows) {
+            206
+        } else if cfg!(target_os = "macos") {
+            63
+        } else {
+            36
+        };
+        let message = super::describe_io_error(
+            &std::io::Error::from_raw_os_error(code),
+            "请检查磁盘空间或写入权限",
+        );
+        assert!(message.starts_with("文件名或路径过长"));
+        assert!(!message.contains("检查磁盘空间"));
+        let permission = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        assert!(super::describe_io_error(&permission, "文件访问失败").starts_with("文件访问失败"));
+    }
 
     #[test]
     fn truncated_partial_file_resets_offset_and_contents() {

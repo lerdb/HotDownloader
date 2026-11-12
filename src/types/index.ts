@@ -267,6 +267,7 @@ export interface TaskRecord {
      * 旧任务可能没有该字段；重试时由 Rust 解析路径。
      */
     savePath?: string
+    pathWarning?: string
 }
 
 export type DuplicateAction = 'overwrite' | 'rename' | 'cancel'
