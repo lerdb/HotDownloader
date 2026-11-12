@@ -62,24 +62,49 @@ pub async fn prepare_assets(
     context: &TaskContext,
     config: &DownloadConfig,
 ) -> Result<PostprocessAssets, String> {
-    let lyric = if config.write_metadata || config.download_lrc {
-        let lyric = retry_asset("歌词", || async {
-            match context.platform {
-                Platform::Netease => {
-                    crate::platforms::netease::lyrics::get_lyric_by_id(context.song_id).await
-                }
-                Platform::Kugou => {
-                    crate::platforms::kugou::lyrics::get_lyric(&context.song_mid).await
-                }
-                Platform::QqMusic => {
-                    crate::platforms::qqmusic::lyrics::get_lyric_by_id(context.song_id).await
-                }
-                Platform::Kuwo => {
-                    crate::platforms::kuwo::lyrics::get_lyric_by_id(context.song_id).await
-                }
+    prepare_assets_with_lyric(context, config, || async {
+        match context.platform {
+            Platform::Netease => {
+                crate::platforms::netease::lyrics::get_lyric_by_id(context.song_id).await
             }
-        })
-        .await?;
+            Platform::Kugou => crate::platforms::kugou::lyrics::get_lyric(&context.song_mid).await,
+            Platform::QqMusic => {
+                crate::platforms::qqmusic::lyrics::get_lyric_by_id(context.song_id).await
+            }
+            Platform::Kuwo => {
+                crate::platforms::kuwo::lyrics::get_lyric_by_id(context.song_id).await
+            }
+        }
+    })
+    .await
+}
+
+pub(crate) async fn prepare_assets_with_lyric<F, Fut>(
+    context: &TaskContext,
+    config: &DownloadConfig,
+    fetch_lyric: F,
+) -> Result<PostprocessAssets, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<LyricData, String>>,
+{
+    let lyric = if config.write_metadata || config.download_lrc {
+        let mut lyric = retry_asset("歌词", fetch_lyric).await?;
+        // 成功响应中没有歌词不等于请求失败，也不一定表示歌曲是纯音乐。
+        if config.download_lrc
+            && ![&lyric.lrc, &lyric.elrc]
+                .iter()
+                .any(|text| text.as_deref().is_some_and(|text| !text.trim().is_empty()))
+        {
+            lyric.lrc = Some(
+                if lyric.instrumental {
+                    "[00:00.00]纯音乐，请欣赏\n"
+                } else {
+                    "[00:00.00]暂无歌词\n"
+                }
+                .into(),
+            );
+        }
         Some(lyric)
     } else {
         None

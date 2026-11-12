@@ -3,6 +3,7 @@
 //! 通过 QQ 音乐歌曲 ID 获取歌词，支持 QRC 解密、转换为 LRC 和增强 LRC 格式。
 
 use crate::platforms::qqmusic::qrc;
+use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -116,6 +117,10 @@ pub async fn get_lyric_by_id(song_id: u64) -> Result<LyricData, String> {
         .await
         .map_err(|e| format!("解析歌词响应失败: {e}"))?;
 
+    parse_response(&json)
+}
+
+fn parse_response(json: &Value) -> Result<LyricData, String> {
     // 检查网关和模块返回码
     if json["code"] != 0 {
         let code = json["code"].as_i64().unwrap_or(-1);
@@ -127,22 +132,48 @@ pub async fn get_lyric_by_id(song_id: u64) -> Result<LyricData, String> {
     }
 
     // 提取加密歌词字段（可能为空）
-    let encrypted = json["req"]["data"]["lyric"].as_str().unwrap_or("").trim();
+    let encrypted = json["req"]["data"]["lyric"]
+        .as_str()
+        .ok_or("歌词响应格式异常：缺少 lyric 字符串")?
+        .trim();
 
     if encrypted.is_empty() {
-        return Ok(LyricData {
-            lrc: None,
-            elrc: None,
-            raw: None,
-            instrumental: false,
-        });
+        return Ok(LyricData::default());
     }
 
     // 解密 QRC（十六进制 -> 自定义 3DES -> zlib -> XML）
-    let xml = qrc::decrypt(encrypted).map_err(|e| format!("歌词解密失败: {e}"))?;
-    // 提取 <LyricContent> 中的原始歌词内容
-    let raw_content =
-        qrc::extract_lyric_content(&xml).ok_or_else(|| "解密后未找到 LyricContent".to_string())?;
+    let decrypted = qrc::decrypt(encrypted).map_err(|e| format!("歌词解密失败: {e}"))?;
+    parse_decrypted_lyric(&decrypted)
+}
+
+fn is_instrumental_notice(text: &str) -> bool {
+    matches!(
+        text.trim().trim_end_matches(['。', '.', '！', '!']),
+        "纯音乐，请欣赏" | "此歌曲为没有填词的纯音乐，请您欣赏" | "此歌曲为纯音乐，请您欣赏"
+    ) || text.trim().eq_ignore_ascii_case("instrumental")
+}
+
+pub(crate) fn parse_decrypted_lyric(decrypted: &str) -> Result<LyricData, String> {
+    let text = decrypted.trim();
+    if text.is_empty() {
+        return Ok(LyricData::default());
+    }
+    let line_time = Regex::new(r"^\[\d+:\d{2}(?:[.:]\d+)?\](.*)$").unwrap();
+    let raw_content = if let Some(content) = qrc::extract_lyric_content(text) {
+        content
+    } else if !text.starts_with('<')
+        && (qrc::is_qrc(text) || text.lines().any(|line| line_time.is_match(line.trim())))
+    {
+        // 接口也会返回未包在 XML 中的普通 LRC，包括纯音乐说明。
+        text.to_string()
+    } else if is_instrumental_notice(text) {
+        format!("[00:00.00]{text}")
+    } else {
+        return Err("歌词响应格式异常：未找到 LyricContent 或有效的时间轴歌词".into());
+    };
+    if raw_content.trim().is_empty() {
+        return Ok(LyricData::default());
+    }
 
     // 判断是否为 QRC 格式
     let is_qrc = qrc::is_qrc(&raw_content);
@@ -161,11 +192,14 @@ pub async fn get_lyric_by_id(song_id: u64) -> Result<LyricData, String> {
         None
     };
 
-    // 简单的纯音乐检测（可选）
-    let instrumental = lrc
-        .as_ref()
-        .map(|s| s.contains("纯音乐") || s.contains("Instrumental"))
-        .unwrap_or(false);
+    // 只将独立的纯音乐说明行当作标记，不根据歌名或歌词中的关键词推断。
+    let instrumental = lrc.as_ref().is_some_and(|lrc| {
+        lrc.lines().any(|line| {
+            line_time
+                .captures(line.trim())
+                .is_some_and(|capture| is_instrumental_notice(&capture[1]))
+        })
+    });
 
     Ok(LyricData {
         lrc,
@@ -173,4 +207,68 @@ pub async fn get_lyric_by_id(song_id: u64) -> Result<LyricData, String> {
         raw: Some(raw_content),
         instrumental,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response(plaintext: &str) -> Value {
+        json!({"code":0,"req":{"code":0,"data":{"lyric":qrc::encrypt_test_payload(plaintext)}}})
+    }
+
+    #[test]
+    fn successful_empty_fields_and_empty_xml_mean_lyrics_are_unavailable() {
+        for value in [
+            json!({"code":0,"req":{"code":0,"data":{"lyric":""}}}),
+            response(""),
+            response(r#"<QrcInfos><Lyric_1 LyricContent=""/></QrcInfos>"#),
+            response("<QrcInfos><Lyric_1 LyricContent = '  ' LyricType='1'/></QrcInfos>"),
+        ] {
+            let lyric = parse_response(&value).unwrap();
+            assert!(lyric.lrc.is_none());
+            assert!(!lyric.instrumental);
+        }
+    }
+
+    #[test]
+    fn decrypted_plain_instrumental_lrc_and_xml_are_both_valid() {
+        for text in [
+            "[ti:Oblivion]\n[00:00.00]此歌曲为没有填词的纯音乐，请您欣赏",
+            r#"<QrcInfos><Lyric_1 LyricContent="[00:00.00]纯音乐，请欣赏" LyricType="1"/></QrcInfos>"#,
+            "纯音乐，请欣赏",
+        ] {
+            let lyric = parse_response(&response(text)).unwrap();
+            assert!(lyric.instrumental);
+            assert!(lyric.lrc.unwrap().contains("纯音乐"));
+        }
+        let lyric = parse_response(&response(
+            "[00:01.00]虚构歌词中的 Instrumental 不是类型标记",
+        ))
+        .unwrap();
+        assert!(!lyric.instrumental);
+        let lyric = parse_response(&response(
+            r#"<QrcInfos><Lyric_1 LyricContent="[0,1000]虚构歌词(0,1000)"/></QrcInfos>"#,
+        ))
+        .unwrap();
+        assert_eq!(lyric.lrc.as_deref(), Some("[00:00.00]虚构歌词"));
+        assert!(lyric.elrc.is_some());
+    }
+
+    #[test]
+    fn missing_lyric_content_does_not_prove_an_instrumental_track() {
+        for value in [
+            json!({"code":0,"req":{"code":0,"data":{}}}),
+            json!({"code":0,"req":{"code":0,"data":{"lyric":null}}}),
+            json!({"code":0,"req":{"code":0,"data":{"lyric":"not encrypted hex"}}}),
+            json!({"code":0,"req":{"code":429,"data":{"lyric":""}}}),
+            response("<QrcInfos><Lyric_1/></QrcInfos>"),
+            response("upstream error, no lyric content"),
+        ] {
+            assert!(parse_response(&value).is_err(), "{value}");
+        }
+        let error = parse_response(&response("<QrcInfos><Lyric_1/></QrcInfos>")).unwrap_err();
+        assert!(error.starts_with("歌词响应格式异常"));
+        assert!(!error.contains("解密失败"));
+    }
 }

@@ -18,6 +18,7 @@
 //   around each word and an explicit end tag after the last word, instead of relying on the `elrc` module.
 // - `to_lrc`: unchanged in logic but now uses the internal `format_timestamp` function.
 // - Added helper function `format_timestamp` to format milliseconds as `mm:ss.xx`.
+// - `extract_lyric_content`: preserve empty content and accept XML attribute formatting variants.
 // All other code and comments remain unchanged from the original.
 //
 // The original MIT license notice applies to the unmodified portions.
@@ -186,10 +187,10 @@ fn parse_lines(content: &str) -> Vec<QrcLine> {
 
 /// Extract the `LyricContent` attribute value from the decrypted XML.
 pub fn extract_lyric_content(xml: &str) -> Option<String> {
-    let re = Regex::new(r#"LyricContent="([\s\S]*?)"\s*/>"#).unwrap();
+    // 空属性表示没有歌词；属性顺序、空白和引号形式不影响提取。
+    let re = Regex::new(r#"\bLyricContent\s*=\s*(?:"([^"]*)"|'([^']*)')"#).unwrap();
     re.captures(xml)
-        .map(|c| c[1].to_string())
-        .filter(|s| !s.trim().is_empty())
+        .map(|c| c.get(1).or_else(|| c.get(2)).unwrap().as_str().to_string())
 }
 
 /// Check if the content is in QRC format (lines start with `[number,number]`).
@@ -535,6 +536,20 @@ fn triple_des_crypt(data: &[u8; 8], schedule: &TripleSchedule) -> [u8; 8] {
         block = crypt(&block, des);
     }
     block
+}
+
+#[cfg(test)]
+pub(super) fn encrypt_test_payload(text: &str) -> String {
+    use std::io::Write;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(text.as_bytes()).unwrap();
+    let mut data = encoder.finish().unwrap();
+    data.resize((data.len() + 7) / 8 * 8, 0);
+    let schedule = triple_des_key_setup(QRC_KEY, ENCRYPT);
+    data.chunks_exact(8)
+        .flat_map(|block| triple_des_crypt(block.try_into().unwrap(), &schedule))
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// Format milliseconds to `mm:ss.xx` (hundredths).

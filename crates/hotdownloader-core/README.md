@@ -34,6 +34,7 @@ Android SAF、系统通知和窗口功能由 Tauri 运行时适配器实现。
 - `adapters::local::download_file` 处理普通文件的父目录创建、续传偏移校验和文件偏移重置。
 - `DownloadPostprocessor` 在流传输后处理歌词、封面、音频标签和独立歌词、封面文件，返回已保存的附属文件路径，供删除下载文件时一并清理。`download::postprocess` 获取通用素材并统一文件命名，`adapters::local::postprocess` 提供普通文件实现。`downloadCover` 开关默认关闭，独立封面与音频标签共用 `coverQuality` 设置。
 - 歌词、封面各最多尝试 3 次，间隔 0.5、1 秒；接口明确返回无歌词时允许没有歌词。获取或保存失败通过 `Result` 返回，worker 保留音频并记录失败，收尾成功后才发送完成事件。标签在同目录临时副本中写入，重新读取核对标题、歌手、专辑、歌词和封面后替换原文件；收尾失败的重试保持原音质。
+- QQ 歌词解析接受 QRC XML、解密后的普通 LRC 及明确的纯音乐说明。成功响应的空歌词不触发重试，封面与基础标签继续处理；开启独立 LRC 时，确认无歌词的响应写入“暂无歌词”，明确的纯音乐说明保留在歌词中。缺失字段、未知响应结构、网络及解密异常仍按错误处理。
 - `DownloadProgressSink` 接收下载进度、收尾结果和任务状态。Tauri 实现先更新 Rust 任务表，再发送兼容事件。
 - `FileDeleter` 清理取消任务时的文件。普通路径使用 `LocalFileDeleter`，Android SAF URI 由 Tauri 适配器处理。
 

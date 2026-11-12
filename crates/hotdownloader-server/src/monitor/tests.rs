@@ -1366,6 +1366,55 @@ fn failure_classification_distinguishes_throttling_credentials_and_storage() {
     assert_eq!(e.next_retry, 0);
 }
 
+#[tokio::test]
+async fn lyric_postprocess_retry_updates_ledger_and_prevents_duplicate_downloads() {
+    let dir = Fixture::new();
+    let song = song("instrumental", "无歌词测试");
+    let rt = runtime(&dir.0, FakeRemote::new(vec![song.clone()]));
+    rt.monitors.save(None, config("无歌词恢复")).await.unwrap();
+    rt.monitors.tick(&rt).await.unwrap();
+    let task = rt.tasks.list().pop().unwrap();
+    let path = Path::new(task.save_path.as_ref().unwrap());
+    std::fs::write(path, include_bytes!("../../testdata/audio/silence.mp3")).unwrap();
+    rt.tasks.failed(
+        &task.id,
+        "下载收尾失败: 获取歌词失败（已尝试 3 次）: 解密后未找到 LyricContent",
+        None,
+    );
+    assert_eq!(
+        entry(&rt.monitors, "instrumental").state,
+        State::DownloadFailed
+    );
+    assert!(entry(&rt.monitors, "instrumental").next_retry > now());
+    let service = TaskService::new(&rt.tasks, &rt.engine, rt.environment.as_ref());
+    assert!(service.retry_task(task.id.clone()).await.unwrap());
+    assert_eq!(rt.tasks.get(&task.id).unwrap().save_path, task.save_path);
+    rt.tasks.file_complete(&task.id);
+    rt.tasks.completed(&task.id, path.to_str().unwrap());
+    let completed = entry(&rt.monitors, "instrumental");
+    assert_eq!(completed.state, State::Downloaded);
+    assert_eq!(completed.path, task.save_path);
+    assert_eq!(completed.next_retry, 0);
+    rt.monitors.tick(&rt).await.unwrap();
+    assert_eq!(rt.tasks.list().len(), 1);
+    rt.tasks.remove(&task.id).unwrap();
+    let request = CreateTaskRequest {
+        song: serde_json::from_value(song).unwrap(),
+        desired_quality: "320kmp3".into(),
+        duplicate_action: Some(DuplicateAction::Cancel),
+    };
+    assert!(matches!(
+        service.create_download_task(request).await.unwrap(),
+        CreateTaskResult::Cancelled
+    ));
+    assert_eq!(
+        std::fs::read_dir(rt.environment.default_download_dir())
+            .unwrap()
+            .count(),
+        1
+    );
+}
+
 #[test]
 fn scan_failure_preserves_previous_index() {
     let dir = Fixture::new();
