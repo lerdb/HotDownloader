@@ -7,11 +7,11 @@
                     :indeterminate="isIndeterminate"
                     @update:checked="toggleAll"
                 >
-                    全选
+                    全选本页
                 </n-checkbox>
-                <span class="count-text"
-                    >已选 {{ selectedIds.length }} / {{ songs.length }} 首</span
-                >
+                <span class="count-pill">
+                    已选 {{ selectedIds.length }} / {{ songs.length }} 首
+                </span>
             </div>
 
             <div class="song-items">
@@ -30,7 +30,6 @@
                 />
             </div>
 
-            <!-- 使用 LoadMoreButton 组件替代原有按钮 -->
             <LoadMoreButton
                 v-if="hasMore"
                 :loading="loadingMore"
@@ -42,7 +41,9 @@
         <div v-else class="empty-result">
             <n-empty description="暂无搜索结果" />
             <div class="retry-wrapper">
-                <n-button type="primary" @click="$emit('retry')">重试</n-button>
+                <n-button type="primary" round @click="$emit('retry')"
+                    >重试</n-button
+                >
             </div>
         </div>
     </div>
@@ -55,7 +56,6 @@ import type { ArtistReference, SongInfo } from '../../types'
 import SongItem from './SongItem.vue'
 import LoadMoreButton from './LoadMoreButton.vue'
 
-// hasMore/loadingMore 由父组件 SearchView 传入，控制分页加载按钮显示与加载状态
 const props = withDefaults(
     defineProps<{
         songs: SongInfo[]
@@ -74,8 +74,8 @@ const emit = defineEmits<{
     (e: 'download', song: SongInfo): void
     (e: 'click-artist', platform: string, artist: ArtistReference): void
     (e: 'click-album', song: SongInfo): void
-    (e: 'retry'): void // 新增重试事件
-    (e: 'load-more'): void // 新增分页加载更多事件
+    (e: 'retry'): void
+    (e: 'load-more'): void
 }>()
 
 const isAllSelected = computed(
@@ -117,13 +117,22 @@ function toggleSelect(songMid: string, selected: boolean) {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
+    padding: 8px 14px;
     margin-bottom: 12px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
 }
 
-.count-text {
-    font-size: 13px;
+.count-pill {
+    font-size: 12px;
+    font-weight: 500;
     color: var(--color-text-secondary);
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--bg-surface-subtle);
 }
 
 .song-items {
@@ -136,7 +145,7 @@ function toggleSelect(songMid: string, selected: boolean) {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 40px 0;
+    padding: 48px 0;
 }
 
 .retry-wrapper {

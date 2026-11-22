@@ -10,10 +10,12 @@ html,
 body {
     height: 100%;
     font-family:
-        -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
-        Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        'Plus Jakarta Sans', 'Inter', 'PingFang SC', 'Hiragino Sans GB',
+        -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'Helvetica Neue', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
 }
 
 #app {
@@ -25,14 +27,27 @@ body {
 
 /* 浅色模式（默认） */
 :root {
-    --bg-body: #f4f7f6;
+    --bg-body: #f4f6fa;
     --bg-sidebar: #ffffff;
     --bg-bottom: #ffffff;
-    --bg-content: #f4f7f6;
-    --border-color: #dfe7e3;
-    --color-text: #202d28; /* 主文字颜色 */
-    --color-text-secondary: #6b7b73; /* 次要文字颜色 */
-    --color-primary: #178366;
+    --bg-content: #f4f6fa;
+    --bg-elevated: #ffffff;
+    --bg-surface-subtle: #edf1f7;
+    --bg-glass: rgba(255, 255, 255, 0.8);
+    --bg-glass-strong: rgba(255, 255, 255, 0.92);
+    --border-color: rgba(15, 23, 42, 0.08);
+    --border-color-strong: rgba(15, 23, 42, 0.14);
+    --color-text: #0f172a;
+    --color-text-secondary: #64748b;
+    --color-primary: #128c6e;
+    --color-primary-hover: #16a380;
+    --color-primary-soft: rgba(18, 140, 110, 0.12);
+    --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.04);
+    --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.07);
+    --shadow-lg: 0 18px 44px rgba(15, 23, 42, 0.12);
+    --radius-card: 16px;
+    --radius-pill: 999px;
+
     /* 优先使用插件注入的变量；如果插件未生效，回退到 env()；再回退到 0px 保证兼容。 */
     --safe-area-top: var(--edge-top, env(safe-area-inset-top, 0px));
     --safe-area-bottom: var(--edge-bottom, env(safe-area-inset-bottom, 0px));
@@ -43,18 +58,46 @@ body {
     color-scheme: light dark;
 }
 
-/* 深色模式 */
+/* 深色模式：SimpMusic 风格深炭灰层级表面 */
 @media (prefers-color-scheme: dark) {
-    :root {
-        --bg-body: #111815;
-        --bg-sidebar: #18211d;
-        --bg-bottom: #18211d;
-        --bg-content: #111815;
-        --border-color: #314139;
-        --color-text: #e5eee9; /* 浅色文字 */
-        --color-text-secondary: #96aaa0; /* 次要文字 */
-        --color-primary: #6ee7bc;
+    :root:not([data-theme='light']) {
+        --bg-body: #0d0f14;
+        --bg-sidebar: #141720;
+        --bg-bottom: #141720;
+        --bg-content: #0d0f14;
+        --bg-elevated: #1b1f2b;
+        --bg-surface-subtle: #1f2432;
+        --bg-glass: rgba(20, 23, 32, 0.78);
+        --bg-glass-strong: rgba(24, 28, 38, 0.92);
+        --border-color: rgba(255, 255, 255, 0.08);
+        --border-color-strong: rgba(255, 255, 255, 0.15);
+        --color-text: #f1f5f9;
+        --color-text-secondary: #94a3b8;
+        --color-primary: #4be3b8;
+        --color-primary-hover: #70ecc9;
+        --color-primary-soft: rgba(75, 227, 184, 0.16);
+        --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.28);
+        --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
+        --shadow-lg: 0 22px 54px rgba(0, 0, 0, 0.58);
     }
+}
+
+:root[data-theme='dark'] {
+    --bg-body: #0d0f14;
+    --bg-sidebar: #141720;
+    --bg-bottom: #141720;
+    --bg-content: #0d0f14;
+    --bg-elevated: #1b1f2b;
+    --bg-surface-subtle: #1f2432;
+    --bg-glass: rgba(20, 23, 32, 0.78);
+    --bg-glass-strong: rgba(24, 28, 38, 0.92);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-color-strong: rgba(255, 255, 255, 0.15);
+    --color-text: #f1f5f9;
+    --color-text-secondary: #94a3b8;
+    --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.28);
+    --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
+    --shadow-lg: 0 22px 54px rgba(0, 0, 0, 0.58);
 }
 
 /* 应用背景到 body，确保滚动背景不露白 */
@@ -64,6 +107,25 @@ body {
 
     /* 页面在主内容区滚动，底部导航保持正常流占位。 */
     overflow: hidden;
+}
+
+/* 细腻滚动条 */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color-strong);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-secondary);
 }
 
 /* 通用确认弹窗适应窄屏和较小视口，长内容滚动后仍可操作底部按钮。 */
@@ -77,6 +139,7 @@ body .n-dialog {
     );
     overflow-y: auto;
     overflow-wrap: anywhere;
+    border-radius: 18px;
 }
 
 body .n-dialog__action {
@@ -94,7 +157,7 @@ html.android .main-content {
 
 /* 移动端底部导航区域避开 Android 手势条/底部安全区 */
 html.android .bottom-nav {
-    height: calc(56px + var(--safe-area-bottom)) !important;
+    height: calc(62px + var(--safe-area-bottom)) !important;
     padding-bottom: var(--safe-area-bottom) !important;
 }
 

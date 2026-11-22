@@ -15,6 +15,7 @@ import {
 import type { TaskRecord } from '../../types'
 import { renderActions } from './TaskRowActions'
 import type { TaskAction, TaskActionExtra } from './TaskRowActions'
+import AppIcon from '../common/AppIcon.vue'
 
 export default defineComponent({
     name: 'MobileTaskList',
@@ -34,7 +35,6 @@ export default defineComponent({
     },
     emits: ['update:selectedRowKeys', 'action'],
     setup(props, { emit }) {
-        // 格式化速度
         function formatSpeed(bytesPerSec: number): string {
             if (!bytesPerSec || bytesPerSec <= 0) return ''
             const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
@@ -47,7 +47,6 @@ export default defineComponent({
             return `${value.toFixed(1)} ${units[unitIndex]}`
         }
 
-        // 进度百分比
         function progressPercent(task: TaskRecord): number {
             if (task.status === 'completed' || task.status === 'processing')
                 return 100
@@ -60,7 +59,6 @@ export default defineComponent({
             return 0
         }
 
-        // 状态映射
         const statusMap: Record<
             string,
             { type: TagProps['type']; label: string }
@@ -74,7 +72,6 @@ export default defineComponent({
             interrupted: { type: 'warning', label: '已中断' },
         }
 
-        // 操作按钮 VNode 数组
         function actionNodes(task: TaskRecord) {
             return renderActions(task, {
                 emit: (
@@ -88,7 +85,6 @@ export default defineComponent({
             })
         }
 
-        // 处理多选切换
         function toggleSelection(taskId: string, checked: boolean) {
             const newKeys = new Set(props.selectedRowKeys)
             if (checked) {
@@ -99,7 +95,6 @@ export default defineComponent({
             emit('update:selectedRowKeys', Array.from(newKeys))
         }
 
-        // 构建单个任务卡片
         function renderTaskCard(task: TaskRecord) {
             const status = statusMap[task.status] || {
                 type: 'default' as const,
@@ -109,7 +104,6 @@ export default defineComponent({
             const disabled = task.status === 'downloading'
 
             const cardChildren = [
-                // 头部：复选框 + 歌曲信息
                 h('div', { class: 'task-card-header' }, [
                     h(NCheckbox, {
                         checked,
@@ -117,6 +111,20 @@ export default defineComponent({
                         'onUpdate:checked': (val: boolean) =>
                             toggleSelection(task.id, val),
                     }),
+                    task.coverUrl
+                        ? h('img', {
+                              src: task.coverUrl,
+                              alt: task.songTitle,
+                              class: 'task-card-cover',
+                              loading: 'lazy',
+                          })
+                        : h(
+                              'div',
+                              {
+                                  class: 'task-card-cover task-card-cover-fallback',
+                              },
+                              [h(AppIcon, { name: 'music', size: 18 })],
+                          ),
                     h('div', { class: 'task-card-song' }, [
                         h(
                             'div',
@@ -131,15 +139,18 @@ export default defineComponent({
                     ]),
                 ]),
 
-                // 元信息：状态、音质、速度
                 h('div', { class: 'task-card-meta' }, [
                     h(
                         NTag,
-                        { type: status.type, size: 'small' },
+                        {
+                            type: status.type,
+                            size: 'small',
+                            round: true,
+                            bordered: false,
+                        },
                         () => status.label,
                     ),
                     h('span', { class: 'task-card-quality' }, task.quality),
-                    // 速度仅在 downloading 状态且 speed > 0 时显示，避免暂停或错误状态残留速度
                     task.status === 'downloading' &&
                     task.speed &&
                     task.speed > 0
@@ -151,7 +162,6 @@ export default defineComponent({
                         : null,
                 ]),
 
-                // 终止状态展示明确原因；中断任务等待用户恢复后再显示续传进度。
                 task.status === 'error' || task.status === 'interrupted'
                     ? h(
                           'div',
@@ -170,12 +180,12 @@ export default defineComponent({
                     : h('div', { class: 'task-card-progress' }, [
                           h(NProgress, {
                               percentage: progressPercent(task),
-                              height: 12,
+                              height: 10,
+                              borderRadius: 999,
                           }),
                       ]),
             ]
 
-            // 仅安卓设备显示文件路径，位于进度条下方
             if (props.isAndroid) {
                 cardChildren.push(
                     h('div', { class: 'task-card-filepath' }, [
@@ -196,7 +206,6 @@ export default defineComponent({
                 )
             }
 
-            // 操作按钮
             cardChildren.push(
                 h('div', { class: 'task-card-actions' }, [
                     h(NSpace, { justify: 'end', wrap: true }, () =>
@@ -215,7 +224,6 @@ export default defineComponent({
             )
         }
 
-        // 返回渲染函数
         return () => {
             if (props.tasks.length === 0) {
                 return h('div', { class: 'task-card-empty' }, '暂无任务')
@@ -242,13 +250,16 @@ export default defineComponent({
     min-width: 0;
     background: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 12px;
-    transition: border-color 0.2s;
+    border-radius: 16px;
+    padding: 14px;
+    transition:
+        border-color 0.2s,
+        background-color 0.2s;
 }
 
 .task-card.is-selected {
-    border-color: var(--color-text-secondary);
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
 }
 
 .task-card-header {
@@ -258,25 +269,39 @@ export default defineComponent({
     margin-bottom: 12px;
 }
 
+.task-card-cover {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.task-card-cover-fallback {
+    display: grid;
+    place-items: center;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+}
+
 .task-card-song {
     flex: 1;
     min-width: 0;
-    /* 允许收缩 */
 }
 
 .task-card-title {
-    font-weight: 500;
+    font-weight: 600;
     font-size: 15px;
-    line-height: 1.5;
+    line-height: 1.4;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--color-text, #1f1f1f);
+    color: var(--color-text);
 }
 
 .task-card-artist {
     font-size: 13px;
-    color: var(--color-text-secondary, #555);
+    color: var(--color-text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -288,46 +313,46 @@ export default defineComponent({
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
 
 .task-card-quality {
     max-width: 100%;
     overflow-wrap: anywhere;
-    font-size: 12px;
-    color: var(--color-text-secondary, #555);
-    background: var(--bg-body);
-    padding: 2px 8px;
-    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    background: var(--bg-surface-subtle);
+    padding: 2px 9px;
+    border-radius: 999px;
 }
 
 .task-card-speed {
     font-size: 12px;
-    color: var(--color-text-secondary, #555);
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
 }
 
 .task-card-progress {
     margin-bottom: 8px;
 }
 
-/* 新增文件路径样式 */
 .task-card-filepath {
     min-width: 0;
     overflow-wrap: anywhere;
     margin-bottom: 8px;
-    padding: 4px 8px;
-    background: var(--bg-body);
-    border-radius: 4px;
+    padding: 6px 10px;
+    background: var(--bg-surface-subtle);
+    border-radius: 8px;
     font-size: 12px;
-    color: var(--color-text-secondary, #555);
+    color: var(--color-text-secondary);
 }
 
-/* 错误与中断都以文字替代进度条，并按各自状态使用对应颜色。 */
 .task-card-status-message {
     margin-bottom: 8px;
-    padding: 4px 8px;
-    background: var(--bg-body);
-    border-radius: 4px;
+    padding: 6px 10px;
+    background: var(--bg-surface-subtle);
+    border-radius: 8px;
     font-size: 12px;
     word-break: break-word;
     overflow-wrap: anywhere;
@@ -335,28 +360,27 @@ export default defineComponent({
 }
 
 .task-card-status-message.is-error {
-    color: var(--n-error-color, #d03050);
+    color: var(--n-error-color, #ef4444);
 }
 
 .task-card-status-message.is-interrupted {
-    color: var(--n-warning-color, #f0a020);
+    color: var(--n-warning-color, #f59e0b);
 }
 
-/* 操作沿用原有按钮与确认流程，手机上增大点击区域并与进度信息留出间距 */
 .task-card-actions {
-    padding-top: 8px;
+    padding-top: 6px;
 }
 
 .task-card-actions :deep(.n-button) {
-    min-height: 44px;
+    min-height: 40px;
     padding-left: 14px;
     padding-right: 14px;
 }
 
 .task-card-empty {
     text-align: center;
-    padding: 40px 0;
-    color: var(--color-text-secondary, #555);
-    font-size: 15px;
+    padding: 48px 0;
+    color: var(--color-text-secondary);
+    font-size: 14px;
 }
 </style>

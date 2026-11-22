@@ -1,5 +1,14 @@
 <template>
     <div class="search-view">
+        <header v-if="pageMode === 'idle'" class="discover-hero">
+            <div class="hero-kicker">
+                <AppIcon name="sparkles" :size="14" />
+                <span>探索与下载</span>
+            </div>
+            <h1>发现你喜欢的音乐</h1>
+            <p>跨平台检索无损单曲、专辑、歌手与歌单，支持在线试听与批量下载</p>
+        </header>
+
         <!-- 平台绑定 + 搜索类型切换 -->
         <div class="search-header">
             <SearchBar
@@ -12,32 +21,21 @@
                 @search="handleSearch"
             />
 
-            <!-- 搜索类型切换按钮 -->
-            <div class="type-switch">
-                <n-button
-                    quaternary
-                    :type="searchType === 'song' ? 'primary' : 'default'"
-                    @click="switchSearchType('song')"
-                    >歌曲</n-button
+            <!-- SimpMusic 风格胶囊筛选芯片 -->
+            <div class="type-switch" role="tablist" aria-label="搜索类型">
+                <button
+                    v-for="tab in searchTabs"
+                    :key="tab.value"
+                    type="button"
+                    role="tab"
+                    :aria-selected="searchType === tab.value"
+                    class="type-chip"
+                    :class="{ 'is-active': searchType === tab.value }"
+                    @click="switchSearchType(tab.value)"
                 >
-                <n-button
-                    quaternary
-                    :type="searchType === 'artist' ? 'primary' : 'default'"
-                    @click="switchSearchType('artist')"
-                    >歌手</n-button
-                >
-                <n-button
-                    quaternary
-                    :type="searchType === 'album' ? 'primary' : 'default'"
-                    @click="switchSearchType('album')"
-                    >专辑</n-button
-                >
-                <n-button
-                    quaternary
-                    :type="searchType === 'playlist' ? 'primary' : 'default'"
-                    @click="switchSearchType('playlist')"
-                    >歌单</n-button
-                >
+                    <AppIcon :name="tab.icon" :size="15" />
+                    <span>{{ tab.label }}</span>
+                </button>
             </div>
         </div>
 
@@ -77,7 +75,7 @@
                 class="search-error"
             >
                 {{ searchError }}
-                <n-button @click="retrySearch">重试</n-button>
+                <n-button size="small" @click="retrySearch">重试</n-button>
             </n-alert>
 
             <!-- 歌曲搜索结果列表 -->
@@ -175,6 +173,7 @@ import AlbumSearchResult from '../components/search/AlbumSearchResult.vue'
 import { useAlbumSearch } from '../composables/useAlbumSearch'
 import PlaylistSearchResult from '../components/search/PlaylistSearchResult.vue'
 import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
+import AppIcon, { type AppIconName } from '../components/common/AppIcon.vue'
 import { useHistoryStore } from '../stores/historyStore'
 import { useDownloadActions } from '../composables/useDownloadActions'
 import { useSongSearch } from '../composables/useSongSearch'
@@ -197,6 +196,13 @@ const currentPlatform = ref(DEFAULT_PLATFORM)
 
 // 搜索类型
 type SearchType = 'song' | 'artist' | 'album' | 'playlist'
+const searchTabs: { value: SearchType; label: string; icon: AppIconName }[] = [
+    { value: 'song', label: '歌曲', icon: 'music' },
+    { value: 'artist', label: '歌手', icon: 'artist' },
+    { value: 'album', label: '专辑', icon: 'disc' },
+    { value: 'playlist', label: '歌单', icon: 'playlist' },
+]
+
 const searchType = ref<SearchType>('song')
 const pageMode = ref<'idle' | 'suggestions' | 'results'>('idle')
 
@@ -253,6 +259,7 @@ const {
     reset: resetArtistSearch,
     loadMore: loadMoreArtists,
 } = useArtistSearch()
+
 const searchPlaceholder = computed(
     () =>
         ({
@@ -324,13 +331,11 @@ function cancelSuggestions() {
         debounceTimer = null
     }
     if (abortController) {
-        // IPC 无法取消传输；标记失效，阻止旧响应写入页面。
         abortController.abort()
         abortController = null
     }
 }
 
-// 仅用户编辑输入框时进入建议页。
 function onKeywordInput(newVal: string) {
     if (newVal === keyword.value) return
     keyword.value = newVal
@@ -366,7 +371,6 @@ function onKeywordInput(newVal: string) {
     }, 300)
 }
 
-// 点击建议项
 function onSuggestionSelect(word: string, type: keyof SearchSuggestionData) {
     searchType.value =
         type === 'album' ? 'album' : type === 'singer' ? 'artist' : 'song'
@@ -387,7 +391,6 @@ function resetSearches() {
     resetArtistSearch()
 }
 
-// 获取热搜
 let hotRequest = 0
 async function fetchHotKeywords() {
     const request = ++hotRequest
@@ -407,7 +410,6 @@ onMounted(() => {
     fetchHotKeywords()
 })
 
-// 平台切换
 watch(
     currentPlatform,
     () => {
@@ -425,7 +427,6 @@ watch(
     { flush: 'sync' },
 )
 
-// 切换搜索类型
 function switchSearchType(type: SearchType) {
     if (type === searchType.value) return
     cancelSuggestions()
@@ -434,13 +435,11 @@ function switchSearchType(type: SearchType) {
     if (pageMode.value === 'results') void handleSearch()
 }
 
-// 热搜点击
 function onHotClick(word: string) {
     keyword.value = word
     handleSearch()
 }
 
-// 历史点击
 function onHistorySelect(term: string) {
     keyword.value = term
     handleSearch()
@@ -450,7 +449,6 @@ function onHistoryRemove(term: string) {
     historyStore.removeHistoryItem(term)
 }
 
-// 统一搜索入口
 async function handleSearch() {
     cancelSuggestions()
     const term = keyword.value.trim()
@@ -474,7 +472,6 @@ async function handleSearch() {
     }
 }
 
-// 记录搜索页的完整地址，歌单详情返回时才能恢复当前搜索结果。
 function goToPlaylist(pl: PlaylistSearchItem) {
     router.push({
         path: '/playlist',
@@ -486,12 +483,10 @@ function goToPlaylist(pl: PlaylistSearchItem) {
     })
 }
 
-// 单曲下载
 function onSingleDownload(song: SongInfo) {
     downloadSingle(song)
 }
 
-// 批量下载
 function onBatchDownload() {
     const songs = songSearchResults.value.filter((s) =>
         songSelectedIds.value.includes(s.mid),
@@ -507,16 +502,46 @@ function onBatchDownload() {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    /* 防止底部导航遮挡 */
     min-height: 100%;
     padding-bottom: 0;
+}
+
+.discover-hero {
+    margin-bottom: 18px;
+}
+
+.hero-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.discover-hero h1 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+    margin: 0 0 6px;
+}
+
+.discover-hero p {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
 }
 
 .search-header {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-bottom: 16px;
+    gap: 12px;
+    margin-bottom: 18px;
 }
 
 .type-switch {
@@ -525,25 +550,62 @@ function onBatchDownload() {
     flex-wrap: wrap;
 }
 
-/* 搜索栏和类型切换的间距由 search-header 统一控制 */
+.type-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-sidebar);
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background-color 0.18s ease,
+        color 0.18s ease,
+        border-color 0.18s ease;
+}
+
+.type-chip:hover {
+    color: var(--color-text);
+    border-color: var(--border-color-strong);
+}
+
+.type-chip.is-active {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+    font-weight: 600;
+}
+
 .search-header :deep(.search-bar) {
     margin-bottom: 0;
 }
 
 @media (max-width: 767px) {
-    .type-switch .n-button {
-        min-height: 44px;
+    .discover-hero h1 {
+        font-size: 22px;
+    }
+
+    .type-chip {
+        min-height: 40px;
+        padding: 6px 13px;
     }
 }
 
 .loading-wrapper {
     display: flex;
     justify-content: center;
-    padding: 40px 0;
+    padding: 48px 0;
 }
 
 .search-error {
     margin-bottom: 16px;
     overflow-wrap: anywhere;
+    border-radius: 14px;
 }
 </style>

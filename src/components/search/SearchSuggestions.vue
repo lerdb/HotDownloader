@@ -2,7 +2,10 @@
     <div class="search-suggestions" v-if="hasAny">
         <!-- 单曲 -->
         <div v-if="data.song.length > 0" class="suggest-group">
-            <div class="group-title">单曲</div>
+            <div class="group-title">
+                <AppIcon name="music" :size="14" />
+                <span>单曲</span>
+            </div>
             <div
                 v-for="(item, index) in data.song"
                 :key="item.mid ?? item.id ?? `song-${index}`"
@@ -11,14 +14,17 @@
             >
                 <span class="item-name">{{ item.name }}</span>
                 <span v-if="item.singer" class="item-singer"
-                    >- {{ item.singer }}</span
+                    >· {{ item.singer }}</span
                 >
             </div>
         </div>
 
         <!-- 歌手 -->
         <div v-if="data.singer.length > 0" class="suggest-group">
-            <div class="group-title">歌手</div>
+            <div class="group-title">
+                <AppIcon name="artist" :size="14" />
+                <span>歌手</span>
+            </div>
             <div
                 v-for="(item, index) in data.singer"
                 :key="item.mid ?? item.id ?? `singer-${index}`"
@@ -31,7 +37,10 @@
 
         <!-- 专辑 -->
         <div v-if="data.album.length > 0" class="suggest-group">
-            <div class="group-title">专辑</div>
+            <div class="group-title">
+                <AppIcon name="disc" :size="14" />
+                <span>专辑</span>
+            </div>
             <div
                 v-for="(item, index) in data.album"
                 :key="item.mid ?? item.id ?? `album-${index}`"
@@ -40,14 +49,17 @@
             >
                 <span class="item-name">{{ item.name }}</span>
                 <span v-if="item.singer" class="item-singer"
-                    >- {{ item.singer }}</span
+                    >· {{ item.singer }}</span
                 >
             </div>
         </div>
 
         <!-- MV -->
         <div v-if="data.mv.length > 0" class="suggest-group">
-            <div class="group-title">MV</div>
+            <div class="group-title">
+                <AppIcon name="play" :size="14" />
+                <span>MV</span>
+            </div>
             <div
                 v-for="(item, index) in data.mv"
                 :key="item.vid ?? item.mid ?? item.id ?? `mv-${index}`"
@@ -56,7 +68,7 @@
             >
                 <span class="item-name">{{ item.name }}</span>
                 <span v-if="item.singer" class="item-singer"
-                    >- {{ item.singer }}</span
+                    >· {{ item.singer }}</span
                 >
             </div>
         </div>
@@ -66,6 +78,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { SearchSuggestionData, SearchSuggestionItem } from '../../types'
+import AppIcon from '../common/AppIcon.vue'
 
 const props = defineProps<{
     data: SearchSuggestionData
@@ -79,7 +92,6 @@ function handleSelect(
     item: SearchSuggestionItem,
     type: keyof SearchSuggestionData,
 ) {
-    // 只有 name 存在时才触发选择
     if (item.name) {
         emit('select', item.name, type)
     }
@@ -96,44 +108,55 @@ const hasAny = computed(
 
 <style scoped>
 .search-suggestions {
-    margin-top: 12px;
-    padding: 12px;
+    margin-top: 8px;
+    padding: 14px;
     background-color: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-md);
 }
 
 .suggest-group {
     margin-bottom: 12px;
 }
 
+.suggest-group:last-child {
+    margin-bottom: 0;
+}
+
 .group-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-primary);
     margin-bottom: 6px;
-    padding-left: 4px;
+    padding-left: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 
 .suggest-item {
     min-height: 44px;
     box-sizing: border-box;
     padding: 8px 12px;
-    border-radius: 6px;
+    border-radius: 10px;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background-color 0.15s ease;
     display: flex;
     align-items: baseline;
-    gap: 4px;
+    gap: 6px;
 }
 
 .suggest-item:hover {
-    background: var(--bg-body);
+    background: var(--bg-surface-subtle);
 }
 
 .item-name {
     min-width: 0;
     font-size: 14px;
+    font-weight: 500;
     color: var(--color-text);
     white-space: nowrap;
     overflow: hidden;

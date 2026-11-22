@@ -156,12 +156,13 @@ onUnmounted(() => {
 
 <style scoped>
 .account-settings {
-    padding: 24px;
+    padding: 22px;
     background: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 14px;
-    margin-bottom: 20px;
+    border-radius: 16px;
+    margin-bottom: 18px;
     min-width: 0;
+    box-shadow: var(--shadow-sm);
 }
 .account-header {
     display: grid;

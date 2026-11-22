@@ -1,9 +1,19 @@
 <template>
     <div class="monitor-page">
         <div class="toolbar">
-            <n-button @click="router.push('/playlist')">返回歌单</n-button>
+            <n-button
+                round
+                secondary
+                size="small"
+                @click="router.push('/playlist')"
+            >
+                <template #icon>
+                    <AppIcon name="back" :size="16" />
+                </template>
+                返回歌单
+            </n-button>
             <h2>歌单监控</h2>
-            <n-button type="primary" @click="edit()">添加监控</n-button>
+            <n-button round type="primary" @click="edit()">添加监控</n-button>
         </div>
         <n-alert v-if="error" type="error" title="操作未完成">{{
             error
@@ -105,6 +115,7 @@ import { useRouter } from 'vue-router'
 import { ref } from 'vue'
 import LibraryIssuesModal from '../components/monitor/LibraryIssuesModal.vue'
 import { NAlert, NButton, NEmpty } from 'naive-ui'
+import AppIcon from '../components/common/AppIcon.vue'
 import { useMonitorPage } from '../composables/useMonitorPage'
 import LibraryStatusCard from '../components/monitor/LibraryStatusCard.vue'
 import MonitorCard from '../components/monitor/MonitorCard.vue'

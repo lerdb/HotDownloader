@@ -32,10 +32,14 @@
                 >
             </div>
         </n-alert>
+
         <header class="settings-header">
             <h1>设置</h1>
-            <p>管理音乐账号与下载偏好</p>
+            <p>管理界面外观、音乐账号与下载偏好</p>
         </header>
+
+        <AppearanceSettings />
+
         <AccountSettings />
 
         <div class="settings-section">
@@ -77,6 +81,8 @@
         <!-- 问题反馈入口 -->
         <div class="feedback-entry">
             <n-button
+                round
+                secondary
                 tag="a"
                 :href="feedbackUrl"
                 target="_blank"
@@ -97,6 +103,7 @@
 import { useNarrowLayout } from '../composables/useNarrowLayout'
 import { useRouter } from 'vue-router'
 import { NForm, NButton, NAlert } from 'naive-ui'
+import AppearanceSettings from '../components/settings/AppearanceSettings.vue'
 import QualitySetting from '../components/settings/QualitySetting.vue'
 import DowngradeSetting from '../components/settings/DowngradeSetting.vue'
 import DirectorySetting from '../components/settings/DirectorySetting.vue'
@@ -160,9 +167,9 @@ function goAbout() {
 <style scoped>
 .settings-view {
     width: 100%;
-    max-width: 800px;
+    max-width: 820px;
     min-width: 0;
-    /* 让设置页占满父容器高度，使用 flex 列布局 */
+    margin: 0 auto;
     display: flex;
     flex-direction: column;
     min-height: 100%;
@@ -170,21 +177,23 @@ function goAbout() {
 
 .settings-alert {
     margin-bottom: 16px;
+    border-radius: 14px;
 }
 
 .settings-header {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
 }
 
 .settings-header h1 {
     font-size: 26px;
-    font-weight: 650;
-    margin-bottom: 6px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
 }
 
 .settings-header p {
     color: var(--color-text-secondary);
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .conflict-row {
@@ -195,49 +204,46 @@ function goAbout() {
     margin-top: 8px;
 }
 
-/* 移动端移除最大宽度限制，撑满父容器 */
 .settings-view.is-narrow {
     max-width: none;
 }
 
 .settings-section {
-    margin-bottom: 16px;
-    padding: 20px;
+    margin-bottom: 18px;
+    padding: 22px;
     min-width: 0;
     background: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 14px;
+    border-radius: 16px;
+    box-shadow: var(--shadow-sm);
 }
 
 .settings-section + .settings-section {
-    padding-top: 20px;
+    padding-top: 22px;
 }
 
 .section-title {
     font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 12px;
+    font-weight: 650;
+    margin-bottom: 14px;
     color: var(--color-text);
 }
 
-/* 问题反馈入口：保持居中布局 */
 .feedback-entry {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 12px;
     flex-wrap: wrap;
-    margin-top: 24px;
+    margin-top: 20px;
 }
 
 .about-entry {
-    /* 将关于入口推到底部 */
     margin-top: auto;
-    padding-top: 24px;
+    padding-top: 20px;
     text-align: center;
 }
 
-/* 统一子组件的表单收缩和行间距，长标签与路径在自己的区域内换行 */
 .settings-view :deep(.n-form-item-blank),
 .settings-view :deep(.n-input-group) {
     min-width: 0;
@@ -279,11 +285,11 @@ function goAbout() {
 
     .settings-section,
     .settings-section + .settings-section {
-        padding: 16px 12px;
+        padding: 16px 14px;
     }
 
     .settings-view :deep(.n-button) {
-        min-height: 44px;
+        min-height: 40px;
     }
 }
 </style>

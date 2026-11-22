@@ -1,13 +1,24 @@
 <template>
     <div class="about-view">
-        <!-- 在关于页面左上角添加返回按钮，提供明确的返回导航入口 -->
-        <n-button @click="goBack">返回</n-button>
+        <n-button
+            round
+            secondary
+            size="small"
+            class="back-btn"
+            @click="goBack"
+        >
+            <template #icon>
+                <AppIcon name="back" :size="16" />
+            </template>
+            返回
+        </n-button>
 
         <div class="about-card">
+            <div class="about-badge" aria-hidden="true">
+                <AppIcon name="music" :size="28" />
+            </div>
             <h1 class="app-title">HotDownloader</h1>
-            <!-- 直接使用注入的变量，不再硬编码 -->
             <div class="app-version">版本 {{ version }}</div>
-            <!-- 更新为与 README 一致的跨平台描述 -->
             <p class="app-description">
                 基于共享 Rust 下载核心和 Vue 3 的音乐下载工具，支持 Tauri
                 桌面端、Android 端与 Docker/Web
@@ -92,6 +103,7 @@
 import { ref, shallowRef } from 'vue'
 import { NButton, NUl, NLi, NA, NModal, NScrollbar } from 'naive-ui'
 import { useRouter } from 'vue-router'
+import AppIcon from '../components/common/AppIcon.vue'
 import {
     rustComponents as rustComponentData,
     frontendComponents as frontendComponentData,
@@ -110,9 +122,7 @@ const showModal = ref(false)
 const modalTitle = ref('')
 const modalText = ref('')
 
-// 处理返回按钮点击逻辑，确保用户能正确回到上一页
 function goBack() {
-    // 若存在历史记录则直接后退，否则回退到设置页
     if (window.history.length > 1) {
         router.back()
     } else {
@@ -120,7 +130,6 @@ function goBack() {
     }
 }
 
-// 点击组件行时，弹出该组件涉及的许可证全文
 function openLicense(item: ComponentInfo) {
     const ids = new Set<string>()
     const tokens = item.license
@@ -153,7 +162,8 @@ function openLicense(item: ComponentInfo) {
 
 <style scoped>
 .about-view {
-    max-width: 800px;
+    width: 100%;
+    max-width: 820px;
     min-width: 0;
     margin: 0 auto;
     padding: 0;
@@ -162,55 +172,85 @@ function openLicense(item: ComponentInfo) {
     gap: 16px;
 }
 
-.about-view > .n-button {
+.back-btn {
     align-self: flex-start;
 }
 
 .about-card {
-    /* 使用全局定义的侧边栏背景色，自动适配深色模式 */
     background-color: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 24px;
+    border-radius: 20px;
+    padding: 28px 24px;
     text-align: center;
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.about-badge {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: linear-gradient(
+        135deg,
+        var(--color-primary),
+        var(--color-primary-hover)
+    );
+    color: #ffffff;
+    display: grid;
+    place-items: center;
+    margin-bottom: 14px;
+    box-shadow: 0 10px 24px var(--color-primary-soft);
+}
+
+:root[data-theme='dark'] .about-badge {
+    color: #0b1210;
 }
 
 .app-title {
     font-size: 24px;
     font-weight: 700;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
     color: var(--color-text);
 }
 
 .app-version {
-    font-size: 14px;
-    color: var(--color-text-secondary);
+    display: inline-block;
+    padding: 2px 12px;
+    border-radius: 999px;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: 12px;
+    font-weight: 600;
     margin-bottom: 16px;
 }
 
 .app-description {
+    max-width: 580px;
     font-size: 14px;
     color: var(--color-text-secondary);
-    line-height: 1.6;
+    line-height: 1.65;
 }
 
 .about-section {
     background-color: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 16px 20px;
+    border-radius: 16px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow-sm);
 }
 
 .section-title {
     font-size: 16px;
-    font-weight: 600;
+    font-weight: 650;
     margin-bottom: 12px;
     color: var(--color-text);
 }
 
 .sub-title {
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
     margin: 16px 0 8px;
     color: var(--color-text);
 }
@@ -228,7 +268,7 @@ function openLicense(item: ComponentInfo) {
     align-items: baseline;
     flex-wrap: wrap;
     gap: 4px 16px;
-    padding: 8px 0;
+    padding: 9px 8px;
     border-bottom: 1px solid var(--border-color);
 }
 
@@ -238,12 +278,12 @@ function openLicense(item: ComponentInfo) {
 
 .component-item--clickable {
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 8px;
     transition: background-color 0.15s;
 }
 
 .component-item--clickable:hover {
-    background-color: var(--border-color);
+    background-color: var(--bg-surface-subtle);
 }
 
 .component-name {
@@ -277,7 +317,7 @@ function openLicense(item: ComponentInfo) {
 @media (max-width: 767px) {
     .about-card,
     .about-section {
-        padding: 16px 12px;
+        padding: 18px 14px;
     }
 }
 </style>

@@ -1,12 +1,37 @@
 <template>
     <div class="playlist-home">
-        <n-button
+        <header class="page-header">
+            <div>
+                <h1>歌单中心</h1>
+                <p>导入外部歌单链接或浏览已登录账号的个人歌单</p>
+            </div>
+        </header>
+
+        <button
             v-if="!isNativeRuntime()"
+            type="button"
+            class="monitor-entry-card"
             @click="router.push('/playlist/monitors')"
-            >歌单监控与自动补齐</n-button
         >
-        <section class="playlist-section">
-            <h2>导入歌单</h2>
+            <span class="monitor-entry-icon">
+                <AppIcon name="radar" :size="20" />
+            </span>
+            <span class="monitor-entry-body">
+                <strong>歌单监控与自动补齐</strong>
+                <span>定时检查歌单新增曲目并与本地音乐库自动匹配</span>
+            </span>
+            <AppIcon
+                name="chevron-right"
+                :size="18"
+                class="monitor-entry-arrow"
+            />
+        </button>
+
+        <section class="playlist-section import-card">
+            <div class="section-header">
+                <AppIcon name="playlist" :size="18" class="section-icon" />
+                <h2>导入歌单</h2>
+            </div>
             <SearchBar
                 v-model:keyword="importInput"
                 v-model:platform="currentPlatform"
@@ -38,9 +63,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { NButton } from 'naive-ui'
 import SearchBar from '../search/SearchBar.vue'
 import MyPlaylists from './MyPlaylists.vue'
+import AppIcon from '../common/AppIcon.vue'
 import { DEFAULT_PLATFORM, PLATFORMS } from '../../config/platforms'
 import type { PlaylistSearchItem } from '../../types'
 import { isNativeRuntime } from '../../api/runtimeApi'
@@ -62,8 +87,88 @@ function handleImport() {
 .playlist-home {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 18px;
     min-width: 0;
+}
+
+.page-header h1 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 4px;
+}
+
+.page-header p {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.monitor-entry-card {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-sidebar);
+    color: var(--color-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition:
+        border-color 0.18s ease,
+        background-color 0.18s ease,
+        transform 0.15s ease;
+}
+
+.monitor-entry-card:hover {
+    border-color: var(--color-primary);
+    background: var(--bg-elevated);
+    transform: translateY(-1px);
+}
+
+.monitor-entry-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+}
+
+.monitor-entry-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.monitor-entry-body strong {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.monitor-entry-body span {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.monitor-entry-arrow {
+    color: var(--color-text-secondary);
+    flex-shrink: 0;
+}
+
+.import-card {
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow-sm);
 }
 
 .playlist-section {
@@ -72,13 +177,29 @@ function handleImport() {
     gap: 12px;
 }
 
-.playlist-section h2 {
-    margin: 0;
-    font-size: 18px;
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-/* SearchBar 自带下边距；入口页使用父容器的 gap 控制间距。 */
+.section-icon {
+    color: var(--color-primary);
+}
+
+.playlist-section h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
 .playlist-home :deep(.search-bar) {
     margin-bottom: 0;
+}
+
+@media (max-width: 767px) {
+    .page-header h1 {
+        font-size: 22px;
+    }
 }
 </style>

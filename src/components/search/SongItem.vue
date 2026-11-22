@@ -1,10 +1,25 @@
 <template>
-    <div class="song-item" :class="{ 'is-selected': selected }">
+    <div
+        class="song-item"
+        :class="{
+            'is-selected': selected,
+            'is-playing': isCurrentSong,
+        }"
+    >
         <n-checkbox
             :checked="selected"
             @update:checked="$emit('toggleSelect', $event)"
         />
-        <div class="cover-wrapper">
+        <button
+            type="button"
+            class="cover-wrapper"
+            :aria-label="
+                isCurrentSong && player.status === 'playing'
+                    ? `暂停 ${song.title}`
+                    : `试听 ${song.title}`
+            "
+            @click.stop="player.play(song)"
+        >
             <img
                 v-if="coverUrl"
                 :src="coverUrl"
@@ -13,71 +28,100 @@
                 loading="lazy"
             />
             <div v-else-if="coverLoading" class="cover placeholder" />
-            <div v-else class="cover placeholder default" />
-        </div>
-        <div class="info">
-            <div class="title">{{ song.title }}</div>
-            <div class="subtitle">
-                <ArtistNames
-                    :platform="song.platform"
-                    :artists="song.artists"
-                    :fallback="song.artist"
-                    @click-artist="
-                        (platform, artist) =>
-                            $emit('click-artist', platform, artist)
+            <div v-else class="cover placeholder default">
+                <AppIcon name="music" :size="20" />
+            </div>
+            <span class="cover-play-overlay" aria-hidden="true">
+                <AppIcon
+                    :name="
+                        isCurrentSong && player.status === 'playing'
+                            ? 'pause'
+                            : 'play'
                     "
+                    :size="18"
                 />
+            </span>
+        </button>
+
+        <div class="info">
+            <div class="title" :title="song.title">{{ song.title }}</div>
+            <div class="subtitle-row">
+                <span class="subtitle-artist">
+                    <ArtistNames
+                        :platform="song.platform"
+                        :artists="song.artists"
+                        :fallback="song.artist"
+                        @click-artist="
+                            (platform, artist) =>
+                                $emit('click-artist', platform, artist)
+                        "
+                    />
+                </span>
+                <template v-if="song.album">
+                    <span class="subtitle-dot" aria-hidden="true">·</span>
+                    <n-button
+                        v-if="albumId"
+                        text
+                        size="small"
+                        class="album-link"
+                        @click.stop="$emit('click-album', song)"
+                    >
+                        {{ song.album }}
+                    </n-button>
+                    <span v-else class="album-plain">{{ song.album }}</span>
+                </template>
             </div>
-            <div v-if="song.album" class="subtitle">
-                <n-button
-                    v-if="albumId"
-                    text
-                    size="small"
-                    class="album-link"
-                    @click.stop="$emit('click-album', song)"
-                >
-                    {{ song.album }}
-                </n-button>
-                <span v-else>{{ song.album }}</span>
-            </div>
-            <div class="quality-tags">
-                <n-tag
+            <div v-if="sortedQualities.length" class="quality-tags">
+                <span
                     v-for="q in sortedQualities.slice(0, 4)"
                     :key="q.quality"
-                    size="tiny"
-                    :bordered="false"
-                    type="info"
+                    class="quality-chip"
+                    :class="{ 'is-lossless': isHighQuality(q.quality) }"
                 >
                     {{ q.quality }}
-                </n-tag>
-                <n-tag
-                    v-if="sortedQualities.length > 4"
-                    size="tiny"
-                    :bordered="false"
-                    type="info"
-                >
+                </span>
+                <span v-if="sortedQualities.length > 4" class="quality-chip">
                     +{{ sortedQualities.length - 4 }}
-                </n-tag>
+                </span>
             </div>
         </div>
+
         <div class="song-actions">
             <n-button
                 size="small"
-                :loading="player.isCurrent(song) && player.status === 'loading'"
-                :type="player.isCurrent(song) ? 'primary' : 'default'"
+                round
+                :secondary="!isCurrentSong"
+                :loading="isCurrentSong && player.status === 'loading'"
+                :type="isCurrentSong ? 'primary' : 'default'"
                 @click.stop="player.play(song)"
             >
+                <template #icon>
+                    <AppIcon
+                        :name="
+                            isCurrentSong && player.status === 'playing'
+                                ? 'pause'
+                                : 'play'
+                        "
+                        :size="14"
+                    />
+                </template>
                 {{
-                    player.isCurrent(song) && player.status === 'playing'
+                    isCurrentSong && player.status === 'playing'
                         ? '暂停'
                         : '试听'
                 }}
             </n-button>
             <n-button
                 size="small"
+                round
+                secondary
+                type="primary"
                 class="download-btn"
                 @click="$emit('download', song)"
             >
+                <template #icon>
+                    <AppIcon name="download" :size="14" />
+                </template>
                 下载
             </n-button>
         </div>
@@ -86,13 +130,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NCheckbox, NButton, NTag } from 'naive-ui'
+import { NCheckbox, NButton } from 'naive-ui'
 import type { ArtistReference, SongInfo } from '../../types'
 import { ALL_QUALITY_ORDER } from '../../types'
 import { fetchCover } from '../../api/musicApi'
 import ArtistNames from './ArtistNames.vue'
 import { getMusicEntityId } from '../../utils/music'
 import { usePlayerStore } from '../../stores/playerStore'
+import AppIcon from '../common/AppIcon.vue'
 
 const player = usePlayerStore()
 
@@ -108,6 +153,8 @@ defineEmits<{
     (e: 'click-album', song: SongInfo): void
 }>()
 
+const isCurrentSong = computed(() => player.isCurrent(props.song))
+
 const albumId = computed(() =>
     getMusicEntityId(
         props.song.platform,
@@ -121,30 +168,39 @@ const sortedQualities = computed(() => {
     return [...props.song.qualities].sort((a, b) => {
         const ia = ALL_QUALITY_ORDER.indexOf(a.quality)
         const ib = ALL_QUALITY_ORDER.indexOf(b.quality)
-        // 未知品质放在末尾
         const idxA = ia === -1 ? -1 : ia
         const idxB = ib === -1 ? -1 : ib
-        return idxB - idxA // 降序
+        return idxB - idxA
     })
 })
+
+function isHighQuality(quality: string): boolean {
+    const q = quality.toLowerCase()
+    return (
+        q.includes('flac') ||
+        q.includes('hires') ||
+        q.includes('ape') ||
+        q.includes('母带') ||
+        q.includes('全景') ||
+        q.includes('环绕')
+    )
+}
 
 // 优先展示歌曲自带的封面，缺少地址时按需请求。
 const coverUrl = ref<string>('')
 const coverLoading = ref(false)
 
 async function loadCoverIfNeeded() {
-    // 已有 URL 直接使用
     if (props.song.coverUrl) {
         coverUrl.value = props.song.coverUrl
         return
     }
-    // 酷我场景下按需加载
     if (props.song.platform !== 'kuwo' || !props.song.id) return
+    const expectedId = props.song.id
     coverLoading.value = true
     try {
-        const url = await fetchCover('kuwo', props.song.id)
-        // 检查组件是否已被卸载（song prop 改变）
-        if (props.song.id === props.song.id) {
+        const url = await fetchCover('kuwo', expectedId)
+        if (props.song.id === expectedId) {
             coverUrl.value = url
         }
     } catch {
@@ -158,7 +214,6 @@ onMounted(() => {
     loadCoverIfNeeded()
 })
 
-// 切换 song prop 时（如列表项重用）重新加载
 watch(
     () => props.song.id,
     () => {
@@ -172,38 +227,79 @@ watch(
 .song-item {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
     min-width: 0;
-    padding: 12px;
+    padding: 12px 14px;
     background-color: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 14px;
+    transition:
+        background-color 0.18s ease,
+        border-color 0.18s ease,
+        box-shadow 0.18s ease,
+        transform 0.15s ease;
+}
+
+.song-item:hover {
+    background-color: var(--bg-elevated);
+    border-color: var(--border-color-strong);
+    box-shadow: var(--shadow-sm);
 }
 
 .song-item.is-selected {
-    border-color: var(--color-text-secondary);
+    border-color: var(--color-primary);
+    background-color: var(--color-primary-soft);
+}
+
+.song-item.is-playing {
+    border-color: var(--color-primary);
 }
 
 .cover-wrapper {
-    width: 48px;
-    height: 48px;
+    position: relative;
+    width: 52px;
+    height: 52px;
     flex-shrink: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
 }
 
 .cover {
-    width: 48px;
-    height: 48px;
-    border-radius: 6px;
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
     object-fit: cover;
     display: block;
 }
 
 .cover.placeholder {
-    background-color: var(--border-color);
+    background-color: var(--bg-surface-subtle);
 }
 
 .cover.placeholder.default {
-    background-color: var(--bg-body);
+    display: grid;
+    place-items: center;
+    color: var(--color-text-secondary);
+}
+
+.cover-play-overlay {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.45);
+    color: #ffffff;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+
+.cover-wrapper:hover .cover-play-overlay,
+.song-item.is-playing .cover-play-overlay {
+    opacity: 1;
 }
 
 .info {
@@ -214,33 +310,73 @@ watch(
 
 .title {
     font-size: 15px;
-    font-weight: 500;
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--color-text);
-    line-height: 1.5;
+    line-height: 1.4;
 }
 
-.subtitle {
-    margin-top: 2px;
+.song-item.is-playing .title {
+    color: var(--color-primary);
+}
+
+.subtitle-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 3px;
     font-size: 13px;
     color: var(--color-text-secondary);
+    min-width: 0;
+}
+
+.subtitle-artist,
+.album-plain {
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+.subtitle-dot {
+    flex-shrink: 0;
+    opacity: 0.6;
+}
+
 .album-link {
     font: inherit;
+    min-width: 0;
+    max-width: 48%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     vertical-align: baseline;
 }
 
 .quality-tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
-    margin-top: 4px;
+    gap: 5px;
+    margin-top: 6px;
+}
+
+.quality-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-surface-subtle);
+    color: var(--color-text-secondary);
+}
+
+.quality-chip.is-lossless {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-weight: 600;
 }
 
 .download-btn {
@@ -249,6 +385,7 @@ watch(
 
 .song-actions {
     display: flex;
+    align-items: center;
     gap: 8px;
     flex-shrink: 0;
 }
@@ -256,12 +393,14 @@ watch(
 /* 手机保留封面和操作入口，长歌名在剩余空间内省略 */
 @media (max-width: 767px) {
     .song-item {
-        gap: 8px;
-        padding: 10px 8px;
+        gap: 10px;
+        padding: 10px 10px;
     }
 
-    .download-btn {
-        min-height: 44px;
+    .cover-wrapper,
+    .cover {
+        width: 48px;
+        height: 48px;
     }
 
     .song-actions {

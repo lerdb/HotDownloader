@@ -33,21 +33,16 @@ import { formatSpeed } from '../../utils/format'
 import { renderActions } from './TaskRowActions'
 import type { TaskAction, TaskActionExtra } from './TaskRowActions'
 import MobileTaskList from './MobileTaskList.vue'
+import AppIcon from '../common/AppIcon.vue'
 import { useNarrowLayout } from '../../composables/useNarrowLayout'
 import { getRuntimePlatform } from '../../api/runtimeApi'
 
-// 使用 ref 存储 Android 状态，替代原先的同步 UA 判断
-// 原生平台信息由 API 层提供，在 onMounted 中异步获取并更新。
 const isAndroid = ref(false)
-
-// 响应式检测移动端：与导航共用断点，监听由 composable 随组件释放
 const isMobile = useNarrowLayout()
 
 onMounted(async () => {
-    // 异步获取当前平台，设置 isAndroid
     try {
         const currentPlatform = await getRuntimePlatform()
-        // Web 文件位于服务器，和 Android SAF 一样展示路径但不显示本机“打开位置”。
         isAndroid.value =
             currentPlatform === 'android' || currentPlatform === 'web'
     } catch (error) {
@@ -56,14 +51,13 @@ onMounted(async () => {
     }
 })
 
-const props = defineProps<{
+defineProps<{
     tasks: TaskRecord[]
     selectedRowKeys: string[]
 }>()
 
 const emit = defineEmits<{
     (e: 'update:selectedRowKeys', keys: string[]): void
-    // 增加第三个参数 extra，用于传递删除文件标志等
     (
         e: 'action',
         action: TaskAction,
@@ -83,32 +77,32 @@ function renderProgress(row: TaskRecord) {
     const percent =
         row.fileSize > 0 ? Math.round((row.downloaded / row.fileSize) * 100) : 0
 
-    // 已完成或处理中状态：显示100%
     if (row.status === 'completed' || row.status === 'processing') {
-        return '100%'
+        return h('span', { class: 'progress-done' }, '100%')
     }
 
-    // 中断状态由 Rust 在重启恢复时写入，恢复动作由用户主动发起。
     if (row.status === 'interrupted') {
-        return '上次运行中断，等待恢复'
+        return h(
+            'span',
+            { class: 'progress-note is-warn' },
+            '上次运行中断，等待恢复',
+        )
     }
 
-    // 错误状态显示错误信息
     if (row.status === 'error') {
-        return row.errorMsg || ''
+        return h('span', { class: 'progress-note is-error' }, row.errorMsg || '')
     }
 
-    // 等待中
     if (row.status === 'waiting') {
-        return '-'
+        return h('span', { class: 'progress-note' }, '-')
     }
 
-    // 下载中或暂停：显示进度条和速度
     const children = [
         h(NProgress, {
             percentage: percent,
             indicatorTextPlacement: 'inside',
-            height: 20,
+            height: 18,
+            borderRadius: 999,
         }),
     ]
 
@@ -119,7 +113,6 @@ function renderProgress(row: TaskRecord) {
     return h('div', null, children)
 }
 
-// Android 文件路径列依赖异步平台检测，列定义必须是计算属性才能随检测结果更新。
 const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
     {
         type: 'selection',
@@ -128,21 +121,40 @@ const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
     {
         title: '歌曲信息',
         key: 'song',
-        minWidth: 200, // 确保最小列宽，防止被压缩
+        minWidth: 230,
         render(row: TaskRecord) {
-            return h('div', { class: 'song-info' }, [
-                h('span', { class: 'song-title' }, row.songTitle || '未知歌曲'),
-                h('span', { class: 'song-separator' }, ' - '),
-                h('span', { class: 'song-artist' }, row.artist || '未知歌手'),
+            return h('div', { class: 'song-cell' }, [
+                row.coverUrl
+                    ? h('img', {
+                          src: row.coverUrl,
+                          alt: row.songTitle,
+                          class: 'song-thumb',
+                          loading: 'lazy',
+                      })
+                    : h('div', { class: 'song-thumb song-thumb-fallback' }, [
+                          h(AppIcon, { name: 'music', size: 16 }),
+                      ]),
+                h('div', { class: 'song-info' }, [
+                    h(
+                        'div',
+                        { class: 'song-title', title: row.songTitle },
+                        row.songTitle || '未知歌曲',
+                    ),
+                    h(
+                        'div',
+                        { class: 'song-artist', title: row.artist },
+                        row.artist || '未知歌手',
+                    ),
+                ]),
             ])
         },
     },
     {
         title: '音质',
         key: 'quality',
-        width: 100,
+        width: 108,
         render(row: TaskRecord) {
-            return row.quality
+            return h('span', { class: 'quality-badge' }, row.quality)
         },
     },
     {
@@ -166,18 +178,21 @@ const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
                 type: 'default' as const,
                 label: row.status,
             }
-            return h(NTag, { type: s.type, size: 'small' }, () => s.label)
+            return h(
+                NTag,
+                { type: s.type, size: 'small', round: true, bordered: false },
+                () => s.label,
+            )
         },
     },
     {
         title: '进度',
         key: 'progress',
-        width: 200,
+        width: 210,
         render(row: TaskRecord) {
             return renderProgress(row)
         },
     },
-    // Android 和 Web 无法使用桌面文件管理器，因此直接展示文件路径。
     ...(isAndroid.value
         ? [
               {
@@ -195,7 +210,7 @@ const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
                               },
                               expandTrigger: 'click',
                               lineClamp: 1,
-                              tooltip: false, // 禁用 tooltip，改用点击展开
+                              tooltip: false,
                           },
                           () => fullPath,
                       )
@@ -210,7 +225,6 @@ const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
         render(row: TaskRecord) {
             return h(NSpace, { justify: 'center' }, () =>
                 renderActions(row, {
-                    // 显式传递第三个参数，确保 extra 不被丢弃
                     emit: (
                         action: TaskAction,
                         taskId: string,
@@ -230,47 +244,51 @@ const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
 .task-table {
     min-width: 0;
     flex-shrink: 0;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
 }
 
-/* 固定列布局配合表格内部横向滚动，长内容在单元格内换行或省略 */
 .task-table :deep(.n-data-table-td) {
     overflow-wrap: anywhere;
 }
 
-.task-table :deep(.task-speed) {
-    font-size: 12px;
-    color: var(--color-text-secondary);
-    margin-top: 4px;
+.task-table :deep(.song-cell) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
 }
 
-/* 列内容由表格的 render 回调创建，使用 deep 将样式限定在当前表格内 */
+.task-table :deep(.song-thumb) {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.task-table :deep(.song-thumb-fallback) {
+    display: grid;
+    place-items: center;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+}
+
 .task-table :deep(.song-info) {
     display: flex;
-    flex-direction: row;
-    align-items: baseline;
-    flex-wrap: nowrap;
-    /* 改为 nowrap，禁止换行 */
+    flex-direction: column;
     min-width: 0;
-    /* 允许自身收缩 */
+    flex: 1;
 }
 
 .task-table :deep(.song-title) {
-    font-weight: 500;
+    font-weight: 600;
+    font-size: 13.5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    flex-shrink: 1;
-    /* 允许收缩 */
-    min-width: 0;
-    /* 允许收缩 */
-}
-
-.task-table :deep(.song-separator) {
-    margin: 0 4px;
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    flex-shrink: 0;
-    /* 分隔符不收缩 */
 }
 
 .task-table :deep(.song-artist) {
@@ -279,9 +297,44 @@ const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    flex-shrink: 1;
-    /* 允许收缩 */
-    min-width: 0;
-    /* 允许收缩 */
+    margin-top: 2px;
+}
+
+.task-table :deep(.quality-badge) {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--bg-surface-subtle);
+    color: var(--color-text-secondary);
+}
+
+.task-table :deep(.task-speed) {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.task-table :deep(.progress-done) {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.task-table :deep(.progress-note) {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.task-table :deep(.progress-note.is-error) {
+    color: #ef4444;
+}
+
+.task-table :deep(.progress-note.is-warn) {
+    color: #f59e0b;
 }
 </style>

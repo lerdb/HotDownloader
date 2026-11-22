@@ -13,7 +13,11 @@
                         :src="album.coverUrl"
                         class="album-card-cover"
                         alt="专辑封面"
+                        loading="lazy"
                     />
+                    <div v-else class="album-card-cover album-cover-fallback">
+                        <AppIcon name="disc" :size="24" />
+                    </div>
                     <div class="album-card-info">
                         <div class="album-card-name">
                             <n-button
@@ -61,6 +65,7 @@ import { NButton, NEmpty } from 'naive-ui'
 import type { AlbumInfo, ArtistReference } from '../../types'
 import LoadMoreButton from './LoadMoreButton.vue'
 import ArtistNames from './ArtistNames.vue'
+import AppIcon from '../common/AppIcon.vue'
 
 defineProps<{
     platform: string
@@ -78,9 +83,9 @@ defineEmits<{
 
 <style scoped>
 .album-card-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
 }
 
 .album-card {
@@ -89,27 +94,42 @@ defineEmits<{
     color: inherit;
     font: inherit;
     display: flex;
-    gap: 12px;
+    gap: 14px;
     align-items: center;
     min-width: 0;
     padding: 12px;
     background-color: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 16px;
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition:
+        border-color 0.18s ease,
+        background-color 0.18s ease,
+        transform 0.15s ease,
+        box-shadow 0.18s ease;
 }
 
 .album-card:hover {
-    border-color: var(--color-text-secondary);
+    border-color: var(--color-primary);
+    background-color: var(--bg-elevated);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
 }
 
 .album-card-cover {
-    width: 60px;
-    height: 60px;
-    border-radius: 6px;
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
     object-fit: cover;
     flex-shrink: 0;
+    box-shadow: var(--shadow-sm);
+}
+
+.album-cover-fallback {
+    display: grid;
+    place-items: center;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
 }
 
 .album-card-info {
@@ -129,23 +149,32 @@ defineEmits<{
     overflow-wrap: anywhere;
     color: var(--color-text-secondary);
     font-size: 13px;
-    margin-top: 2px;
+    margin-top: 3px;
 }
 
 .album-card-name .n-button {
     font: inherit;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .album-card-meta {
     overflow-wrap: anywhere;
     color: var(--color-text-secondary);
     font-size: 12px;
-    margin-top: 2px;
+    margin-top: 3px;
 }
 
 .empty-result {
     display: flex;
     justify-content: center;
-    padding: 40px 0;
+    padding: 48px 0;
+}
+
+@media (max-width: 600px) {
+    .album-card-list {
+        grid-template-columns: 1fr;
+    }
 }
 </style>

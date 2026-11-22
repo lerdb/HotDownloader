@@ -6,11 +6,20 @@
             trigger="click"
             @select="handlePlatformSelect"
         >
-            <n-button quaternary size="small" class="platform-btn">
+            <button type="button" class="platform-pill" aria-label="选择音乐平台">
+                <span
+                    class="platform-dot"
+                    :style="{ backgroundColor: platformDotColor }"
+                    aria-hidden="true"
+                />
                 <span class="platform-label">{{ currentPlatformLabel }}</span>
-                <span class="platform-arrow">▾</span>
-            </n-button>
+                <span class="platform-arrow" aria-hidden="true">▾</span>
+            </button>
         </n-dropdown>
+
+        <span class="search-leading-icon" aria-hidden="true">
+            <AppIcon name="search" :size="17" />
+        </span>
 
         <n-input
             v-model:value="keywordModel"
@@ -20,6 +29,7 @@
             @clear="handleClear"
             class="search-input"
         />
+
         <n-button
             type="primary"
             @click="handleSearch"
@@ -36,6 +46,7 @@
 import { ref, watch, computed } from 'vue'
 import { NInput, NButton, NDropdown } from 'naive-ui'
 import type { PlatformOption } from '../../config/platforms'
+import AppIcon from '../common/AppIcon.vue'
 
 const props = withDefaults(
     defineProps<{
@@ -61,6 +72,17 @@ const emit = defineEmits<{
 }>()
 
 const keywordModel = ref(props.keyword)
+
+const PLATFORM_COLORS: Record<string, string> = {
+    qqmusic: '#17a37a',
+    kuwo: '#f59e0b',
+    kugou: '#3b82f6',
+    netease: '#ef4444',
+}
+
+const platformDotColor = computed(
+    () => PLATFORM_COLORS[props.platform] ?? 'var(--color-primary)',
+)
 
 // 当前平台对应的显示 label
 const currentPlatformLabel = computed(() => {
@@ -108,79 +130,86 @@ function handleClear() {
 }
 </script>
 
-<!-- ===== 必要的 CSS 变量（仅布局/主题，非组件颜色） ===== -->
 <style scoped>
 .search-bar {
     --search-height: 44px;
     --search-font-size: 14px;
-    --search-radius: 8px;
-    /* 统一圆角 */
-    --search-padding: 8px;
-    --search-gap: 8px;
 
-    /* 容器背景/阴影（支持深色模式） */
-    --search-bg: var(--bg-sidebar);
-    --search-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-    --search-shadow-focus: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-</style>
-
-<!-- ===== 组件样式（仅布局覆盖，颜色/圆角尽量用原生） ===== -->
-<style scoped>
-.search-bar {
     display: flex;
     align-items: center;
-    gap: var(--search-gap);
+    gap: 8px;
     min-width: 0;
     margin-bottom: 16px;
-    background: var(--search-bg);
-    padding: var(--search-padding);
+    background: var(--bg-elevated);
+    padding: 6px 6px 6px 8px;
     border: 1px solid var(--border-color);
-    border-radius: var(--search-radius);
-    /* 外层圆角 */
-    box-shadow: var(--search-shadow);
-    transition: box-shadow 0.2s ease;
+    border-radius: 999px;
+    box-shadow: var(--shadow-sm);
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
 }
 
 .search-bar:focus-within {
-    box-shadow: var(--search-shadow-focus);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
 
-/* 平台按钮样式 */
-.platform-btn {
-    height: var(--search-height) !important;
-    min-width: 52px;
-    padding: 0 8px !important;
-    font-size: 13px !important;
+.platform-pill {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface-subtle);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 4px;
+    gap: 6px;
+    cursor: pointer;
+    transition:
+        background-color 0.18s ease,
+        border-color 0.18s ease;
+}
+
+.platform-pill:hover {
+    border-color: var(--border-color-strong);
+}
+
+.platform-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
 }
 
 .platform-arrow {
-    margin-left: 4px;
     color: var(--color-text-secondary);
+    font-size: 11px;
+}
+
+.search-leading-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-text-secondary);
+    margin-left: 2px;
+    flex-shrink: 0;
 }
 
 /* 输入框容器自动撑开 */
 .search-bar .search-input {
     flex: 1;
     min-width: 0;
-}
-
-/* ---------- 让 n-input 透明，只继承外层背景 ---------- */
-.search-bar .search-input {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     height: var(--search-height) !important;
-    --n-padding-left: 12px;
-    --n-padding-right: 12px;
-    /* 左右缩进，占位符不再顶左 */
+    --n-padding-left: 4px;
+    --n-padding-right: 8px;
     border-radius: 0 !important;
-    /* 取消自身圆角，由外层统一 */
 }
 
 .search-input :deep(.n-input-wrapper) {
@@ -189,7 +218,6 @@ function handleClear() {
     height: 100% !important;
 }
 
-/* 内部 input 零内边距，由父级控制 */
 .search-input :deep(.n-input__input) {
     padding: 0 !important;
     font-size: var(--search-font-size) !important;
@@ -199,7 +227,6 @@ function handleClear() {
     border: none !important;
     box-shadow: none !important;
     color: inherit !important;
-    /* 使用 Naive UI 默认文字颜色 */
 }
 
 .search-input :deep(.n-input__input-el) {
@@ -207,51 +234,38 @@ function handleClear() {
 }
 
 .search-input :deep(.n-input__input-el::placeholder) {
-    color: inherit !important;
-    /* 使用 Naive UI 默认占位符颜色 */
-    opacity: 0.6;
+    color: var(--color-text-secondary) !important;
+    opacity: 0.75;
 }
 
-/* 隐藏内置边框伪元素 */
 .search-input :deep(.n-input__border),
 .search-input :deep(.n-input__state-border) {
     display: none !important;
 }
 
-/* 清除按钮与输入文字居中对齐，沿用组件的清除交互 */
 .search-input :deep(.n-input__suffix) {
     align-items: center;
 }
 
-/* ---------- 按钮：仅控制尺寸，颜色/圆角完全由 type="primary" 决定 ---------- */
 .search-bar .search-btn {
-    height: var(--search-height) !important;
-    padding: 0 18px !important;
-    font-size: var(--search-font-size) !important;
-    border-radius: var(--search-radius) !important;
-    /* 与外层圆角一致 */
+    height: 38px !important;
+    padding: 0 20px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    border-radius: 999px !important;
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
 }
 
-/* 保留悬停/禁用等状态，利用 Naive UI 的默认行为，仅微调阴影 */
-.search-bar .search-btn:hover:not(:disabled) {
-    box-shadow: var(--search-shadow-focus);
-}
-
-/* 窄屏不再将操作按钮单独放一行 */
-/*
-@media (max-width: 767px) {
-    .search-bar {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
+@media (max-width: 520px) {
+    .search-leading-icon {
+        display: none;
     }
 
     .search-bar .search-btn {
-        grid-column: 1 / -1;
+        padding: 0 14px !important;
     }
 }
-*/
 </style>

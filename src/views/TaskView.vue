@@ -1,9 +1,21 @@
 <template>
     <div class="task-view">
+        <header v-if="!focusedId" class="task-page-header">
+            <div>
+                <h1>下载任务</h1>
+                <p>
+                    共 {{ tabCounts.total }} 项 · 进行中
+                    {{ tabCounts.downloading + tabCounts.waiting }} 项 · 已完成
+                    {{ tabCounts.completed }} 项
+                </p>
+            </div>
+        </header>
+
         <n-alert
             v-if="focusedId"
             :type="focusedTask ? 'info' : 'warning'"
             title="监控关联任务"
+            class="focus-alert"
         >
             <template v-if="focusedTask"
                 >正在查看：{{ focusedTask.songTitle }} ·
@@ -23,6 +35,7 @@
         <div v-if="showToolbar && !focusedId" class="task-toolbar">
             <n-button
                 size="small"
+                round
                 :disabled="clearing"
                 @click="
                     handleQueue(
@@ -37,7 +50,11 @@
                 @positive-click="handleCancelQueue"
             >
                 <template #trigger
-                    ><n-button size="small" type="warning" :disabled="clearing"
+                    ><n-button
+                        size="small"
+                        round
+                        type="warning"
+                        :disabled="clearing"
                         >取消全部未完成任务（{{
                             unfinishedTaskCount
                         }}）</n-button
@@ -50,7 +67,11 @@
                 @positive-click="handleClearStatus"
             >
                 <template #trigger
-                    ><n-button size="small" type="warning" :disabled="clearing"
+                    ><n-button
+                        size="small"
+                        round
+                        type="warning"
+                        :disabled="clearing"
                         >清除当前状态的全部任务（{{
                             filteredTasks.length
                         }}）</n-button
@@ -58,13 +79,13 @@
                 >
                 停止当前批量提交，并清除当前状态的全部任务记录，范围包含所有分页；保留磁盘文件。取消等待任务后队列保持暂停。
             </n-popconfirm>
-            <!-- 中断恢复与错误重试按任务状态分别选择，实际规则交给 Rust。 -->
             <n-button
                 v-if="
                     (activeTab === 'error' && tabCounts.error > 0) ||
                     (activeTab === 'interrupted' && tabCounts.interrupted > 0)
                 "
                 size="small"
+                round
                 type="primary"
                 :loading="retryingAll"
                 :disabled="retryingAll"
@@ -88,7 +109,6 @@
                 会依次重新入队，实际同时下载数量由“最大并发数”决定
             </span>
 
-            <!-- 清除所有已下载（已完成）的任务记录 -->
             <n-popconfirm
                 v-if="canClearCompleted"
                 :style="{ maxWidth: 'calc(100vw - 32px)' }"
@@ -97,6 +117,7 @@
                 <template #trigger>
                     <n-button
                         size="small"
+                        round
                         type="warning"
                         :loading="clearing"
                         :disabled="clearing"
@@ -115,7 +136,6 @@
                 </n-space>
             </n-popconfirm>
 
-            <!-- 清除所有历史任务（含进行中的任务，会被取消） -->
             <n-popconfirm
                 v-if="canClearAll"
                 :style="{ maxWidth: 'calc(100vw - 32px)' }"
@@ -124,6 +144,7 @@
                 <template #trigger>
                     <n-button
                         size="small"
+                        round
                         type="error"
                         :loading="clearing"
                         :disabled="clearing"
@@ -154,7 +175,6 @@
             @action="handleAction"
         />
 
-        <!-- 任务数量可能很大，只渲染当前页，避免一次性创建成千上万个 DOM/组件导致卡死 -->
         <div v-if="filteredTasks.length > pageSize" class="task-pagination">
             <n-pagination
                 v-model:page="page"
@@ -219,12 +239,9 @@ const activeTab = ref('all')
 const selectedRowKeys = ref<string[]>([])
 const retryingAll = ref(false)
 const clearing = ref(false)
-// 两个清除操作各自的“同时删除文件”勾选项，默认不勾选，避免误删磁盘文件
 const deleteFileForCompleted = ref(false)
 const deleteFileForAll = ref(false)
 
-// 分页：任务列表可能包含上千条记录（尤其是“全部/已完成”），
-// 一次渲染全部任务会创建大量组件实例并频繁重渲染，是崩溃与卡顿的主因之一。
 const page = ref(1)
 const pageSize = ref(50)
 
@@ -267,7 +284,6 @@ const pagedTasks = computed(() => {
     return filteredTasks.value.slice(start, start + pageSize.value)
 })
 
-/** 进行中的任务（清空全部历史时会被取消） */
 const ACTIVE_STATUSES: string[] = [
     'waiting',
     'downloading',
@@ -283,7 +299,6 @@ const unfinishedTaskCount = computed(
     () => activeTaskCount.value + tabCounts.value.interrupted,
 )
 
-/** “全部 / 已完成”标签页提供批量清除入口 */
 const inClearableTab = computed(
     () => activeTab.value === 'all' || activeTab.value === 'completed',
 )
@@ -377,12 +392,10 @@ async function handleSelected(action: 'pause' | 'resume') {
     }
 }
 
-// 切换标签页时回到第一页
 watch(activeTab, () => {
     page.value = 1
 })
 
-// 任务被删除或筛选结果变少时，纠正越界页码，避免停留在空白页
 watch(
     () => filteredTasks.value.length,
     (len) => {
@@ -397,7 +410,6 @@ async function handleAction(
     extra?: TaskActionExtra,
 ) {
     try {
-        // 操作统一交给 Rust 命令；列表变化由 task-updated/task-removed 事件回填。
         switch (action) {
             case 'cancel':
                 await taskStore.cancelTask(taskId, extra?.deleteFile === true)
@@ -406,7 +418,6 @@ async function handleAction(
                 await taskStore.pauseTask(taskId)
                 break
             case 'resume':
-                // 中断任务恢复会重新读取当前下载设置；先完成待写入的设置变更。
                 if (
                     taskStore.tasks.find((task) => task.id === taskId)
                         ?.status === 'interrupted'
@@ -440,7 +451,6 @@ async function handleAction(
                 break
             }
         }
-        // 命令成功后才清除选中状态；失败时保留以便用户重试。
         selectedRowKeys.value = selectedRowKeys.value.filter(
             (id) => id !== taskId,
         )
@@ -459,7 +469,6 @@ async function handleBatchClear(deleteFile: boolean) {
         return
     }
     try {
-        // 批量命令由后端逐个删除并返回准确计数，前端不直接修改持久化记录。
         const result = await taskStore.removeTasks(ids, deleteFile)
         if (result.failed > 0) {
             notification.warning({
@@ -468,7 +477,6 @@ async function handleBatchClear(deleteFile: boolean) {
                 duration: 4000,
             })
         }
-        // 在批量删除流程完成后再清空选中键，避免删除过程中选中状态提前丢失。
         selectedRowKeys.value = []
     } catch (e: any) {
         notification.error({
@@ -479,7 +487,6 @@ async function handleBatchClear(deleteFile: boolean) {
     }
 }
 
-/** 仅处理当前标签的任务；中断任务由用户明确发起恢复。 */
 async function handleRetryAll() {
     if (retryingAll.value) return
     const targetStatus =
@@ -491,7 +498,6 @@ async function handleRetryAll() {
 
     retryingAll.value = true
     try {
-        // 批量重试读取同一份当前设置，先完成防抖写盘。
         await settingsStore.flushSettings()
         const result =
             targetStatus === 'interrupted'
@@ -516,7 +522,6 @@ async function handleRetryAll() {
     }
 }
 
-/** 清除所有“已下载（已完成）”的任务记录，可选同时删除磁盘文件 */
 async function handleClearCompleted() {
     if (clearing.value) return
     const deleteFile = deleteFileForCompleted.value
@@ -530,7 +535,6 @@ async function handleClearCompleted() {
     selectedRowKeys.value = []
     clearing.value = true
     try {
-        // 成功通知使用后端真实成功数
         const result = await taskStore.removeTasks(ids, deleteFile)
         const fileMessage = deleteFile ? '，并删除对应文件' : ''
         const failedMessage =
@@ -545,7 +549,6 @@ async function handleClearCompleted() {
     }
 }
 
-/** 清除所有历史任务（含等待/下载/暂停/处理中的任务，会被一并取消） */
 async function handleClearAll() {
     if (clearing.value) return
     const deleteFile = deleteFileForAll.value
@@ -557,7 +560,6 @@ async function handleClearAll() {
     selectedRowKeys.value = []
     clearing.value = true
     try {
-        // 成功通知使用后端真实成功数
         const result = await taskStore.removeTasks(ids, deleteFile)
         const fileMessage = deleteFile ? '，并删除对应文件' : ''
         const failedMessage =
@@ -581,23 +583,45 @@ async function handleClearAll() {
     min-width: 0;
 }
 
+.task-page-header {
+    margin-bottom: 16px;
+}
+
+.task-page-header h1 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 4px;
+}
+
+.task-page-header p {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.focus-alert {
+    margin-bottom: 12px;
+    border-radius: 14px;
+}
+
 .task-pagination {
     display: flex;
     justify-content: center;
-    padding: 16px 0 0;
+    padding: 18px 0 0;
     flex-shrink: 0;
 }
 
 .task-toolbar {
     display: flex;
     align-items: center;
-    gap: 8px 12px;
-    padding: 12px;
+    gap: 8px 10px;
+    padding: 12px 14px;
     margin-bottom: 12px;
     flex-wrap: wrap;
     background: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
 }
 
 .task-toolbar-hint {
@@ -616,12 +640,16 @@ async function handleClearAll() {
 }
 
 @media (max-width: 767px) {
+    .task-page-header h1 {
+        font-size: 22px;
+    }
+
     .task-toolbar {
         align-items: stretch;
     }
 
     .task-toolbar > .n-button {
-        min-height: 44px;
+        min-height: 40px;
         flex: 1 1 auto;
     }
 

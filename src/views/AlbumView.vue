@@ -1,35 +1,63 @@
 <template>
     <div class="album-view">
-        <n-button @click="goBack">{{ backLabel }}</n-button>
+        <n-button
+            round
+            secondary
+            size="small"
+            class="back-button"
+            @click="goBack"
+        >
+            <template #icon>
+                <AppIcon name="back" :size="16" />
+            </template>
+            {{ backLabel }}
+        </n-button>
         <div v-if="loading" class="loading">
             <n-spin size="medium" description="正在获取专辑全部歌曲…" />
         </div>
         <n-alert v-else-if="error" type="error" title="获取专辑失败">
             {{ error }}
-            <n-button @click="loadAlbum">重试</n-button>
+            <n-button size="small" @click="loadAlbum">重试</n-button>
         </n-alert>
         <template v-else-if="album">
-            <div class="album-header">
-                <img
+            <div class="hero-card">
+                <div
                     v-if="album.coverUrl"
-                    :src="album.coverUrl"
-                    alt="专辑封面"
+                    class="hero-backdrop"
+                    :style="{ backgroundImage: `url(${album.coverUrl})` }"
+                    aria-hidden="true"
                 />
-                <div class="album-info">
-                    <h2>{{ album.name || '专辑' }}</h2>
-                    <p>
-                        <ArtistNames
-                            :platform="platform"
-                            :artists="album.artists"
-                            :fallback="album.artist"
-                            @click-artist="openRelatedArtist"
-                        />
-                    </p>
-                    <p>
-                        {{ album.songCount }} 首<span v-if="album.publishDate">
-                            · {{ album.publishDate }}</span
-                        >
-                    </p>
+                <div class="hero-scrim" aria-hidden="true" />
+                <div class="hero-inner">
+                    <img
+                        v-if="album.coverUrl"
+                        :src="album.coverUrl"
+                        class="album-cover"
+                        alt="专辑封面"
+                    />
+                    <div v-else class="album-cover album-cover-fallback">
+                        <AppIcon name="disc" :size="44" />
+                    </div>
+                    <div class="album-info">
+                        <span class="hero-type-tag">专辑</span>
+                        <h2>{{ album.name || '专辑' }}</h2>
+                        <p class="artist-line">
+                            <ArtistNames
+                                :platform="platform"
+                                :artists="album.artists"
+                                :fallback="album.artist"
+                                @click-artist="openRelatedArtist"
+                            />
+                        </p>
+                        <div class="hero-pills">
+                            <span class="meta-pill">
+                                {{ album.songCount }} 首歌曲
+                            </span>
+                            <span v-if="album.publishDate" class="meta-pill">
+                                {{ album.publishDate }}
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
             <SearchResultList
@@ -60,6 +88,7 @@ import { useDownloadActions } from '../composables/useDownloadActions'
 import SearchResultList from '../components/search/SearchResultList.vue'
 import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
 import ArtistNames from '../components/search/ArtistNames.vue'
+import AppIcon from '../components/common/AppIcon.vue'
 import { useMusicNavigation } from '../composables/useMusicNavigation'
 
 const route = useRoute()
@@ -117,11 +146,11 @@ function downloadSelected() {
 .album-view {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
     min-width: 0;
 }
 
-.album-view > .n-button {
+.back-button {
     align-self: flex-start;
 }
 
@@ -131,42 +160,118 @@ function downloadSelected() {
     padding: 48px 0;
 }
 
-.album-header {
+.hero-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-sidebar);
+    box-shadow: var(--shadow-md);
+}
+
+.hero-backdrop {
+    position: absolute;
+    inset: -24px;
+    background-size: cover;
+    background-position: center;
+    filter: blur(36px) saturate(140%);
+    opacity: 0.25;
+}
+
+.hero-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        135deg,
+        var(--bg-glass) 0%,
+        var(--bg-glass-strong) 100%
+    );
+}
+
+.hero-inner {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     gap: 20px;
+    padding: 22px;
 }
 
-.album-header img {
-    width: 120px;
-    height: 120px;
+.album-cover {
+    width: 128px;
+    height: 128px;
     flex-shrink: 0;
     object-fit: cover;
-    border-radius: 10px;
+    border-radius: 14px;
+    box-shadow: var(--shadow-md);
+}
+
+.album-cover-fallback {
+    display: grid;
+    place-items: center;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
 }
 
 .album-info {
+    flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
 }
 
-.album-info h2 {
-    margin: 0 0 8px;
+.hero-type-tag {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 6px;
 }
 
-.album-info p {
-    margin: 4px 0;
+.album-info h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0 0 6px;
+}
+
+.artist-line {
+    margin: 0;
+    font-size: 14px;
     color: var(--color-text-secondary);
 }
 
-@media (max-width: 480px) {
-    .album-header {
-        gap: 12px;
+.hero-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.meta-pill {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--bg-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+@media (max-width: 560px) {
+    .hero-inner {
+        gap: 14px;
+        padding: 16px;
     }
 
-    .album-header img {
-        width: 80px;
-        height: 80px;
+    .album-cover {
+        width: 84px;
+        height: 84px;
+        border-radius: 12px;
+    }
+
+    .album-info h2 {
+        font-size: 18px;
     }
 }
 </style>

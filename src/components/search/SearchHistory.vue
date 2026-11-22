@@ -1,7 +1,10 @@
 <template>
-    <div class="search-history" v-if="history.length > 0">
+    <section class="search-history card-section" v-if="history.length > 0">
         <div class="history-header">
-            <span>搜索历史</span>
+            <div class="section-heading">
+                <AppIcon name="history" :size="16" class="heading-icon" />
+                <span>最近搜索</span>
+            </div>
             <n-button text type="primary" size="small" @click="$emit('clear')">
                 清除历史
             </n-button>
@@ -11,6 +14,8 @@
                 v-for="item in history"
                 :key="item"
                 closable
+                round
+                :bordered="false"
                 @close="$emit('remove', item)"
                 @click="$emit('select', item)"
                 class="history-tag"
@@ -18,11 +23,12 @@
                 {{ item }}
             </n-tag>
         </div>
-    </div>
+    </section>
 </template>
 
 <script setup lang="ts">
 import { NTag, NButton } from 'naive-ui'
+import AppIcon from '../common/AppIcon.vue'
 
 defineProps<{
     history: string[]
@@ -36,15 +42,33 @@ defineEmits<{
 </script>
 
 <style scoped>
-.search-history {
-    margin-bottom: 16px;
+.card-section {
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-card);
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow-sm);
 }
 
 .history-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
+}
+
+.section-heading {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.heading-icon {
+    color: var(--color-primary);
 }
 
 .history-tags {
@@ -56,6 +80,14 @@ defineEmits<{
 .history-tag {
     cursor: pointer;
     max-width: 100%;
+    background: var(--bg-surface-subtle) !important;
+    transition:
+        transform 0.15s ease,
+        background-color 0.18s ease;
+}
+
+.history-tag:hover {
+    transform: translateY(-1px);
 }
 
 /* 长关键词换行显示，保留标签末尾的删除入口 */
@@ -68,7 +100,6 @@ defineEmits<{
 .history-tag.n-tag {
     height: auto;
     min-height: 32px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+    padding: 5px 12px;
 }
 </style>

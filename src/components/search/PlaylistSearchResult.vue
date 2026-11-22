@@ -17,9 +17,18 @@
                         :src="pl.coverUrl"
                         class="playlist-card-cover"
                         alt="歌单封面"
+                        loading="lazy"
                     />
+                    <div
+                        v-else
+                        class="playlist-card-cover playlist-cover-fallback"
+                    >
+                        <AppIcon name="playlist" :size="24" />
+                    </div>
                     <div class="playlist-card-info">
-                        <div class="playlist-card-name">{{ pl.name }}</div>
+                        <div class="playlist-card-name" :title="pl.name">
+                            {{ pl.name }}
+                        </div>
                         <div v-if="pl.creator" class="playlist-card-creator">
                             {{ pl.creator }}
                         </div>
@@ -54,6 +63,7 @@ import { NEmpty } from 'naive-ui'
 import type { PlaylistSearchItem } from '../../types'
 import LoadMoreButton from './LoadMoreButton.vue'
 import { formatPlayCount, formatUnixTime } from '../../utils/format'
+import AppIcon from '../common/AppIcon.vue'
 
 defineProps<{
     playlists: PlaylistSearchItem[]
@@ -70,26 +80,33 @@ defineEmits<{
 
 <style scoped>
 .playlist-card-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
 }
 
 .playlist-card {
     display: flex;
-    gap: 12px;
+    gap: 14px;
     align-items: center;
     min-width: 0;
     padding: 12px;
     background-color: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 16px;
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition:
+        border-color 0.18s ease,
+        background-color 0.18s ease,
+        transform 0.15s ease,
+        box-shadow 0.18s ease;
 }
 
 .playlist-card:hover {
-    border-color: var(--color-text-secondary);
+    border-color: var(--color-primary);
+    background-color: var(--bg-elevated);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
 }
 
 .playlist-card:focus-visible {
@@ -98,11 +115,19 @@ defineEmits<{
 }
 
 .playlist-card-cover {
-    width: 60px;
-    height: 60px;
-    border-radius: 6px;
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
     object-fit: cover;
     flex-shrink: 0;
+    box-shadow: var(--shadow-sm);
+}
+
+.playlist-cover-fallback {
+    display: grid;
+    place-items: center;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
 }
 
 .playlist-card-info {
@@ -122,14 +147,14 @@ defineEmits<{
     overflow-wrap: anywhere;
     color: var(--color-text-secondary);
     font-size: 13px;
-    margin-top: 2px;
+    margin-top: 3px;
 }
 
 .playlist-card-meta {
     overflow-wrap: anywhere;
     color: var(--color-text-secondary);
     font-size: 12px;
-    margin-top: 2px;
+    margin-top: 3px;
 }
 
 .playlist-card-date {
@@ -142,6 +167,12 @@ defineEmits<{
 .empty-result {
     display: flex;
     justify-content: center;
-    padding: 40px 0;
+    padding: 48px 0;
+}
+
+@media (max-width: 600px) {
+    .playlist-card-list {
+        grid-template-columns: 1fr;
+    }
 }
 </style>

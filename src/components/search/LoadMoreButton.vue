@@ -1,6 +1,8 @@
 <template>
     <div class="load-more-wrapper">
         <n-button
+            round
+            secondary
             :loading="loading"
             :disabled="disabled"
             @click="$emit('click')"
@@ -27,6 +29,7 @@ defineEmits<{
 .load-more-wrapper {
     display: flex;
     justify-content: center;
-    margin-top: 16px;
+    margin-top: 18px;
+    padding-bottom: 4px;
 }
 </style>

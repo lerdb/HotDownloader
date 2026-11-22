@@ -1,43 +1,91 @@
 <template>
     <div class="artist-view">
-        <n-button @click="goBack">{{ backLabel }}</n-button>
+        <n-button
+            round
+            secondary
+            size="small"
+            class="back-button"
+            @click="goBack"
+        >
+            <template #icon>
+                <AppIcon name="back" :size="16" />
+            </template>
+            {{ backLabel }}
+        </n-button>
         <n-alert v-if="routeError" type="error" title="无法打开歌手">{{
             routeError
         }}</n-alert>
         <template v-else-if="artist">
-            <div class="artist-header">
-                <img
+            <div class="hero-card">
+                <div
                     v-if="artist.coverUrl"
-                    :src="artist.coverUrl"
-                    alt="歌手头像"
+                    class="hero-backdrop"
+                    :style="{ backgroundImage: `url(${artist.coverUrl})` }"
+                    aria-hidden="true"
                 />
-                <div class="artist-info">
-                    <h2>{{ artist.name || '歌手' }}</h2>
-                    <p v-if="artist.alias || artist.region">
-                        {{
-                            [artist.alias, artist.region]
-                                .filter(Boolean)
-                                .join(' · ')
-                        }}
-                    </p>
-                    <p>
-                        {{ songPage.total.value ?? artist.songCount }} 首歌曲 ·
-                        {{ albumPage.total.value ?? artist.albumCount }} 张专辑
-                    </p>
+                <div class="hero-scrim" aria-hidden="true" />
+                <div class="hero-inner">
+                    <img
+                        v-if="artist.coverUrl"
+                        :src="artist.coverUrl"
+                        class="artist-avatar"
+                        alt="歌手头像"
+                    />
+                    <div v-else class="artist-avatar artist-avatar-fallback">
+                        <AppIcon name="artist" :size="44" />
+                    </div>
+                    <div class="artist-info">
+                        <span class="hero-type-tag">歌手</span>
+                        <h2>{{ artist.name || '歌手' }}</h2>
+                        <p
+                            v-if="artist.alias || artist.region"
+                            class="artist-sub"
+                        >
+                            {{
+                                [artist.alias, artist.region]
+                                    .filter(Boolean)
+                                    .join(' · ')
+                            }}
+                        </p>
+                        <div class="hero-pills">
+                            <span class="meta-pill">
+                                {{ songPage.total.value ?? artist.songCount }}
+                                首歌曲
+                            </span>
+                            <span class="meta-pill">
+                                {{ albumPage.total.value ?? artist.albumCount }}
+                                张专辑
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="artist-tabs">
-                <n-button
-                    :type="tab === 'songs' ? 'primary' : 'default'"
+
+            <div class="artist-tabs" role="tablist">
+                <button
+                    type="button"
+                    role="tab"
+                    :aria-selected="tab === 'songs'"
+                    class="tab-pill"
+                    :class="{ 'is-active': tab === 'songs' }"
                     @click="tab = 'songs'"
-                    >歌曲</n-button
                 >
-                <n-button
-                    :type="tab === 'albums' ? 'primary' : 'default'"
+                    <AppIcon name="music" :size="15" />
+                    <span>热门歌曲</span>
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    :aria-selected="tab === 'albums'"
+                    class="tab-pill"
+                    :class="{ 'is-active': tab === 'albums' }"
                     @click="showAlbums"
-                    >专辑</n-button
                 >
+                    <AppIcon name="disc" :size="15" />
+                    <span>全部专辑</span>
+                </button>
             </div>
+
             <template v-if="tab === 'songs'">
                 <n-alert
                     v-if="songPage.error.value"
@@ -45,7 +93,9 @@
                     title="获取歌手歌曲失败"
                 >
                     {{ songPage.error.value }}
-                    <n-button @click="songPage.loadMore">重试</n-button>
+                    <n-button size="small" @click="songPage.loadMore"
+                        >重试</n-button
+                    >
                 </n-alert>
                 <div
                     v-if="songPage.loading.value && !songPage.loaded.value"
@@ -84,7 +134,9 @@
                     title="获取歌手专辑失败"
                 >
                     {{ albumPage.error.value }}
-                    <n-button @click="albumPage.loadMore">重试</n-button>
+                    <n-button size="small" @click="albumPage.loadMore"
+                        >重试</n-button
+                    >
                 </n-alert>
                 <div
                     v-if="albumPage.loading.value && !albumPage.loaded.value"
@@ -124,12 +176,12 @@ import SearchResultList from '../components/search/SearchResultList.vue'
 import AlbumSearchResult from '../components/search/AlbumSearchResult.vue'
 import BatchDownloadBar from '../components/search/BatchDownloadBar.vue'
 import LoadMoreButton from '../components/search/LoadMoreButton.vue'
+import AppIcon from '../components/common/AppIcon.vue'
 import { useMusicNavigation } from '../composables/useMusicNavigation'
 
 const route = useRoute()
 const { openAlbum, openRelatedArtist, openSongAlbum, goBack, backLabel } =
     useMusicNavigation()
-// 每个缓存的详情实例使用创建时的查询参数。
 const query = { ...route.query }
 const platform = typeof query.platform === 'string' ? query.platform : ''
 const artist = ref<ArtistInfo | null>(null)
@@ -201,45 +253,144 @@ function downloadSelected() {
 .artist-view {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
     min-width: 0;
 }
 
-.artist-view > .n-button {
+.back-button {
     align-self: flex-start;
 }
 
-.artist-header {
+.hero-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-sidebar);
+    box-shadow: var(--shadow-md);
+}
+
+.hero-backdrop {
+    position: absolute;
+    inset: -24px;
+    background-size: cover;
+    background-position: center;
+    filter: blur(36px) saturate(140%);
+    opacity: 0.25;
+}
+
+.hero-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        135deg,
+        var(--bg-glass) 0%,
+        var(--bg-glass-strong) 100%
+    );
+}
+
+.hero-inner {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     gap: 20px;
+    padding: 22px;
 }
 
-.artist-header img {
-    width: 120px;
-    height: 120px;
+.artist-avatar {
+    width: 124px;
+    height: 124px;
     flex-shrink: 0;
     object-fit: cover;
     border-radius: 50%;
+    box-shadow: var(--shadow-md);
+    border: 2px solid var(--border-color-strong);
+}
+
+.artist-avatar-fallback {
+    display: grid;
+    place-items: center;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
 }
 
 .artist-info {
+    flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
 }
 
-.artist-info h2 {
-    margin: 0 0 8px;
+.hero-type-tag {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 6px;
 }
 
-.artist-info p {
-    margin: 4px 0;
+.artist-info h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0 0 4px;
+}
+
+.artist-sub {
+    margin: 2px 0 0;
+    font-size: 13px;
     color: var(--color-text-secondary);
+}
+
+.hero-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.meta-pill {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--bg-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    font-weight: 500;
 }
 
 .artist-tabs {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tab-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 6px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-sidebar);
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background-color 0.18s ease,
+        color 0.18s ease,
+        border-color 0.18s ease;
+}
+
+.tab-pill.is-active {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+    font-weight: 600;
 }
 
 .loading {
@@ -248,14 +399,19 @@ function downloadSelected() {
     padding: 40px 0;
 }
 
-@media (max-width: 480px) {
-    .artist-header {
-        gap: 12px;
+@media (max-width: 560px) {
+    .hero-inner {
+        gap: 14px;
+        padding: 16px;
     }
 
-    .artist-header img {
-        width: 80px;
-        height: 80px;
+    .artist-avatar {
+        width: 82px;
+        height: 82px;
+    }
+
+    .artist-info h2 {
+        font-size: 18px;
     }
 }
 </style>

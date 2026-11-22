@@ -1,25 +1,32 @@
 <template>
-    <div v-if="!loading && keywords.length > 0" class="hot-keywords">
-        <div class="hot-header">热搜推荐</div>
+    <section v-if="!loading && keywords.length > 0" class="hot-keywords">
+        <div class="hot-header">
+            <AppIcon name="flame" :size="16" class="hot-icon" />
+            <span>热搜推荐</span>
+        </div>
         <div class="hot-list">
-            <n-tag
-                v-for="word in keywords"
+            <button
+                v-for="(word, index) in keywords"
                 :key="word"
-                class="hot-tag"
-                size="medium"
+                type="button"
+                class="hot-pill"
                 @click="$emit('select', word)"
             >
-                {{ word }}
-            </n-tag>
+                <span class="hot-rank" :class="{ 'is-top': index < 3 }">
+                    {{ index + 1 }}
+                </span>
+                <span class="hot-word">{{ word }}</span>
+            </button>
         </div>
-    </div>
+    </section>
     <div v-else-if="loading" class="hot-loading">
         <n-spin size="small" />
     </div>
 </template>
 
 <script setup lang="ts">
-import { NTag, NSpin } from 'naive-ui'
+import { NSpin } from 'naive-ui'
+import AppIcon from '../common/AppIcon.vue'
 
 defineProps<{
     keywords: string[]
@@ -33,14 +40,25 @@ defineEmits<{
 
 <style scoped>
 .hot-keywords {
-    margin-top: 16px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-card);
+    padding: 16px 18px;
+    box-shadow: var(--shadow-sm);
 }
 
 .hot-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 14px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-    margin-bottom: 8px;
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: 12px;
+}
+
+.hot-icon {
+    color: var(--color-primary);
 }
 
 .hot-list {
@@ -49,32 +67,52 @@ defineEmits<{
     gap: 8px;
 }
 
-.hot-tag {
-    cursor: pointer;
+.hot-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     max-width: 100%;
-    transition: opacity 0.2s;
+    min-height: 34px;
+    padding: 6px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface-subtle);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    transition:
+        border-color 0.18s ease,
+        background-color 0.18s ease,
+        transform 0.15s ease;
 }
 
-.hot-tag :deep(.n-tag__content) {
+.hot-pill:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    transform: translateY(-1px);
+}
+
+.hot-rank {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.hot-rank.is-top {
+    color: var(--color-primary);
+}
+
+.hot-word {
     min-width: 0;
-    white-space: normal;
     overflow-wrap: anywhere;
-}
-
-.hot-tag.n-tag {
-    height: auto;
-    min-height: 32px;
-    padding-top: 4px;
-    padding-bottom: 4px;
-}
-
-.hot-tag:hover {
-    opacity: 0.8;
 }
 
 .hot-loading {
     display: flex;
     justify-content: center;
-    padding: 12px 0;
+    padding: 20px 0;
 }
 </style>

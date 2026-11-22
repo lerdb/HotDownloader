@@ -14,10 +14,17 @@
                         :src="pl.coverUrl"
                         class="artist-card-cover"
                         alt="歌手封面"
+                        loading="lazy"
                     />
+                    <div v-else class="artist-card-cover artist-cover-fallback">
+                        <AppIcon name="artist" :size="24" />
+                    </div>
                     <div class="artist-card-info">
                         <div class="artist-card-name">{{ pl.name }}</div>
-                        <div class="artist-card-creator">
+                        <div
+                            v-if="pl.alias || pl.region"
+                            class="artist-card-creator"
+                        >
                             {{
                                 [pl.alias, pl.region]
                                     .filter(Boolean)
@@ -29,6 +36,11 @@
                             {{ pl.albumCount }} 张专辑
                         </div>
                     </div>
+                    <AppIcon
+                        name="chevron-right"
+                        :size="16"
+                        class="card-chevron"
+                    />
                 </button>
             </div>
             <LoadMoreButton
@@ -48,6 +60,7 @@
 import { NEmpty } from 'naive-ui'
 import type { ArtistInfo } from '../../types'
 import LoadMoreButton from './LoadMoreButton.vue'
+import AppIcon from '../common/AppIcon.vue'
 
 defineProps<{
     artists: ArtistInfo[]
@@ -63,9 +76,9 @@ defineEmits<{
 
 <style scoped>
 .artist-card-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
 }
 
 .artist-card {
@@ -74,19 +87,26 @@ defineEmits<{
     color: inherit;
     font: inherit;
     display: flex;
-    gap: 12px;
+    gap: 14px;
     align-items: center;
     min-width: 0;
-    padding: 12px;
+    padding: 14px;
     background-color: var(--bg-sidebar);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 16px;
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition:
+        border-color 0.18s ease,
+        background-color 0.18s ease,
+        transform 0.15s ease,
+        box-shadow 0.18s ease;
 }
 
 .artist-card:hover {
-    border-color: var(--color-text-secondary);
+    border-color: var(--color-primary);
+    background-color: var(--bg-elevated);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
 }
 
 .artist-card-cover {
@@ -95,6 +115,14 @@ defineEmits<{
     border-radius: 50%;
     object-fit: cover;
     flex-shrink: 0;
+    box-shadow: var(--shadow-sm);
+}
+
+.artist-cover-fallback {
+    display: grid;
+    place-items: center;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
 }
 
 .artist-card-info {
@@ -113,20 +141,32 @@ defineEmits<{
 .artist-card-creator {
     overflow-wrap: anywhere;
     color: var(--color-text-secondary);
-    font-size: 13px;
-    margin-top: 2px;
+    font-size: 12px;
+    margin-top: 3px;
 }
 
 .artist-card-meta {
     overflow-wrap: anywhere;
     color: var(--color-text-secondary);
     font-size: 12px;
-    margin-top: 2px;
+    margin-top: 3px;
+}
+
+.card-chevron {
+    color: var(--color-text-secondary);
+    opacity: 0.6;
+    flex-shrink: 0;
 }
 
 .empty-result {
     display: flex;
     justify-content: center;
-    padding: 40px 0;
+    padding: 48px 0;
+}
+
+@media (max-width: 600px) {
+    .artist-card-list {
+        grid-template-columns: 1fr;
+    }
 }
 </style>
