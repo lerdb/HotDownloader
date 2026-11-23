@@ -58,6 +58,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/AboutView.vue'),
         meta: { keepAlive: false },
     },
+    {
+        path: '/player',
+        name: 'player',
+        component: () => import('../views/PlayerView.vue'),
+        meta: { keepAlive: false, fullscreen: true },
+    },
 ]
 
 const router = createRouter({

@@ -352,6 +352,43 @@
                 fill="currentColor"
             />
         </template>
+
+        <template v-else-if="name === 'lyric'">
+            <path
+                d="M5 6.5H19M5 12H15M5 17.5H11"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+            />
+            <circle cx="17.5" cy="16.5" r="2.5" fill="currentColor" />
+            <path
+                d="M19.5 16.5V10.5L21.5 10"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            />
+        </template>
+
+        <template v-else-if="name === 'seek-back'">
+            <path
+                d="M11 7L6 12L11 17M18 7L13 12L18 17"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            />
+        </template>
+
+        <template v-else-if="name === 'seek-forward'">
+            <path
+                d="M6 7L11 12L6 17M13 7L18 12L13 17"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            />
+        </template>
     </svg>
 </template>
 
@@ -383,6 +420,9 @@ export type AppIconName =
     | 'chevron-right'
     | 'check'
     | 'sparkles'
+    | 'lyric'
+    | 'seek-back'
+    | 'seek-forward'
 
 withDefaults(
     defineProps<{

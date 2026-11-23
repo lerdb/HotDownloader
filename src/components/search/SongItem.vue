@@ -15,10 +15,10 @@
             class="cover-wrapper"
             :aria-label="
                 isCurrentSong && player.status === 'playing'
-                    ? `暂停 ${song.title}`
+                    ? `进入 ${song.title} 播放页`
                     : `试听 ${song.title}`
             "
-            @click.stop="player.play(song)"
+            @click.stop="handlePreviewCover"
         >
             <img
                 v-if="coverUrl"
@@ -93,7 +93,7 @@
                 :secondary="!isCurrentSong"
                 :loading="isCurrentSong && player.status === 'loading'"
                 :type="isCurrentSong ? 'primary' : 'default'"
-                @click.stop="player.play(song)"
+                @click.stop="handlePreviewAction"
             >
                 <template #icon>
                     <AppIcon
@@ -130,6 +130,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { NCheckbox, NButton } from 'naive-ui'
 import type { ArtistReference, SongInfo } from '../../types'
 import { ALL_QUALITY_ORDER } from '../../types'
@@ -139,6 +140,7 @@ import { getMusicEntityId } from '../../utils/music'
 import { usePlayerStore } from '../../stores/playerStore'
 import AppIcon from '../common/AppIcon.vue'
 
+const router = useRouter()
 const player = usePlayerStore()
 
 const props = defineProps<{
@@ -154,6 +156,22 @@ defineEmits<{
 }>()
 
 const isCurrentSong = computed(() => player.isCurrent(props.song))
+
+function handlePreviewCover() {
+    if (!isCurrentSong.value || player.status !== 'playing') {
+        void player.play(props.song)
+    }
+    void router.push('/player')
+}
+
+function handlePreviewAction() {
+    if (isCurrentSong.value && player.status === 'playing') {
+        void player.play(props.song)
+        return
+    }
+    void player.play(props.song)
+    void router.push('/player')
+}
 
 const albumId = computed(() =>
     getMusicEntityId(

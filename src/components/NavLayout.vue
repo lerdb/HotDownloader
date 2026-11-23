@@ -1,7 +1,11 @@
 <template>
     <div class="nav-layout" :class="{ 'is-narrow': isNarrow }">
         <!-- 宽屏左侧导航栏（SimpMusic 桌面端侧栏风格） -->
-        <aside v-if="!isNarrow" class="sidebar" aria-label="主导航">
+        <aside
+            v-if="!isNarrow && !isFullscreen"
+            class="sidebar"
+            aria-label="主导航"
+        >
             <div class="sidebar-brand">
                 <div class="brand-badge" aria-hidden="true">
                     <AppIcon name="music" :size="20" />
@@ -53,7 +57,7 @@
         <div class="content-column">
             <!-- 网页任务进度依赖 SSE；连接中断时保留最后快照并明确标记其时间。 -->
             <div
-                v-if="!native"
+                v-if="!native && !isFullscreen"
                 class="connection-strip"
                 :class="taskStore.connectionStatus"
             >
@@ -66,8 +70,9 @@
 
             <div
                 v-if="
-                    taskStore.batchSubmission.running ||
-                    taskStore.queueStatus.paused
+                    !isFullscreen &&
+                    (taskStore.batchSubmission.running ||
+                        taskStore.queueStatus.paused)
                 "
                 class="status-banners"
             >
@@ -114,9 +119,15 @@
             <main
                 ref="mainContentRef"
                 class="main-content"
-                :class="{ 'has-bottom-nav': isNarrow }"
+                :class="{
+                    'has-bottom-nav': isNarrow && !isFullscreen,
+                    'is-fullscreen': isFullscreen,
+                }"
             >
-                <div class="main-content-inner">
+                <div
+                    class="main-content-inner"
+                    :class="{ 'is-fullscreen': isFullscreen }"
+                >
                     <router-view v-slot="{ Component }">
                         <!-- 每个详情独立缓存，返回时恢复其分页、标签与勾选。 -->
                         <keep-alive :max="MAX_CACHED_VIEWS">
@@ -135,11 +146,11 @@
                 </div>
             </main>
 
-            <PlaybackBar />
+            <PlaybackBar v-if="!isFullscreen" />
         </div>
 
         <!-- 窄屏底部水平导航：毛玻璃质感，正常流固定占位 -->
-        <footer v-if="isNarrow" class="bottom-nav">
+        <footer v-if="isNarrow && !isFullscreen" class="bottom-nav">
             <nav class="bottom-nav-inner" aria-label="底部导航">
                 <button
                     v-for="item in navItems"
@@ -305,6 +316,7 @@ watch(
 
 // 移动端响应式布局状态；公共方法统一断点，并在组件销毁时清理监听。
 const isNarrow = useNarrowLayout()
+const isFullscreen = computed(() => route.meta.fullscreen === true)
 
 onMounted(() => {
     if (native) void showStorageRecoveryReport()
@@ -617,6 +629,12 @@ function handleMenuClick(key: string) {
     overscroll-behavior: contain;
 }
 
+.main-content.is-fullscreen {
+    padding: 0;
+    overflow: hidden;
+    background-image: none;
+}
+
 .main-content-inner {
     width: 100%;
     max-width: 1120px;
@@ -625,6 +643,11 @@ function handleMenuClick(key: string) {
     margin: 0 auto;
     display: flex;
     flex-direction: column;
+}
+
+.main-content-inner.is-fullscreen {
+    max-width: none;
+    height: 100%;
 }
 
 /* 为正常流底部导航保留合适的底部间距，避免内容与导航粘连 */

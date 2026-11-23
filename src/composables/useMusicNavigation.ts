@@ -8,17 +8,18 @@ const backLabels: Record<string, string> = {
     '/artist': '返回歌手',
     '/album': '返回专辑',
     '/playlist': '返回歌单',
+    '/player': '返回播放',
 }
 
 /**
  * 校验音乐页面的返回地址。
  * @param target 待校验的路由地址。
  * @param fallback 来源无效时使用的页面地址。
- * @returns 搜索、歌手、专辑或歌单页面的地址；无效值返回 fallback。
+ * @returns 搜索、歌手、专辑、歌单或播放页面的地址；无效值返回 fallback。
  */
 function musicBackTarget(target: unknown, fallback = '/search'): string {
     return typeof target === 'string' &&
-        /^\/(search|artist|album|playlist)(\?|$)/.test(target)
+        /^\/(search|artist|album|playlist|player)(\?|$)/.test(target)
         ? target
         : fallback
 }

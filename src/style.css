@@ -148,8 +148,8 @@ body .n-dialog__action {
 
 /* ---------- Android 安全区适配 ---------- */
 
-/* 主内容区顶部预留状态栏高度 */
-html.android .main-content {
+/* 主内容区顶部预留状态栏高度（全屏播放页由页面自身处理安全区） */
+html.android .main-content:not(.is-fullscreen) {
     padding-top: calc(
         var(--page-padding, 16px) + var(--safe-area-top)
     ) !important;
