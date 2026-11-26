@@ -101,6 +101,9 @@ export interface Settings {
     writeMetadata: boolean
     coverQuality: CoverQuality
     downloadLrc: boolean
+    downloadLrcFormat: 'lrc' | 'elrc'
+    downloadLrcTranslation: boolean
+    lyricRomanization: boolean
     downloadCover: boolean
     // 登录相关字段，可选，未登录时不设置
     loginUin?: string
@@ -321,6 +324,9 @@ export const DEFAULT_SETTINGS: Settings = {
     writeMetadata: false,
     coverQuality: 'original',
     downloadLrc: false,
+    downloadLrcFormat: 'lrc',
+    downloadLrcTranslation: false,
+    lyricRomanization: false,
     downloadCover: false,
     loginUin: '',
     authst: '',

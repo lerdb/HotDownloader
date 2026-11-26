@@ -4,10 +4,10 @@ use std::path::Path;
 
 use lofty::picture::Picture;
 
-use crate::download::config::DownloadConfig;
+use crate::download::config::{DownloadConfig, LyricFormat};
 use crate::download::context::TaskContext;
 use crate::download::cover::fetch_cover_bytes;
-use crate::platforms::lyric::LyricData;
+use crate::platforms::lyric::LyricTracks;
 use crate::platforms::Platform;
 
 pub const POSTPROCESS_FAILED: &str = "下载收尾失败";
@@ -32,8 +32,10 @@ where
 }
 
 /// 一次获取的歌词与封面会同时供音频标签及独立文件使用。
+#[derive(Default)]
 pub struct PostprocessAssets {
-    pub lyric: Option<LyricData>,
+    pub embedded_lyrics: Option<String>,
+    pub sidecar_lyrics: Option<String>,
     pub cover_bytes: Option<Vec<u8>>,
 }
 
@@ -63,16 +65,33 @@ pub async fn prepare_assets(
     config: &DownloadConfig,
 ) -> Result<PostprocessAssets, String> {
     prepare_assets_with_lyric(context, config, || async {
+        let translation = config.write_metadata || config.download_lrc_translation;
+        let romanization = config.lyric_romanization;
         match context.platform {
             Platform::Netease => {
-                crate::platforms::netease::lyrics::get_lyric_by_id(context.song_id).await
+                crate::platforms::netease::lyrics::get_lyric_tracks(
+                    context.song_id,
+                    translation,
+                    romanization,
+                )
+                .await
             }
-            Platform::Kugou => crate::platforms::kugou::lyrics::get_lyric(&context.song_mid).await,
+            Platform::Kugou => {
+                let prefer_krc =
+                    translation || romanization || config.download_lrc_format == LyricFormat::Elrc;
+                crate::platforms::kugou::lyrics::get_lyric_tracks(&context.song_mid, prefer_krc)
+                    .await
+            }
             Platform::QqMusic => {
-                crate::platforms::qqmusic::lyrics::get_lyric_by_id(context.song_id).await
+                crate::platforms::qqmusic::lyrics::get_lyric_tracks(
+                    context.song_id,
+                    translation,
+                    romanization,
+                )
+                .await
             }
             Platform::Kuwo => {
-                crate::platforms::kuwo::lyrics::get_lyric_by_id(context.song_id).await
+                crate::platforms::kuwo::lyrics::get_lyric_tracks(context.song_id).await
             }
         }
     })
@@ -86,29 +105,34 @@ pub(crate) async fn prepare_assets_with_lyric<F, Fut>(
 ) -> Result<PostprocessAssets, String>
 where
     F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<LyricData, String>>,
+    Fut: std::future::Future<Output = Result<LyricTracks, String>>,
 {
-    let lyric = if config.write_metadata || config.download_lrc {
-        let mut lyric = retry_asset("歌词", fetch_lyric).await?;
+    let mut assets = PostprocessAssets::default();
+    if config.write_metadata || config.download_lrc {
+        let lyric = retry_asset("歌词", fetch_lyric).await?;
+        if config.write_metadata {
+            assets.embedded_lyrics = lyric.render(true, true, config.lyric_romanization);
+        }
         // 成功响应中没有歌词不等于请求失败，也不一定表示歌曲是纯音乐。
-        if config.download_lrc
-            && ![&lyric.lrc, &lyric.elrc]
-                .iter()
-                .any(|text| text.as_deref().is_some_and(|text| !text.trim().is_empty()))
-        {
-            lyric.lrc = Some(
-                if lyric.instrumental {
+        if config.download_lrc {
+            assets.sidecar_lyrics = lyric.render(
+                config.download_lrc_format == LyricFormat::Elrc,
+                config.download_lrc_translation,
+                config.lyric_romanization,
+            );
+            if assets.sidecar_lyrics.is_none() {
+                let placeholder = if lyric.original.instrumental {
                     "[00:00.00]纯音乐，请欣赏\n"
                 } else {
                     "[00:00.00]暂无歌词\n"
+                };
+                assets.sidecar_lyrics = Some(placeholder.into());
+                if config.write_metadata && assets.embedded_lyrics.is_none() {
+                    assets.embedded_lyrics = Some(placeholder.into());
                 }
-                .into(),
-            );
+            }
         }
-        Some(lyric)
-    } else {
-        None
-    };
+    }
 
     // 酷我搜索结果可能缺封面。写标签或单独保存封面时才补取。
     let needs_cover = config.write_metadata || config.download_cover;
@@ -120,7 +144,7 @@ where
         .await?;
     }
 
-    let cover_bytes = if needs_cover && !cover_url.is_empty() {
+    assets.cover_bytes = if needs_cover && !cover_url.is_empty() {
         Some(
             retry_asset("封面", || async {
                 fetch_cover_bytes(context.platform, &cover_url, config.cover_quality)
@@ -135,7 +159,7 @@ where
         None
     };
 
-    Ok(PostprocessAssets { lyric, cover_bytes })
+    Ok(assets)
 }
 
 #[cfg(test)]

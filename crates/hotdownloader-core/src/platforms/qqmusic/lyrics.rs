@@ -7,7 +7,7 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::platforms::lyric::LyricData;
+use crate::platforms::lyric::{auxiliary_lrc, AuxiliaryLine, LyricData, LyricTracks};
 use crate::platforms::CLIENT;
 
 /// 歌词接口地址。
@@ -51,7 +51,7 @@ struct LyricParam {
 
 impl LyricParam {
     /// 根据歌曲 ID 创建默认歌词请求参数。
-    fn new(song_id: u64) -> Self {
+    fn new(song_id: u64, translation: bool, romanization: bool) -> Self {
         Self {
             crypt: 1,
             ct: 19,
@@ -60,10 +60,10 @@ impl LyricParam {
             lrc_t: 0,
             qrc: 1,
             qrc_t: 0,
-            roma: 0,
+            roma: u32::from(romanization),
             roma_t: 0,
             song_id,
-            trans: 0,
+            trans: u32::from(translation),
             trans_t: 0,
             type_: -1,
         }
@@ -83,6 +83,23 @@ impl LyricParam {
 /// - `Ok(LyricData)`：包含歌词信息的结构体。
 /// - `Err(String)`：错误信息，如请求失败、接口错误、解密失败等。
 pub async fn get_lyric_by_id(song_id: u64) -> Result<LyricData, String> {
+    parse_response(&request_lyric(song_id, false, false).await?, song_id)
+}
+
+pub(crate) async fn get_lyric_tracks(
+    song_id: u64,
+    translation: bool,
+    romanization: bool,
+) -> Result<LyricTracks, String> {
+    let response = request_lyric(song_id, translation, romanization).await?;
+    parse_tracks(&response, song_id)
+}
+
+async fn request_lyric(
+    song_id: u64,
+    translation: bool,
+    romanization: bool,
+) -> Result<Value, String> {
     // 构造请求体
     let body = json!({
         "comm": Comm {
@@ -93,7 +110,7 @@ pub async fn get_lyric_by_id(song_id: u64) -> Result<LyricData, String> {
         "req": LyricReq {
             method: "GetPlayLyricInfo",
             module: "music.musichallSong.PlayLyricInfo",
-            param: LyricParam::new(song_id),
+            param: LyricParam::new(song_id, translation, romanization),
         },
     });
 
@@ -112,12 +129,34 @@ pub async fn get_lyric_by_id(song_id: u64) -> Result<LyricData, String> {
     }
 
     // 解析响应 JSON
-    let json: Value = response
+    response
         .json()
         .await
-        .map_err(|e| format!("解析歌词响应失败: {e}"))?;
+        .map_err(|e| format!("解析歌词响应失败: {e}"))
+}
 
-    parse_response(&json, song_id)
+fn parse_tracks(response: &Value, song_id: u64) -> Result<LyricTracks, String> {
+    let original = parse_response(response, song_id)?;
+    let data = &response["req"]["data"];
+    Ok(LyricTracks {
+        original,
+        translation: parse_auxiliary(&data["trans"]),
+        romanization: parse_auxiliary(&data["roma"]),
+    })
+}
+
+fn parse_auxiliary(value: &Value) -> Vec<AuxiliaryLine> {
+    let Some(payload) = value.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Vec::new();
+    };
+    let decrypted = qrc::decrypt(payload);
+    let text = decrypted.as_deref().unwrap_or(payload);
+    parse_decrypted_lyric(text)
+        .ok()
+        .and_then(|data| data.lrc)
+        .as_deref()
+        .map(auxiliary_lrc)
+        .unwrap_or_default()
 }
 
 fn parse_response(json: &Value, song_id: u64) -> Result<LyricData, String> {
@@ -311,5 +350,27 @@ mod tests {
         ] {
             assert!(parse_response(&value, 400217102).is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn lyric_tracks_decrypt_translation_and_romanization_independently() {
+        let mut value = response("[1050,500]虚构(1050,200)歌词(1250,300)");
+        let data = &mut value["req"]["data"];
+        data["trans"] = json!(qrc::encrypt_test_payload("[00:01.020]Fictional line"));
+        data["roma"] = json!(qrc::encrypt_test_payload(
+            r#"<QrcInfos><Lyric_1 LyricContent="[1050,500]Xu gou (1050,200)ge ci(1250,300)"/></QrcInfos>"#
+        ));
+        let expected = "[00:01.05]<00:01.05>虚构<00:01.25>歌词<00:01.55>";
+        assert_eq!(
+            parse_tracks(&value, 1).unwrap().render(true, true, true),
+            Some(format!(
+                "{expected}\n[00:01.05]Fictional line\n[00:01.05]Xu gou ge ci"
+            ))
+        );
+        value["req"]["data"]["trans"] = json!("malformed");
+        assert_eq!(
+            parse_tracks(&value, 1).unwrap().render(true, true, true),
+            Some(format!("{expected}\n[00:01.05]Xu gou ge ci"))
+        );
     }
 }

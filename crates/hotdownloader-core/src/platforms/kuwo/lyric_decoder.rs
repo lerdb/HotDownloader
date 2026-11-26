@@ -30,6 +30,7 @@ pub(crate) struct EnhancedLine {
     pub words: Vec<Word>,
     /// 是否具有可供逐字高亮的真实时间；全零词标签只提供行级时间。
     pub has_word_timing: bool,
+    pub is_translation: bool,
     /// 全零词标签的源行，可能是译文占位或停唱空行，须结合相邻行判断用途。
     pub is_timing_placeholder: bool,
 }
@@ -245,6 +246,7 @@ fn parse_lyric_lines(lrc: &str, offset: i64, offset2: i64) -> (Vec<LyricLine>, V
                     duration_ms: 0,
                 }],
                 has_word_timing: false,
+                is_translation: false,
                 is_timing_placeholder: false,
             });
             continue;
@@ -296,6 +298,7 @@ fn parse_lyric_lines(lrc: &str, offset: i64, offset2: i64) -> (Vec<LyricLine>, V
             line_start_ms: line_abs_start,
             words,
             has_word_timing,
+            is_translation: false,
             is_timing_placeholder: !has_word_timing,
         });
     }
@@ -343,7 +346,13 @@ fn align_translations(lines: &mut [LyricLine], enhanced: &mut [EnhancedLine]) {
             continue;
         }
         let time = time_to_seconds(&enhanced[index].time);
-        if time <= time_to_seconds(&enhanced[previous].time) {
+        let previous_time = time_to_seconds(&enhanced[previous].time);
+        if time == previous_time && timed {
+            // 同刻且有零值占位时可识别已对齐译文，同时保留同刻的真实逐字声部。
+            enhanced[index].is_translation = bilingual_pair;
+            continue;
+        }
+        if time <= previous_time {
             continue;
         }
         let boundary = if let Some(next) = enhanced.get(index + 1) {
@@ -364,6 +373,7 @@ fn align_translations(lines: &mut [LyricLine], enhanced: &mut [EnhancedLine]) {
         lines[index].time = lines[previous].time.clone();
         enhanced[index].time = enhanced[previous].time.clone();
         enhanced[index].line_start_ms = enhanced[previous].line_start_ms;
+        enhanced[index].is_translation = true;
         for word in &mut enhanced[index].words {
             word.start_ms = enhanced[index].line_start_ms;
         }

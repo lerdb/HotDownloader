@@ -519,6 +519,9 @@ mod tests {
             write_metadata: false,
             cover_quality: Default::default(),
             download_lrc: false,
+            download_lrc_format: Default::default(),
+            download_lrc_translation: false,
+            lyric_romanization: false,
             download_cover: false,
         };
         let sink = RecordingSink::default();
@@ -684,6 +687,9 @@ mod tests {
                     write_metadata: false,
                     cover_quality: Default::default(),
                     download_lrc: false,
+                    download_lrc_format: Default::default(),
+                    download_lrc_translation: false,
+                    lyric_romanization: false,
                     download_cover: false,
                 },
                 DownloadWorkerPorts {

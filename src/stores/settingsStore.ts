@@ -18,6 +18,9 @@ const SHARED_KEYS: SettingKey[] = [
     'writeMetadata',
     'coverQuality',
     'downloadLrc',
+    'downloadLrcFormat',
+    'downloadLrcTranslation',
+    'lyricRomanization',
     'downloadCover',
     'duplicateStrategy',
 ]

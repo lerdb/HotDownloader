@@ -22,6 +22,13 @@ impl CoverQuality {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LyricFormat {
+    #[default]
+    Lrc,
+    Elrc,
+}
+
 /// 下载任务启动时使用的设置快照。任务运行期间保持同一份设置，避免中途改动目录或文件名。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DownloadConfig {
@@ -31,6 +38,9 @@ pub struct DownloadConfig {
     pub write_metadata: bool,
     pub cover_quality: CoverQuality,
     pub download_lrc: bool,
+    pub download_lrc_format: LyricFormat,
+    pub download_lrc_translation: bool,
+    pub lyric_romanization: bool,
     pub download_cover: bool,
 }
 
@@ -73,6 +83,18 @@ impl DownloadConfig {
                 .unwrap_or(false),
             download_lrc: settings
                 .get("downloadLrc")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+            download_lrc_format: match settings.get("downloadLrcFormat").and_then(|v| v.as_str()) {
+                Some("elrc") => LyricFormat::Elrc,
+                _ => LyricFormat::Lrc,
+            },
+            download_lrc_translation: settings
+                .get("downloadLrcTranslation")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+            lyric_romanization: settings
+                .get("lyricRomanization")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
             download_cover: settings

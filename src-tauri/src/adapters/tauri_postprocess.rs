@@ -71,28 +71,16 @@ impl DownloadPostprocessor for TauriDownloadPostprocessor {
                 }
             }
 
-            if config.download_lrc {
-                if let Some(lyric) = assets.lyric.as_ref() {
-                    if request.is_saf {
-                        if let Some(content) = lyric
-                            .lrc
-                            .as_deref()
-                            .filter(|content| !content.trim().is_empty())
-                        {
-                            paths.push(
-                                write_saf_sidecar_file(
-                                    &self.app,
-                                    &lrc_file_name(request.audio_path),
-                                    content.as_bytes(),
-                                    request.saf_folder_uri,
-                                )
-                                .ok_or("保存 SAF 歌词失败")?,
-                            );
-                        }
-                    }
-                } else {
-                    log::info!("无普通歌词，跳过 LRC 文件创建");
-                }
+            if let Some(lyrics) = assets.sidecar_lyrics.as_deref() {
+                paths.push(
+                    write_saf_sidecar_file(
+                        &self.app,
+                        &lrc_file_name(request.audio_path),
+                        lyrics.as_bytes(),
+                        request.saf_folder_uri,
+                    )
+                    .ok_or("保存 SAF 歌词失败")?,
+                );
             }
             Ok(paths)
         })

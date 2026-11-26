@@ -132,9 +132,12 @@ fn validate_field(
         "autoDowngrade"
         | "writeMetadata"
         | "downloadLrc"
+        | "downloadLrcTranslation"
+        | "lyricRomanization"
         | "downloadCover"
         | "autoRefreshLoginOnStartup" => value.is_boolean(),
         "coverQuality" => matches!(value.as_str(), Some("source" | "500" | "original")),
+        "downloadLrcFormat" => matches!(value.as_str(), Some("lrc" | "elrc")),
         "maxConcurrent" => matches!(value.as_u64(), Some(1..=32)),
         "defaultQuality" => value
             .as_str()
@@ -290,6 +293,25 @@ mod tests {
                         patch("coverQuality", invalid, Value::Null),
                         scope
                     ),
+                    Err(SettingsPatchError::Invalid(_))
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn lyric_preferences_are_validated_and_persisted_for_both_runtimes() {
+        for scope in [SettingsScope::Tauri, SettingsScope::Web] {
+            for (key, value, invalid) in [
+                ("downloadLrcFormat", json!("elrc"), json!("krc")),
+                ("downloadLrcTranslation", json!(true), json!("true")),
+                ("lyricRomanization", json!(true), json!(1)),
+            ] {
+                let applied = apply_patch(&json!({}), patch(key, value.clone(), Value::Null), scope)
+                    .unwrap();
+                assert_eq!(applied.snapshot.settings[key], value);
+                assert!(matches!(
+                    apply_patch(&json!({}), patch(key, invalid, Value::Null), scope),
                     Err(SettingsPatchError::Invalid(_))
                 ));
             }

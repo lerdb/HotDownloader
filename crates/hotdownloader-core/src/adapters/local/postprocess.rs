@@ -13,14 +13,9 @@ use crate::download::ports::{DownloadPostprocessor, DownloadProgressSink, Postpr
 use crate::download::postprocess::{
     cover_file_name, lrc_file_name, prepare_assets, PostprocessAssets,
 };
-use crate::platforms::lyric::LyricData;
 
-/// 将普通 LRC 写在音频旁边；写入失败返回 None，由收尾适配器报告错误。
-pub fn write_local_lrc(audio_path: &str, lyric: &LyricData) -> Option<String> {
-    let content = lyric
-        .lrc
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())?;
+/// 将 LRC 或 ELRC 写在音频旁边，文件扩展名统一为 .lrc。
+fn write_local_lrc(audio_path: &str, content: &str) -> Option<String> {
     write_local_sidecar(audio_path, &lrc_file_name(audio_path), content.as_bytes())
 }
 
@@ -89,18 +84,7 @@ pub fn write_audio_metadata(
     context: &TaskContext,
     assets: &PostprocessAssets,
 ) -> Result<bool, String> {
-    let lyric_text = assets.lyric.as_ref().and_then(|lyric| {
-        lyric
-            .elrc
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| {
-                lyric
-                    .lrc
-                    .as_deref()
-                    .filter(|value| !value.trim().is_empty())
-            })
-    });
+    let lyric_text = assets.embedded_lyrics.as_deref();
     let mut tagged_file =
         lofty::read_from_path(path).map_err(|error| format!("读取音频文件失败: {error}"))?;
 
@@ -219,18 +203,8 @@ pub(crate) fn write_local_assets(
         }
     }
 
-    if request.config.download_lrc {
-        if let Some(lyric) = assets.lyric.as_ref() {
-            if lyric
-                .lrc
-                .as_deref()
-                .is_some_and(|text| !text.trim().is_empty())
-            {
-                paths.push(write_local_lrc(request.audio_path, lyric).ok_or("保存歌词文件失败")?);
-            }
-        } else {
-            log::info!("无普通歌词，跳过 LRC 文件创建");
-        }
+    if let Some(lyrics) = assets.sidecar_lyrics.as_deref() {
+        paths.push(write_local_lrc(request.audio_path, lyrics).ok_or("保存歌词文件失败")?);
     }
     Ok(paths)
 }
@@ -243,9 +217,9 @@ mod tests {
     use crate::download::config::DownloadConfig;
     use crate::download::context::{SongInfo, TaskContext};
     use crate::download::ports::{DownloadPostprocessor, DownloadProgressSink, PostprocessRequest};
-    use crate::download::postprocess::PostprocessAssets;
-    use crate::platforms::kuwo::lyric_decoder;
-    use crate::platforms::lyric::LyricData;
+    use crate::download::postprocess::{prepare_assets_with_lyric, PostprocessAssets};
+    use crate::platforms::kuwo::lyrics::parse_tracks;
+    use crate::platforms::lyric::auxiliary_lrc;
     use crate::platforms::Platform;
     use lofty::file::TaggedFileExt;
     use lofty::tag::ItemKey;
@@ -277,7 +251,6 @@ mod tests {
 
     #[tokio::test]
     async fn unavailable_and_instrumental_lyrics_preserve_cover_and_metadata_processing() {
-        use crate::download::postprocess::prepare_assets_with_lyric;
         use crate::platforms::qqmusic::lyrics::parse_decrypted_lyric;
         use base64::Engine;
         use std::io::{Read, Write};
@@ -387,7 +360,7 @@ mod tests {
             let calls = std::sync::atomic::AtomicUsize::new(0);
             let assets = prepare_assets_with_lyric(&context, &config, || async {
                 calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                parse_decrypted_lyric(plaintext)
+                parse_decrypted_lyric(plaintext).map(Into::into)
             })
             .await
             .unwrap();
@@ -484,7 +457,13 @@ mod tests {
             song_info: info.clone(),
             final_path: Arc::new(Mutex::new(None)),
         };
-        let assets = PostprocessAssets { lyric: Some(LyricData { lrc: Some("[00:00.00]测试歌词".into()), ..Default::default() }), cover_bytes: Some(base64::engine::general_purpose::STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII=").unwrap()) };
+        let assets = PostprocessAssets {
+            embedded_lyrics: Some("[00:00.00]测试歌词".into()),
+            sidecar_lyrics: Some("[00:00.00]测试歌词".into()),
+            cover_bytes: Some(base64::engine::general_purpose::STANDARD.decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII="
+            ).unwrap()),
+        };
         let config = DownloadConfig::from_settings(
             &serde_json::json!({"writeMetadata":true,"downloadLrc":true,"downloadCover":true}),
             directory.to_str().unwrap(),
@@ -651,8 +630,8 @@ mod tests {
         std::fs::remove_dir(directory).unwrap();
     }
 
-    #[test]
-    fn bilingual_word_times_survive_mp3_and_flac_metadata_and_plain_sidecar() {
+    #[tokio::test]
+    async fn bilingual_word_times_survive_mp3_and_flac_metadata_and_sidecar() {
         use base64::Engine;
         // 使用现有的合成静音音频，验证实际落盘后的标签，避免只验证转换函数。
         let files: [(&str, &[u8]); 2] = [
@@ -677,23 +656,18 @@ mod tests {
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let raw = "[00:00.000]<500,-500>First <1000,0>line\n[00:01.000]<0,0>第一行\n[00:01.000]<500,-500>Second <1000,0>line\n[00:02.000]<0,0>第二行\n[00:02.000]";
-        let (tags, lines, enhanced) = lyric_decoder::parse_lyric(raw);
-        let lrc = lyric_decoder::build_lrc_text(&tags, &lines);
-        let elrc = lyric_decoder::build_enhanced_lrc_text(&tags, &enhanced);
-        let assets = PostprocessAssets {
-            lyric: Some(LyricData {
-                lrc: Some(lrc.clone()),
-                elrc: Some(elrc.clone()),
-                ..LyricData::default()
-            }),
-            cover_bytes: Some(base64::engine::general_purpose::STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII=").unwrap()),
-        };
+        let plain = "[00:00.000]First line\n[00:01.000]Second line\n[00:02.000]";
+        let enhanced = "[00:00.000]<00:00.000>First <00:00.500>line<00:01.000>\n[00:00.000]第一行\n[00:01.000]<00:01.000>Second <00:01.500>line<00:02.000>\n[00:01.000]第二行\n[00:02.000]";
+        let with_romanization = enhanced.replace("第一行\n", "第一行\n[00:00.000]Romanized\n");
+        let cover = base64::engine::general_purpose::STANDARD.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII="
+        ).unwrap();
         for (extension, bytes) in files {
             let audio = directory.join(format!("bilingual.{extension}"));
             std::fs::write(&audio, bytes).unwrap();
             let context = TaskContext {
                 task_id: "lyric-round-trip".into(),
-                platform: Platform::Kuwo,
+                platform: Platform::QqMusic,
                 song_mid: "synthetic".into(),
                 song_id: 1,
                 url: String::new(),
@@ -713,15 +687,7 @@ mod tests {
                 },
             };
             // 即使歌曲没有歌词和封面，标题、歌手和专辑仍必须写入。
-            write_audio_metadata(
-                &audio,
-                &context,
-                &PostprocessAssets {
-                    lyric: None,
-                    cover_bytes: None,
-                },
-            )
-            .unwrap();
+            write_audio_metadata(&audio, &context, &PostprocessAssets::default()).unwrap();
             assert_eq!(
                 lofty::read_from_path(&audio)
                     .unwrap()
@@ -735,28 +701,55 @@ mod tests {
                 &audio,
                 &context,
                 &PostprocessAssets {
-                    lyric: None,
-                    cover_bytes: Some(b"not an image".to_vec())
+                    cover_bytes: Some(b"not an image".to_vec()),
+                    ..Default::default()
                 }
             )
             .is_err());
             assert_eq!(std::fs::read(&audio).unwrap(), before);
-            // Docker、本地 Tauri 和 Android SAF 临时文件都调用同一个标签写入函数。
-            assert!(write_audio_metadata(&audio, &context, &assets).unwrap());
-            assert!(write_audio_metadata(&audio, &context, &assets).unwrap());
-            let saved = lofty::read_from_path(&audio).unwrap();
-            let tag = saved.primary_tag().unwrap();
-            assert_eq!(tag.get_string(&ItemKey::Lyrics), Some(elrc.as_str()));
-            assert_eq!(tag.get_strings(&ItemKey::Lyrics).count(), 1);
-            assert_eq!(tag.pictures().len(), 1);
-            assert_eq!(
-                tag.pictures()[0].data(),
-                assets.cover_bytes.as_deref().unwrap()
-            );
-            let path =
-                write_local_lrc(audio.to_str().unwrap(), assets.lyric.as_ref().unwrap()).unwrap();
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), lrc);
-            std::fs::remove_file(path).unwrap();
+            for (settings, expected_sidecar, expected_tag) in [
+                (serde_json::json!({"downloadLrc": true, "writeMetadata": true}), plain, enhanced),
+                (
+                    serde_json::json!({
+                        "downloadLrc": true, "writeMetadata": true, "downloadLrcFormat": "elrc",
+                        "downloadLrcTranslation": true, "lyricRomanization": true
+                    }),
+                    with_romanization.as_str(),
+                    with_romanization.as_str(),
+                ),
+            ] {
+                let config = DownloadConfig::from_settings(&settings, directory.to_str().unwrap());
+                let mut assets = prepare_assets_with_lyric(&context, &config, || async {
+                    let mut tracks = parse_tracks(raw.into(), true);
+                    tracks.romanization = auxiliary_lrc("[00:00.000]Romanized");
+                    Ok(tracks)
+                })
+                .await
+                .unwrap();
+                assets.cover_bytes = Some(cover.clone());
+                let paths = super::write_local_assets(
+                    &PostprocessRequest {
+                        context: &context,
+                        audio_path: audio.to_str().unwrap(),
+                        is_saf: false,
+                        saf_file_uri: None,
+                        saf_folder_uri: None,
+                        config: &config,
+                    },
+                    &assets,
+                )
+                .unwrap();
+                let lrc_path = audio.with_extension("lrc");
+                assert_eq!(paths, [lrc_path.to_string_lossy().into_owned()]);
+                assert_eq!(std::fs::read_to_string(lrc_path).unwrap(), expected_sidecar);
+                let saved = lofty::read_from_path(&audio).unwrap();
+                let tag = saved.primary_tag().unwrap();
+                assert_eq!(tag.get_string(&ItemKey::Lyrics), Some(expected_tag));
+                assert_eq!(tag.get_strings(&ItemKey::Lyrics).count(), 1);
+                assert_eq!(tag.pictures().len(), 1);
+                assert_eq!(tag.pictures()[0].data(), cover.as_slice());
+            }
+            std::fs::remove_file(audio.with_extension("lrc")).unwrap();
             std::fs::remove_file(audio).unwrap();
         }
         std::fs::remove_dir(directory).unwrap();
@@ -768,12 +761,7 @@ mod tests {
             std::env::temp_dir().join(format!("hotdownloader-lrc-{:x}", rand::random::<u64>()));
         std::fs::create_dir_all(&directory).unwrap();
         let audio = directory.join("歌名.flac");
-        let lyric = LyricData {
-            lrc: Some("[00:01.00]歌词\n".into()),
-            ..LyricData::default()
-        };
-
-        let written = write_local_lrc(audio.to_str().unwrap(), &lyric).unwrap();
+        let written = write_local_lrc(audio.to_str().unwrap(), "[00:01.00]歌词\n").unwrap();
         assert_eq!(std::path::Path::new(&written), directory.join("歌名.lrc"));
         assert_eq!(
             std::fs::read_to_string(&written).unwrap(),
