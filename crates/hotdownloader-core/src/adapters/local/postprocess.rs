@@ -708,7 +708,11 @@ mod tests {
             .is_err());
             assert_eq!(std::fs::read(&audio).unwrap(), before);
             for (settings, expected_sidecar, expected_tag) in [
-                (serde_json::json!({"downloadLrc": true, "writeMetadata": true}), plain, enhanced),
+                (
+                    serde_json::json!({"downloadLrc": true, "writeMetadata": true}),
+                    plain,
+                    enhanced,
+                ),
                 (
                     serde_json::json!({
                         "downloadLrc": true, "writeMetadata": true, "downloadLrcFormat": "elrc",

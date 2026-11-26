@@ -307,8 +307,8 @@ mod tests {
                 ("downloadLrcTranslation", json!(true), json!("true")),
                 ("lyricRomanization", json!(true), json!(1)),
             ] {
-                let applied = apply_patch(&json!({}), patch(key, value.clone(), Value::Null), scope)
-                    .unwrap();
+                let applied =
+                    apply_patch(&json!({}), patch(key, value.clone(), Value::Null), scope).unwrap();
                 assert_eq!(applied.snapshot.settings[key], value);
                 assert!(matches!(
                     apply_patch(&json!({}), patch(key, invalid, Value::Null), scope),
