@@ -11,9 +11,9 @@ Component                                            Version                    
 ------------------------------------------------------------------------------------------------------------------
 adler2                                               2.0.1                          0BSD OR MIT OR Apache-2.0
 aes                                                  0.8.4                          MIT OR Apache-2.0
-ahash                                                0.8.12                         MIT OR Apache-2.0
+ahash                                                0.8.14                         MIT OR Apache-2.0
 aho-corasick                                         1.1.5                          Unlicense OR MIT
-async-compression                                    0.4.52                         MIT OR Apache-2.0
+async-compression                                    0.4.54                         MIT OR Apache-2.0
 async-tungstenite                                    0.32.1                         MIT
 atomic-waker                                         1.1.2                          Apache-2.0 OR MIT
 autocfg                                              1.5.1                          Apache-2.0 OR MIT
@@ -23,23 +23,23 @@ base64                                               0.22.1                     
 base64                                               0.23.1                         MIT OR Apache-2.0
 bitflags                                             2.13.2                         MIT OR Apache-2.0
 block-buffer                                         0.10.4                         MIT OR Apache-2.0
-bumpalo                                              3.20.3                         MIT OR Apache-2.0
+bumpalo                                              3.20.4                         MIT OR Apache-2.0
 byteorder                                            1.5.0                          Unlicense OR MIT
-bytes                                                1.12.1                         MIT
-cc                                                   1.11.1                         MIT OR Apache-2.0
+bytes                                                1.12.2                         MIT
+cc                                                   1.11.3                         MIT OR Apache-2.0
 cfg_aliases                                          0.2.2                          MIT
 cfg-if                                               1.0.5                          MIT OR Apache-2.0
 chacha20                                             0.10.2                         MIT OR Apache-2.0
 cipher                                               0.4.4                          MIT OR Apache-2.0
 cmake                                                0.1.58                         MIT OR Apache-2.0
-compression-codecs                                   0.4.47                         MIT OR Apache-2.0
+compression-codecs                                   0.4.49                         MIT OR Apache-2.0
 compression-core                                     0.4.34                         MIT OR Apache-2.0
 core_detect                                          1.0.0                          MIT OR Apache-2.0
 core-foundation                                      0.10.1                         MIT OR Apache-2.0
 core-foundation-sys                                  0.8.7                          MIT OR Apache-2.0
 cpufeatures                                          0.2.17                         MIT OR Apache-2.0
 cpufeatures                                          0.3.1                          MIT OR Apache-2.0
-crc32fast                                            1.5.4                          MIT OR Apache-2.0
+crc32fast                                            1.5.6                          MIT OR Apache-2.0
 crypto-common                                        0.1.7                          MIT OR Apache-2.0
 data-encoding                                        2.11.1                         MIT
 digest                                               0.10.7                         MIT OR Apache-2.0
@@ -47,14 +47,14 @@ displaydoc                                           0.2.7                      
 dunce                                                1.0.5                          CC0-1.0 OR MIT-0 OR Apache-2.0
 either                                               1.19.0                         MIT OR Apache-2.0
 encoding_rs                                          0.8.44                         (Apache-2.0 OR MIT) AND BSD-3-Clause
-errno                                                0.3.14                         MIT OR Apache-2.0
+errno                                                0.3.15                         MIT OR Apache-2.0
 fallible-iterator                                    0.3.0                          MIT OR Apache-2.0
 fallible-streaming-iterator                          0.1.9                          MIT OR Apache-2.0
 find-msvc-tools                                      0.1.15                         MIT OR Apache-2.0
-fixedbitset                                          0.5.7                          MIT OR Apache-2.0
+fixedbitset                                          0.5.9                          MIT OR Apache-2.0
 flate2                                               1.1.11                         MIT OR Apache-2.0
 flume                                                0.11.1                         Apache-2.0 OR MIT
-form_urlencoded                                      1.2.2                          MIT OR Apache-2.0
+form_urlencoded                                      1.2.3                          MIT OR Apache-2.0
 fs_extra                                             1.3.0                          MIT
 futures-channel                                      0.3.34                         MIT OR Apache-2.0
 futures-core                                         0.3.34                         MIT OR Apache-2.0
@@ -74,7 +74,7 @@ http-body                                            1.1.0                      
 http-body-util                                       0.1.5                          MIT
 httparse                                             1.10.1                         MIT OR Apache-2.0
 httpdate                                             1.0.3                          MIT OR Apache-2.0
-hyper                                                1.12.0                         MIT
+hyper                                                1.13.0                         MIT
 hyper-rustls                                         0.27.10                        Apache-2.0 OR ISC OR MIT
 hyper-util                                           0.1.21                         MIT
 icu_collections                                      2.4.0                          Unicode-3.0
@@ -89,7 +89,7 @@ idna_adapter                                         1.2.2                      
 inout                                                0.1.4                          MIT OR Apache-2.0
 ipnet                                                2.12.2                         MIT OR Apache-2.0
 itertools                                            0.14.0                         MIT OR Apache-2.0
-itoa                                                 1.0.18                         MIT OR Apache-2.0
+itoa                                                 1.0.19                         MIT OR Apache-2.0
 jobserver                                            0.1.35                         MIT OR Apache-2.0
 js-sys                                               0.3.107                        MIT OR Apache-2.0
 lazy_static                                          1.5.1                          MIT OR Apache-2.0
@@ -104,7 +104,7 @@ lru-slab                                             0.1.3                      
 md-5                                                 0.10.6                         MIT OR Apache-2.0
 memchr                                               2.8.3                          Unlicense OR MIT
 miniz_oxide                                          0.9.1                          MIT OR Zlib OR Apache-2.0
-mio                                                  1.2.4                          MIT
+mio                                                  1.2.5                          MIT
 multiversion_no_op                                   1.0.0                          Apache-2.0 OR MIT
 num-bigint                                           0.4.8                          MIT OR Apache-2.0
 num-integer                                          0.1.47                         MIT OR Apache-2.0
@@ -114,7 +114,7 @@ once_cell                                            1.21.4                     
 openssl-probe                                        0.2.2                          MIT OR Apache-2.0
 paste                                                1.0.15                         MIT OR Apache-2.0
 percent-encoding                                     2.3.2                          MIT OR Apache-2.0
-pin-project-lite                                     0.2.17                         Apache-2.0 OR MIT
+pin-project-lite                                     0.2.18                         Apache-2.0 OR MIT
 pkg-config                                           0.3.34                         MIT OR Apache-2.0
 potential_utf                                        0.1.6                          Unicode-3.0
 ppv-lite86                                           0.2.21                         MIT OR Apache-2.0
@@ -127,14 +127,14 @@ quote                                                1.0.47                     
 r-efi                                                5.3.0                          MIT OR Apache-2.0 OR LGPL-2.1-or-later
 r-efi                                                6.0.0                          MIT OR Apache-2.0 OR LGPL-2.1-or-later
 rand                                                 0.9.5                          MIT OR Apache-2.0
-rand                                                 0.10.3                         MIT OR Apache-2.0
+rand                                                 0.10.4                         MIT OR Apache-2.0
 rand_chacha                                          0.9.0                          MIT OR Apache-2.0
 rand_core                                            0.9.5                          MIT OR Apache-2.0
 rand_core                                            0.10.1                         MIT OR Apache-2.0
-rand_pcg                                             0.10.2                         MIT OR Apache-2.0
-regex                                                1.13.1                         MIT OR Apache-2.0
-regex-automata                                       0.4.18                         MIT OR Apache-2.0
-regex-syntax                                         0.8.11                         MIT OR Apache-2.0
+rand_pcg                                             0.10.3                         MIT OR Apache-2.0
+regex                                                1.13.2                         MIT OR Apache-2.0
+regex-automata                                       0.4.19                         MIT OR Apache-2.0
+regex-syntax                                         0.8.12                         MIT OR Apache-2.0
 reqwest                                              0.12.28                        MIT OR Apache-2.0
 ring                                                 0.17.14                        Apache-2.0 AND ISC
 rumqttc                                              0.25.1                         Apache-2.0
@@ -143,9 +143,9 @@ rustc-hash                                           2.1.3                      
 rustls                                               0.23.46                        Apache-2.0 OR ISC OR MIT
 rustls-native-certs                                  0.8.5                          Apache-2.0 OR ISC OR MIT
 rustls-pemfile                                       2.2.0                          Apache-2.0 OR ISC OR MIT
-rustls-pki-types                                     1.15.1                         MIT OR Apache-2.0
+rustls-pki-types                                     1.16.0                         MIT OR Apache-2.0
 rustls-webpki                                        0.102.8                        ISC
-rustls-webpki                                        0.103.16                       ISC
+rustls-webpki                                        0.103.17                       ISC
 rustversion                                          1.0.23                         MIT OR Apache-2.0
 ryu                                                  1.0.23                         Apache-2.0 OR BSL-1.0
 schannel                                             0.1.30                         MIT
@@ -163,13 +163,13 @@ signal-hook-registry                                 1.4.8                      
 simd-adler32                                         0.3.10                         MIT
 simdutf8                                             0.1.5                          MIT OR Apache-2.0
 slab                                                 0.4.12                         MIT
-smallvec                                             1.16.5                         MIT OR Apache-2.0
+smallvec                                             1.16.6                         MIT OR Apache-2.0
 socket2                                              0.6.5                          MIT OR Apache-2.0
 spin                                                 0.9.9                          MIT
 stable_deref_trait                                   1.2.1                          MIT OR Apache-2.0
 subtle                                               2.6.1                          BSD-3-Clause
 syn                                                  2.0.119                        MIT OR Apache-2.0
-syn                                                  3.0.9                          MIT OR Apache-2.0
+syn                                                  3.0.10                         MIT OR Apache-2.0
 sync_wrapper                                         1.0.2                          Apache-2.0
 synstructure                                         0.14.0                         MIT
 tc_tea                                               0.2.1                          MIT OR Apache-2.0
@@ -196,7 +196,7 @@ umc_utils                                            0.1.12                     
 unicode-ident                                        1.0.27                         (MIT OR Apache-2.0) AND Unicode-3.0
 unicode-normalization                                0.1.26                         (MIT OR Apache-2.0) AND Unicode-3.0
 untrusted                                            0.9.0                          ISC
-url                                                  2.5.8                          MIT OR Apache-2.0
+url                                                  2.5.9                          MIT OR Apache-2.0
 utf_types                                            1.0.0                          Apache-2.0 OR MIT
 utf-8                                                0.7.6                          MIT OR Apache-2.0
 utf8_iter                                            1.1.0                          Apache-2.0 OR MIT
@@ -213,7 +213,7 @@ wasm-bindgen-shared                                  0.2.130                    
 wasm-streams                                         0.4.2                          MIT OR Apache-2.0
 web-sys                                              0.3.107                        MIT OR Apache-2.0
 web-time                                             1.1.0                          MIT OR Apache-2.0
-webpki-roots                                         1.0.11                         CDLA-Permissive-2.0
+webpki-roots                                         1.0.12                         CDLA-Permissive-2.0
 windows_aarch64_gnullvm                              0.52.6                         MIT OR Apache-2.0
 windows_aarch64_msvc                                 0.52.6                         MIT OR Apache-2.0
 windows_i686_gnu                                     0.52.6                         MIT OR Apache-2.0
@@ -230,15 +230,15 @@ wit-bindgen                                          0.57.1                     
 writeable                                            0.6.4                          Unicode-3.0
 yoke                                                 0.8.4                          Unicode-3.0
 yoke-derive                                          0.8.4                          Unicode-3.0
-zerocopy                                             0.8.63                         BSD-2-Clause OR Apache-2.0 OR MIT
-zerocopy-derive                                      0.8.63                         BSD-2-Clause OR Apache-2.0 OR MIT
+zerocopy                                             0.8.66                         BSD-2-Clause OR Apache-2.0 OR MIT
+zerocopy-derive                                      0.8.66                         BSD-2-Clause OR Apache-2.0 OR MIT
 zerofrom                                             0.1.8                          Unicode-3.0
 zerofrom-derive                                      0.1.8                          Unicode-3.0
-zeroize                                              1.9.1                          Apache-2.0 OR MIT
+zeroize                                              1.9.2                          Apache-2.0 OR MIT
 zerotrie                                             0.2.5                          Unicode-3.0
 zerovec                                              0.11.9                         Unicode-3.0
 zerovec-derive                                       0.11.7                         Unicode-3.0
-zlib-rs                                              0.6.8                          Zlib
+zlib-rs                                              0.6.9                          Zlib
 zmij                                                 1.0.23                         MIT
 
 ==============================================================================
@@ -247,50 +247,50 @@ Frontend Components
 
 Component                                            Version                        License
 ------------------------------------------------------------------------------------------------------------------
-@babel/helper-string-parser                          7.29.13                        MIT
-@babel/helper-string-parser                          8.0.8                          MIT
+@babel/helper-string-parser                          7.29.15                        MIT
+@babel/helper-string-parser                          8.1.3                          MIT
 @babel/helper-validator-identifier                   7.29.7                         MIT
 @babel/helper-validator-identifier                   8.0.6                          MIT
-@babel/parser                                        7.29.13                        MIT
-@babel/parser                                        8.1.0                          MIT
-@babel/types                                         7.29.11                        MIT
-@babel/types                                         8.1.0                          MIT
+@babel/parser                                        7.29.15                        MIT
+@babel/parser                                        8.1.3                          MIT
+@babel/types                                         7.29.15                        MIT
+@babel/types                                         8.1.3                          MIT
 @css-render/plugin-bem                               0.15.14                        MIT
 @css-render/vue3-ssr                                 0.15.14                        MIT
 @emotion/hash                                        0.8.0                          MIT
 @jridgewell/gen-mapping                              0.3.13                         MIT
 @jridgewell/remapping                                2.3.5                          MIT
-@jridgewell/resolve-uri                              3.1.2                          MIT
+@jridgewell/resolve-uri                              3.1.3                          MIT
 @jridgewell/source-map                               0.3.11                         MIT
 @jridgewell/sourcemap-codec                          1.6.0                          MIT
 @jridgewell/trace-mapping                            0.3.31                         MIT
 @juggle/resize-observer                              3.4.0                          Apache-2.0
-@oxc-project/types                                   0.156.0                        MIT
-@rolldown/binding-win32-x64-msvc                     1.2.16                         MIT
-@rolldown/pluginutils                                1.0.1                          MIT
+@oxc-project/types                                   0.160.0                        MIT
+@rolldown/binding-win32-x64-msvc                     1.3.4                          MIT
+@rolldown/pluginutils                                1.1.1                          MIT
 @sahil-vartak/tauri-plugin-safe-area-insets-css-api  0.2.1                          MIT
-@tauri-apps/api                                      2.12.4                         Apache-2.0 OR MIT
+@tauri-apps/api                                      2.12.5                         Apache-2.0 OR MIT
 @tauri-apps/plugin-dialog                            2.8.4                          MIT OR Apache-2.0
 @tauri-apps/plugin-os                                2.4.0                          MIT OR Apache-2.0
-@tauri-apps/plugin-store                             2.5.0                          MIT OR Apache-2.0
-@types/estree                                        1.0.10                         MIT
+@tauri-apps/plugin-store                             2.5.1                          MIT OR Apache-2.0
+@types/estree                                        1.0.11                         MIT
 @types/lodash                                        4.17.27                        MIT
 @types/lodash-es                                     4.17.12                        MIT
-@types/node                                          24.19.2                        MIT
+@types/node                                          24.19.4                        MIT
 @types/trusted-types                                 2.0.7                          MIT
 @vue-macros/common                                   3.1.4                          MIT
-@vue/compiler-core                                   3.5.45                         MIT
-@vue/compiler-dom                                    3.5.45                         MIT
-@vue/compiler-sfc                                    3.5.45                         MIT
-@vue/compiler-ssr                                    3.5.45                         MIT
+@vue/compiler-core                                   3.5.46                         MIT
+@vue/compiler-dom                                    3.5.46                         MIT
+@vue/compiler-sfc                                    3.5.46                         MIT
+@vue/compiler-ssr                                    3.5.46                         MIT
 @vue/devtools-api                                    8.2.1                          MIT
 @vue/devtools-kit                                    8.2.1                          MIT
 @vue/devtools-shared                                 8.2.1                          MIT
-@vue/reactivity                                      3.5.45                         MIT
-@vue/runtime-core                                    3.5.45                         MIT
-@vue/runtime-dom                                     3.5.45                         MIT
-@vue/server-renderer                                 3.5.45                         MIT
-@vue/shared                                          3.5.45                         MIT
+@vue/reactivity                                      3.5.46                         MIT
+@vue/runtime-core                                    3.5.46                         MIT
+@vue/runtime-dom                                     3.5.46                         MIT
+@vue/server-renderer                                 3.5.46                         MIT
+@vue/shared                                          3.5.46                         MIT
 acorn                                                8.19.0                         MIT
 ast-kit                                              2.2.0                          MIT
 ast-kit                                              3.0.1                          MIT
@@ -298,18 +298,18 @@ ast-walker-scope                                     0.10.0                     
 async-validator                                      4.2.5                          MIT
 birpc                                                2.9.0                          MIT
 buffer-from                                          1.1.2                          MIT
-chokidar                                             5.0.0                          MIT
+chokidar                                             6.0.0                          MIT
 commander                                            2.20.3                         MIT
 confbox                                              0.1.8                          MIT
 confbox                                              0.3.2                          MIT
 core-js                                              3.51.0                         MIT
 css-render                                           0.15.14                        MIT
 csstype                                              3.0.11                         MIT
-csstype                                              3.2.3                          MIT
+csstype                                              3.2.4                          MIT
 date-fns                                             4.4.0                          MIT
 date-fns-tz                                          3.2.0                          MIT
 detect-libc                                          2.1.2                          Apache-2.0
-dompurify                                            3.4.17                         (MPL-2.0 OR Apache-2.0)
+dompurify                                            3.5.0                          (MPL-2.0 OR Apache-2.0)
 entities                                             7.0.1                          BSD-2-Clause
 estree-walker                                        2.0.2                          MIT
 estree-walker                                        3.0.3                          MIT
@@ -321,17 +321,19 @@ hookable                                             5.5.3                      
 lightningcss                                         1.33.0                         MPL-2.0
 lightningcss-win32-x64-msvc                          1.33.0                         MPL-2.0
 local-pkg                                            1.2.1                          MIT
+local-pkg                                            2.0.0                          MIT
 lodash                                               4.18.1                         MIT
 lodash-es                                            4.18.1                         MIT
 magic-string                                         0.30.21                        MIT
 magic-string                                         1.4.5                          MIT
 magic-string-ast                                     1.0.3                          MIT
-marked                                               18.1.3                         MIT
+marked                                               18.3.0                         MIT
 mlly                                                 1.8.2                          MIT
-muggle-string                                        0.4.1                          MIT
+muggle-string                                        1.0.5                          MIT
 naive-ui                                             2.44.1                         MIT
 nanoid                                               3.3.20                         MIT
-nostics                                              1.3.0                          MIT
+napi-windows-process-start-time                      0.1.0                          MIT
+nostics                                              1.4.0                          MIT
 pathe                                                2.0.3                          MIT
 perfect-debounce                                     2.1.0                          MIT
 picocolors                                           1.1.1                          ISC
@@ -339,18 +341,19 @@ picomatch                                            4.0.7                      
 pinia                                                4.1.0                          MIT
 pkg-types                                            1.3.1                          MIT
 pkg-types                                            2.4.0                          MIT
-postcss                                              8.5.32                         MIT
+postcss                                              8.5.33                         MIT
 quansync                                             0.2.11                         MIT
+quansync                                             1.0.0                          MIT
 readdirp                                             5.1.1                          MIT
 regenerator-runtime                                  0.14.1                         MIT
-rolldown                                             1.2.16                         MIT
+rolldown                                             1.3.4                          MIT
 scule                                                1.3.0                          MIT
 seemly                                               0.3.10                         MIT
 semver                                               7.8.6                          ISC
 source-map                                           0.6.1                          BSD-3-Clause
-source-map-js                                        1.2.2                          BSD-3-Clause
+source-map-js                                        1.2.4                          BSD-3-Clause
 source-map-support                                   0.5.21                         MIT
-terser                                               5.51.2                         BSD-2-Clause
+terser                                               5.51.4                         BSD-2-Clause
 tinyglobby                                           0.2.17                         MIT
 treemate                                             0.3.11                         MIT
 typescript                                           6.0.3                          Apache-2.0
@@ -359,10 +362,10 @@ undici-types                                         7.24.6                     
 unplugin                                             3.7.0                          MIT
 unplugin-utils                                       0.3.2                          MIT
 vdirs                                                0.1.8                          MIT
-vite                                                 8.3.6                          MIT
+vite                                                 8.4.0                          MIT
 vooks                                                0.2.12                         MIT
-vue                                                  3.5.45                         MIT
-vue-router                                           5.4.0                          MIT
+vue                                                  3.5.46                         MIT
+vue-router                                           5.5.2                          MIT
 vueuc                                                0.4.66                         MIT
 webpack-virtual-modules                              0.6.2                          MIT
 
